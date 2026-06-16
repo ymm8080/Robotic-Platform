@@ -16,7 +16,7 @@ secrets/
 # 日志
 logs/
 *.log
-erl_crash.dump
+# erl_crash.dump
 
 # 备份
 backup/
