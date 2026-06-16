@@ -1,0 +1,4 @@
+# Watchdog Python 依赖
+redis>=5.0.0
+requests>=2.31.0
+pyyaml>=6.0.1

@@ -1,0 +1,62 @@
+# SAP-EWM 机器人调度平台 .gitignore v3.4
+
+# 凭证（绝对禁止入 Git）
+secrets/
+.env
+.env.*
+!/.env.example
+
+# 数据库运行时
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 日志
+logs/
+*.log
+erl_crash.dump
+
+# 备份
+backup/
+*.tar.gz
+*.zip
+
+# Docker 数据卷（named volume 数据由 Docker 管理）
+nodered-data/
+
+# Redis 运行时
+dump.rdb
+appendonly.aof
+
+# Dify 运行时
+dify-data/
+
+# MQTT 运行时
+mqtt-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 测试
+test/
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 构建
+node_modules/
+dist/
+build/
+
+# Cursor MCP（如启用）
+.cursor/mcp.json

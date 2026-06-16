@@ -1,0 +1,509 @@
+# =============================================================================
+# SAP-EWM 机器人调度平台 Docker Compose (v3.4 封版 FINAL)
+# 包含：Node-RED + Redis + SAP-Bridge + Dify + MQTT + Nginx-Rescue + Watchdog + SQLite-Init + Docker-Socket-Proxy
+# 修复：日志爆盘防护 / SAP端口隔离 / Docker Socket权限降级 / Watchdog API绑定本机
+# 评审修正：锁定镜像版本 / named volume / Docker Secrets / 安全模式动态控制 / 健康检查对齐
+# =============================================================================
+version: "3.8"
+
+services:
+  # ===========================================================================
+  # 1. Node-RED 核心主板
+  # ===========================================================================
+  nodered:
+    image: nodered/node-red:3.1.9
+    container_name: robot-platform-nodered
+    restart: unless-stopped
+    ports:
+      - "${NODE_RED_EXTERNAL_PORT:-1880}:1880"
+    volumes:
+      # 🔴 修正：使用 named volume 而非 bind mount，避免 cwd 依赖和数据丢失
+      - nodered-data:/data
+      - ./nodered/settings.js:/data/settings.js:ro
+      - ./.cursor/rules/VERSION:/app/config/VERSION:ro
+      - ./nginx/rescue-dashboard-offline.html:/app/static/rescue.html:ro
+      - ./scripts:/app/scripts:ro
+    environment:
+      - TZ=UTC
+      - NODE_OPTIONS=--max-old-space-size=512
+      # 🟡 修正：删除 NODE_RED_ENABLE_SAFE_MODE=false，由 Watchdog 通过 Redis 动态控制
+      # 飞书配置
+      - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL:-}
+      - FEISHU_APP_ID=${FEISHU_APP_ID:-}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
+      # 企业微信配置
+      - WECOM_CORP_ID=${WECOM_CORP_ID:-}
+      - WECOM_AGENT_ID=${WECOM_AGENT_ID:-}
+      - WECOM_SECRET=${WECOM_SECRET:-}
+      - WECOM_TOKEN=${WECOM_TOKEN:-}
+      - WECOM_ENCODING_AES_KEY=${WECOM_ENCODING_AES_KEY:-}
+      # 急救页 IP 白名单
+      - RESCUE_DASHBOARD_ALLOWED_IPS=${RESCUE_DASHBOARD_ALLOWED_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      - RESCUE_OPS_PHONE=${RESCUE_OPS_PHONE:-13800000000}
+      # Redis 连接
+      - REDIS_URL=redis://redis:6379/0
+      # SAP 桥接层地址（内部网络）
+      - SAP_BRIDGE_URL=http://sap-bridge:8000
+      # 版本校验
+      - VERSION_FILE_PATH=/app/config/VERSION
+      - RUNTIME_VERSION=v3.4
+    depends_on:
+      redis:
+        condition: service_healthy
+      sqlite-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1880/api/system-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    # 🔴 修复1：Docker 日志爆盘防护
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 2. Redis 缓存与消息队列
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: robot-platform-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379" # 仅本机访问，禁止公网
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - internal
+    oom_score_adj: -500
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 3. SAP 桥接层（Python FastAPI + pyrfc）
+  # ===========================================================================
+  sap-bridge:
+    # 🟡 修正：生产环境使用预构建镜像（开发环境可取消注释 build 段）
+    # build:
+    #   context: ./sap-bridge
+    #   dockerfile: Dockerfile
+    image: python:3.11-slim
+    container_name: robot-platform-sap-bridge
+    restart: unless-stopped
+    # 🔴 修复2：删除 ports 配置，仅依赖 Docker internal 网络
+    # Node-RED 通过 http://sap-bridge:8000 访问
+    volumes:
+      - ./sap-bridge:/app:ro
+      - sap-bridge-logs:/app/logs
+      - ./sap-bridge/sapnwrfc.ini:/app/sapnwrfc.ini:ro
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/1
+      - SAP_ASHOST=${SAP_ASHOST}
+      - SAP_SYSNR=${SAP_SYSNR}
+      - SAP_CLIENT=${SAP_CLIENT}
+      - SAP_USER=${SAP_USER}
+      # 🟡 修正：使用 Docker Secrets 而非环境变量传密码
+      - SAP_PASSWORD_FILE=/run/secrets/sap_password
+      - SAP_LANG=${SAP_LANG:-ZH}
+      - QUEUE_MAX_RETRIES=5
+      - QUEUE_RETRY_DELAY=30
+      - SAP_MAX_CONNECTIONS=5
+      - SAP_CONNECTION_TIMEOUT=30
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - internal
+    secrets:
+      - sap_password
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 4. Dify LLM 翻译层
+  # ===========================================================================
+  dify:
+    image: langgenius/dify-api:latest
+    container_name: robot-platform-dify
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:5001" # 仅本机访问
+    volumes:
+      - dify-data:/app/api/storage
+      - ./dify/.env:/app/api/.env:ro
+    environment:
+      - TZ=UTC
+      # 🟡 修正：冗余离线防护（覆盖所有 HuggingFace 环境变量）
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+      - HF_DATASETS_OFFLINE=1
+      - HUGGINGFACE_OFFLINE=1
+      - REDIS_HOST=redis
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=${DIFY_DB_PASSWORD}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 5. MQTT 消息代理
+  # ===========================================================================
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: robot-platform-mqtt
+    restart: unless-stopped
+    ports:
+      # 🟡 修正：MQTT 端口仅绑定本机，禁止公网直接访问
+      - "127.0.0.1:1883:1883"
+      - "127.0.0.1:9001:9001" # WebSocket 仅本机
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-data:/mosquitto/data
+      - mqtt-logs:/mosquitto/log
+    networks:
+      - internal
+    # 🟡 修正：补充 healthcheck
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-t", "healthcheck", "-m", "test", "-r"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 6. Nginx 急救页（独立于 Node-RED，宕机时存活）
+  # ===========================================================================
+  nginx-rescue:
+    image: nginx:alpine
+    # 🟡 修正：统一容器命名（与之前交付一致）
+    container_name: robot-platform-nginx-rescue
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/rescue-dashboard-offline.html:/usr/share/nginx/html/index.html:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    environment:
+      - TZ=UTC
+      - NODE_RED_HOST=nodered
+      - NODE_RED_PORT=1880
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 7. SQLite 数据库初始化（一次性任务）
+  # ===========================================================================
+  sqlite-init:
+    # 🟡 修正：使用 nodered 镜像（自带 sqlite3 CLI）
+    image: nodered/node-red:3.1.9
+    container_name: robot-platform-sqlite-init
+    restart: "no"
+    volumes:
+      - nodered-data:/data
+      - ./sql/init.sql:/init.sql:ro
+      - ./sql/migrations:/migrations:ro
+    environment:
+      - TZ=UTC
+      - DB_PATH=/data/robot_platform.db
+    command: >
+      sh -c "
+        echo '[INIT] 初始化 SQLite 数据库...' &&
+        sqlite3 /data/robot_platform.db < /init.sql &&
+        echo '[INIT] 执行迁移脚本...' &&
+        for f in /migrations/*.sql; do
+          echo "Applying $$f" &&
+          sqlite3 /data/robot_platform.db < "$$f";
+        done &&
+        echo '[INIT] 设置 WAL 模式...' &&
+        sqlite3 /data/robot_platform.db 'PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=500;' &&
+        echo '[INIT] 完成'
+      "
+    networks:
+      - internal
+    deploy:
+      restart_policy:
+        condition: none
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 8. Docker Socket 代理（权限隔离）
+  # 🔴 修复3：限制 Watchdog 只能调用 docker stats，禁止创建/执行容器
+  # ===========================================================================
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: robot-platform-docker-proxy
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+      CONTAINERS: 1    # 允许列出容器
+      STATS: 1         # 允许 docker stats
+      POST: 0          # 禁止创建容器
+      BUILD: 0         # 禁止构建镜像
+      EXEC: 0          # 禁止 exec 进入容器
+      IMAGES: 0        # 禁止操作镜像
+      NETWORKS: 0      # 禁止操作网络
+      VOLUMES: 0       # 禁止操作卷
+      SYSTEM: 0        # 禁止系统信息
+      TASKS: 0         # 禁止 Swarm 任务
+      SERVICES: 0      # 禁止 Swarm 服务
+      NODES: 0         # 禁止 Swarm 节点
+      SECRETS: 0       # 禁止管理 Secrets
+      CONFIGS: 0       # 禁止管理 Configs
+      DISTRIBUTION: 0  # 禁止 Registry 操作
+      PING: 1          # 允许 ping（健康检查）
+      VERSION: 1       # 允许版本查询
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 32M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 9. Watchdog 看门狗（独立进程，监控 Node-RED 健康并触发熔断）
+  # ===========================================================================
+  watchdog:
+    build:
+      context: ./watchdog
+      dockerfile: Dockerfile
+    image: robot-platform-watchdog:v3.4
+    container_name: robot-platform-watchdog
+    restart: unless-stopped
+    ports:
+      # 🟡 加固：API 端口仅绑定本机，禁止内网直接访问
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./watchdog/watchdog.py:/app/watchdog.py:ro
+      - ./watchdog/config.yaml:/app/config.yaml:ro
+      - watchdog-logs:/app/logs
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      # 🔴 修复3：通过代理连接 Docker，不再直接挂载 docker.sock
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
+      - NODE_RED_CONTAINER=robot-platform-nodered
+      - SAP_BRIDGE_CONTAINER=robot-platform-sap-bridge
+      - MQTT_CONTAINER=robot-platform-mqtt
+      - CONFIG_PATH=/app/config.yaml
+      - CPU_THRESHOLD=80
+      - CHECKPOINT_THRESHOLD=5000
+      - THROTTLE_RATE_MIN=10
+      - NORMAL_RATE_DEFAULT=50
+      - SAFE_MODE_TRIGGER_REDIS_OOM=true
+      - SAFE_MODE_TRIGGER_CPU_FATAL=true
+      - SAFE_MODE_TRIGGER_NODERED_UNHEALTHY=true
+      - WATCHDOG_HTTP_PORT=9090
+      - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL:-}
+      - FEISHU_WEBHOOK_SECRET=${FEISHU_WEBHOOK_SECRET:-}
+      - RESCUE_OPS_PHONE=${RESCUE_OPS_PHONE:-13800000000}
+      - HOST=${HOST:-localhost}
+    # 🟡 修正：depends_on 条件统一为 service_healthy
+    depends_on:
+      redis:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_healthy
+      nodered:
+        condition: service_healthy
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# =============================================================================
+# 持久化卷（named volumes，避免 bind mount 的 cwd 依赖问题）
+# =============================================================================
+volumes:
+  nodered-data:
+    driver: local
+  redis-data:
+    driver: local
+  dify-data:
+    driver: local
+  mqtt-data:
+    driver: local
+  mqtt-logs:
+    driver: local
+  sap-bridge-logs:
+    driver: local
+  watchdog-logs:
+    driver: local
+
+# =============================================================================
+# Docker Secrets（凭证管理，禁止硬编码）
+# =============================================================================
+secrets:
+  sap_password:
+    file: ./secrets/sap_password.txt
+
+# =============================================================================
+# 内部网络
+# =============================================================================
+networks:
+  internal:
+    driver: bridge
+    internal: false   # 允许 Node-RED/Nginx/MQTT 的端口映射到宿主机

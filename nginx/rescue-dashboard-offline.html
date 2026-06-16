@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAP-EWM 机器人调度平台 · 急救页</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { color: #b91c1c; }
+    .status { padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+    .offline { background: #fef2f2; border: 1px solid #fecaca; }
+    .online { background: #f0fdf4; border: 1px solid #bbf7d0; }
+    code, pre { background: #f3f4f6; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9rem; }
+    pre { padding: 1rem; overflow-x: auto; }
+    .warn { color: #92400e; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>🚑 急救控制台（离线兜底）</h1>
+  <p>Node-RED 主服务不可用时，本页仍可打开。请先止血，再联系运维。</p>
+
+  <div id="status" class="status offline">
+    <strong>Node-RED 状态：</strong><span id="status-text">检测中…</span>
+  </div>
+
+  <h2>Step 1：一键止血（安全模式）</h2>
+  <pre>curl -X POST http://&lt;服务器IP&gt;:1880/api/safe-mode</pre>
+  <p class="warn">禁止：docker-compose down · rm -rf · 拔急停 · 未备份改 SQLite</p>
+
+  <h2>Step 2：重启 Node-RED 容器</h2>
+  <pre>docker compose restart nodered</pre>
+
+  <h2>Step 3：仍异常 → 访问独立 Nginx 急救入口</h2>
+  <p>本页由 <code>nginx-rescue</code> 容器提供（端口 8080），与 Node-RED 进程隔离。</p>
+
+  <script>
+    (function () {
+      var el = document.getElementById('status');
+      var text = document.getElementById('status-text');
+      fetch('/api/system-health', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function () {
+          el.className = 'status online';
+          text.textContent = '在线 — 如业务仍异常，请执行安全模式';
+        })
+        .catch(function () {
+          el.className = 'status offline';
+          text.textContent = '离线 — 请按上方步骤止血，并切换纸质单';
+        });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+# Watchdog 配置文件 v3.4
+# 此文件为静态配置，动态配置优先从环境变量读取
+
+# 巡检间隔（秒）
+polling_interval: 10
+
+# 告警冷却时间（秒）
+alert_cooldown:
+  safe_mode: 60      # 安全模式告警每分钟最多 1 条
+  throttle: 300      # 限流告警每 5 分钟最多 1 条
+  throttle_recovery: 300
+
+# CPU 阈值（百分比）
+thresholds:
+  cpu_warning: 70    # 黄色警告（仅日志）
+  cpu_critical: 80   # 橙色限流
+  cpu_fatal: 95      # 红色安全模式（可选）
+
+  checkpoint_warning: 3000   # ms
+  checkpoint_critical: 5000  # ms
+  checkpoint_fatal: 10000    # ms
+
+# 限流计算
+throttle:
+  min_rate: 10           # 绝对下限（单/秒）
+  normal_rate_default: 50 # 默认正常峰值
+  reduction_ratio: 0.3   # 降至 30%
+
+# 恢复判定
+recovery:
+  consecutive_normal_required: 3  # 连续 3 次正常才解除
+  cpu_recovery_ratio: 0.8          # CPU 需降至阈值 80% 以下
+  checkpoint_recovery_ratio: 0.8   # Checkpoint 需降至阈值 80% 以下
+
+# 安全模式触发条件
+safe_mode:
+  redis_oom: true
+  redis_evicted_keys_threshold: 100
+  nodered_unhealthy: true
+  nodered_cpu_fatal: false  # 默认不触发，避免误杀
+
+# 飞书告警模板（支持变量替换）
+feishu_templates:
+  safe_mode: |
+    🔴 系统熔断保护
+    原因：{reason}
+    立即执行：
+    1. `docker restart robot-platform-redis`
+    2. `docker exec -it robot-platform-redis redis-cli --bigkeys`
+    3. 访问急救页 http://{host}:8080
+    如果不会操作，立刻拨打电话：{ops_phone}
+
+  throttle: |
+    🟡 系统过载限流中
+    当前指标：CPU {cpu}%，数据库写入延迟 {checkpoint}ms
+    已自动执行：限流至 {throttle_rate}单/秒，保障核心任务
+    你需要做（选1）：
+    1. 联系运维扩容服务器（2核→4核）
+    2. 执行 bash /app/scripts/cleanup_old_logs.sh 清理旧日志
+    3. 暂停非核心品牌机器人任务
+    ⏳ 30分钟未恢复，将自动进入安全模式！

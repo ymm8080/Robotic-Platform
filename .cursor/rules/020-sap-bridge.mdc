@@ -1,0 +1,11 @@
+---
+description: SAP Python 桥接层与异步队列开发规则
+globs: ["**/sap-bridge/**/*.py", "**/Dockerfile"]
+---
+
+# SAP 桥接层约束
+
+1. **镜像选择**：绝对禁用 Alpine，必须用 `python:3.11-slim`。
+2. **异步与队列**：桥接层收请求立即返 HTTP 202，通过 Redis 队列慢调 RFC。
+3. **pyrfc 连接管理**：禁止全局连接，必须每次请求新建 `pyrfc.Connection` 并在 `finally` 中 `close()`，防连接炸弹。
+4. **异常友好化**：绝不把原始 SAP 异常(含德语)透传给 Dify，必须在桥接层翻译为中文友好提示。

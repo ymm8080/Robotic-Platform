@@ -1,0 +1,62 @@
+# Cursor AI 忽略文件
+# 防止 AI 读取敏感数据和运行时文件
+
+# 凭证
+secrets/
+.env
+.env.*
+!/.env.example
+
+# 数据库
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 日志
+logs/
+*.log
+watchdog-logs/
+sap-bridge-logs/
+mqtt-logs/
+
+# 备份
+backup/
+*.tar.gz
+*.zip
+
+# Node-RED 运行时（flows.json 由 Git 管理，但 data 目录不管理）
+nodered-data/
+
+# Redis 运行时
+dump.rdb
+appendonly.aof
+
+# Dify 运行时
+dify-data/
+
+# MQTT 运行时
+mqtt-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 测试
+test/
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 构建
+node_modules/
+dist/
+build/
