@@ -16,12 +16,13 @@ secrets/
 # 日志
 logs/
 *.log
-# erl_crash.dump
+erl_crash.dump
 
 # 备份
 backup/
 *.tar.gz
 *.zip
+*.tmp
 
 # Docker 数据卷（named volume 数据由 Docker 管理）
 nodered-data/
@@ -60,3 +61,12 @@ build/
 
 # Cursor MCP（如启用）
 .cursor/mcp.json
+
+# 临时技能目录
+temp-skills/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

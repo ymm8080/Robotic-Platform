@@ -1,0 +1,15 @@
+{
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
+  },
+  "dependencies": {
+    "docx": "^9.7.1",
+    "git-commit": "^0.0.3",
+    "vda-5050-lib": "^1.7.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
+  }
+}
