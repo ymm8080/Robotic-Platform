@@ -1,0 +1,63 @@
+---
+description: EWM robot lifecycle state machine with CREATED/DISPATCHED/EXECUTING/COMPLETED/FAILED states, persistence, recovery, and MQTT integration
+globs: state_machine/**/*.py, **/states/*.json, mqtt/**/*.py
+---
+
+# EWM Robot State Machine
+
+## Robot Lifecycle States
+
+### Core States
+```
+CREATED → DISPATCHED → EXECUTING → COMPLETED
+                         ↓
+                       FAILED → RECOVERING → EXECUTING
+```
+
+### State Definitions
+| State | Description | Trigger | Persistence |
+|-------|-------------|---------|-------------|
+| `CREATED` | Task assigned, not yet dispatched | SAP order creation | Redis + PostgreSQL |
+| `DISPATCHED` | Sent to robot, awaiting acknowledgment | MQTT publish to `ewm/robots/{id}/task` | Redis (TTL: 30s) |
+| `EXECUTING` | Robot actively executing task | MQTT ack from robot | PostgreSQL (audit log) |
+| `COMPLETED` | Task finished successfully | MQTT completion callback | PostgreSQL + SAP callback |
+| `FAILED` | Task execution failed | MQTT error callback / timeout | PostgreSQL + alert |
+| `RECOVERING` | Human intervention or auto-retry | Watchdog detection | PostgreSQL + Node-RED |
+
+## Implementation Pattern
+
+### 1. State Transition Table
+```python
+TRANSITIONS = {
+    'CREATED': ['DISPATCHED', 'FAILED'],
+    'DISPATCHED': ['EXECUTING', 'FAILED', 'CREATED'],
+    'EXECUTING': ['COMPLETED', 'FAILED', 'RECOVERING'],
+    'FAILED': ['RECOVERING', 'CREATED'],
+    'RECOVERING': ['EXECUTING', 'FAILED'],
+    'COMPLETED': []
+}
+```
+
+### 2. State Persistence Strategy
+- **Redis (Hot State)**: Key `robot:{id}:state`, TTL 5 minutes, payload `{state, task_id, timestamp, retries}`
+- **PostgreSQL (Audit Log)**: Every transition logged to `robot_state_history` table
+
+### 3. Transition Guard Clauses
+- Validate transition before execution against allowed transitions table
+- Use Redis LOCK for atomic transitions (prevent concurrent transitions)
+- Verify no state change occurred during lock acquisition
+
+## Recovery Patterns
+- Watchdog detection: Detect stale EXECUTING state > 10 minutes
+- Auto-recovery: Max 3 retries with exponential backoff (30s, 60s, 120s)
+- Alert humans when max retries exceeded
+
+## MQTT Integration
+- Publish state changes to `ewm/robots/{id}/state` for real-time monitoring
+- Topic hierarchy: state, task, ack, complete, error
+
+## Anti-Patterns
+1. Direct State Mutation: Never set state directly; always use `execute_transition()`
+2. Missing Audit Log: Every transition must be logged to PostgreSQL
+3. No Timeout Handling: EXECUTING state must have watchdog monitoring
+4. Concurrent Transitions: Always use Redis LOCK for atomic transitions

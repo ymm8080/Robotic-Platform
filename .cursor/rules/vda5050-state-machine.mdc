@@ -1,0 +1,67 @@
+---
+description: VDA5050 AGV state machine enforcement, heartbeat monitoring, battery management, and state validation
+globs: robot/**/*.py, agv/**/*.py, state_machine/**/*.py, mqtt/**/*.py
+---
+
+# VDA5050 State Machine
+
+## Core Requirements
+
+### 1. VDA5050 State Machine Enforcement
+**STRICT STATE TRANSITIONS ONLY** - The following state machine must be enforced:
+
+```
+Idle → Executing → Idle (normal completion)
+Idle → Executing → Fault → Idle (after error recovery)
+Idle → Charging → Idle (when battery sufficient)
+Executing → Fault (on error detection)
+Executing → Charging (on low battery, critical priority)
+Charging → Idle (when charging complete)
+Fault → Idle (after manual/automatic recovery)
+```
+
+**DENY ILLEGAL TRANSITIONS:**
+```python
+ILLEGAL_TRANSITIONS = {
+    ("Idle", "Fault"),        # Must go through Executing or explicit error
+    ("Fault", "Executing"),   # Must recover to Idle first
+    ("Charging", "Executing"), # Must be Idle before executing
+    ("Executing", "Idle", "skip_error_check"),  # Must validate no errors
+}
+
+class AGVStateMachine:
+    ALLOWED_STATES = {"Idle", "Executing", "Fault", "Charging"}
+    VALID_TRANSITIONS = {
+        "Idle": {"Executing", "Charging"},
+        "Executing": {"Idle", "Fault", "Charging"},
+        "Fault": {"Idle"},
+        "Charging": {"Idle"},
+    }
+```
+
+### 2. VDA5050 Order JSON Structure
+Use proper VDA5050 message formats for order and state messages via MQTT topics `<manufacturer>/<series>/<serialNumber>/order` and `.../state`.
+
+### 3. Heartbeat Detection
+Monitor AGV heartbeat and trigger fault on timeout (default 10s). Record heartbeat timestamps per AGV ID.
+
+### 4. Low-Battery Auto-Return Logic
+- LOW_BATTERY_THRESHOLD = 20%: Complete current task then return to charge
+- CRITICAL_BATTERY_THRESHOLD = 10%: Interrupt immediately and return to charge
+- Generate VDA5050 order for auto-charge return
+
+### 5. State Validation Middleware
+Validate AGV state before executing operations using decorator pattern. Required states must be checked before allowing operations.
+
+## Anti-Patterns (DENIED)
+❌ Allowing direct Fault → Executing transitions
+❌ Skipping heartbeat monitoring
+❌ Ignoring low-battery warnings
+❌ Not validating state before operations
+❌ Using string comparisons instead of state machine validation
+❌ Allowing multiple concurrent orders without queue management
+❌ Not logging state transitions with timestamps and reasons
+
+## References
+- VDA 5050 Specification: https://vda.de/vda-5050
+- VDA 5050 GitHub: https://github.com/VDA5050/VDA5050

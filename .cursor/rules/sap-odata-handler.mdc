@@ -1,0 +1,47 @@
+---
+description: SAP OData V2/V4 standards, CSRF token validation, query building, retry logic, and error handling patterns
+globs: sap-bridge/**/*.py, sap-bridge/**/*.js
+---
+
+# SAP OData Handler
+
+## Core Requirements
+
+### 1. OData V2/V4 Standards Compliance
+- Always use proper OData URL conventions: `/EntitySet?$filter=...&$expand=...&$top=...&$skip=...`
+- Support both V2 (SAP Gateway) and V4 (modern SAP S/4HANA) protocol versions
+- Include proper Content-Type headers:
+  - V2: `application/json;odata=verbose` or `application/json;odata=minimalmetadata`
+  - V4: `application/json`
+- Handle pagination with `__next` links (V2) or `@odata.nextLink` (V4)
+
+### 2. X-CSRF-Token Validation
+Always implement CSRF token fetch-then-use pattern. Fetch token via GET with `X-CSRF-Token: Fetch` header, then use it in POST/PUT/DELETE operations.
+
+### 3. $filter and $expand Query Support
+Build OData queries safely using proper URL encoding. Support filter conditions (eq, in) and navigation property expansion.
+
+### 4. Exponential Backoff Retry Logic
+**MANDATORY** - All SAP HTTP calls must include retry logic:
+- 5 retry attempts with exponential backoff (2s min, 60s max)
+- Retry on ClientError and TimeoutError
+- Handle HTTP 429 (rate limit) and 503 (service unavailable)
+
+### 5. Error Handling Patterns
+- Parse SAP error responses: `error.message.value` (V2) or `error.message` (V4)
+- Log correlation IDs from response headers: `sap-correlation-id`
+- Implement circuit breaker pattern for SAP system unavailability
+- Handle HTTP 503 with longer backoff periods
+
+## Anti-Patterns (DENIED)
+❌ Synchronous HTTP calls to SAP (must use async/await)
+❌ Hardcoded credentials (use environment variables or secret manager)
+❌ No retry logic on HTTP calls
+❌ Ignoring X-CSRF-Token on state-changing operations
+❌ Not handling OData pagination
+❌ Swallowing SAP error messages without logging
+
+## References
+- SAP OData V2: https://help.sap.com/docs/SAP_NETWEAVER_750
+- SAP OData V4: https://docs.oasis-open.org/odata/odata/v4.01
+- SAP CSRF Protection: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE

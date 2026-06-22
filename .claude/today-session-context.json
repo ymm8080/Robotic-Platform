@@ -1,0 +1,68 @@
+﻿{
+  "files": {
+    "scripts/append-today-brief.ps1": {
+      "action": "REWRITE",
+      "brief": "Daily brief auto-generation script (fixed path normalization)",
+      "purpose": "Generates date-suffixed daily brief on Claude Code stop, with per-file change explanations, function details, and next actions",
+      "functions": [
+        { "name": "Main pipeline", "description": "Read today-session-context.json -> parse transcript for file changes -> try git diff -> compile Markdown -> write daily-briefs/claude-code-today-brief-YYYYMMDD.md" },
+        { "name": "SessionContext reader", "description": "Load Claude per-file change details (purpose/detail/functions) from JSON" },
+        { "name": "Transcript parser", "description": "Regex-match CREATE/MODIFY FILE markers from transcript, normalize backslash to forward slash" },
+        { "name": "GitDiff enhancer", "description": "Run git diff --name-status HEAD for extra file status info" },
+        { "name": "Markdown compiler", "description": "Assemble sections: Completed Tasks -> File Changes per-file -> Leftovers -> Next Actions" },
+        { "name": "IdempotentAppend", "description": "Detect if same session block already written, skip duplicates" }
+      ],
+      "detail": "Rewrote existing script. Key changes: (1) Output moved to D:/EWM ROBOT/daily-briefs/ (project-adjacent, not inside project) (2) Added context JSON read for structured per-file detail (3) Each file gets independent section with purpose/detail/functions (4) Leftovers + Next Actions sections (5) Idempotent write avoids duplicate blocks (6) Path normalization backslash to forward slash"
+    },
+    ".claude/settings.json": {
+      "action": "MODIFY",
+      "brief": "Stop hook includes append-today-brief.ps1 (3rd in chain)",
+      "purpose": "Auto-trigger daily brief generation on every Claude Code Stop event",
+      "functions": [
+        { "name": "Stop hook", "description": "Third item in Stop hook list, timeout 15s, shows statusMessage" }
+      ],
+      "detail": "Added append-today-brief.ps1 as third Stop hook. Chain: transcript-logger -> update-session-status -> append-today-brief"
+    },
+    ".claude/settings.local.json": {
+      "action": "CREATE",
+      "brief": "Local permission exemptions (not git-tracked)",
+      "purpose": "Skip permission prompts for read/write/edit tools to speed up workflow",
+      "functions": [
+        { "name": "allow.tools", "description": "Sets allowAuto:true for Read/Write/Edit/Glob/Grep/Bash/PowerShell" }
+      ],
+      "detail": "Local user config excluded from git. All core file tools set to auto-allow"
+    },
+    ".claude/today-session-context.json": {
+      "action": "CREATE",
+      "brief": "Session context staging file written by Claude during session",
+      "purpose": "Accumulates structured change details during session for the brief script to consume on Stop",
+      "functions": [],
+      "detail": "Contains files (per-file action/brief/purpose/functions/detail), requests (completed tasks), leftovers, nextActions. Maintained by Claude via Write tool. Uses forward-slash paths"
+    },
+    ".claude/memory/auto-daily-brief.md": {
+      "action": "CREATE",
+      "brief": "Memory file documenting the auto daily brief mechanism",
+      "purpose": "Persist mechanism docs across sessions for Claude to remember how it works",
+      "functions": [],
+      "detail": "Documents: (1) Claude writes context JSON during session (2) append-today-brief.ps1 runs on Stop to compile daily brief"
+    },
+    ".claude/memory/MEMORY.md": {
+      "action": "MODIFY",
+      "brief": "Added auto-daily-brief pointer to memory index",
+      "purpose": "Register new memory file in session-load index",
+      "functions": [],
+      "detail": "Appended one-line pointer linking to auto-daily-brief.md"
+    }
+  },
+  "requests": [
+    { "title": "Create auto daily brief mechanism", "detail": "Built complete auto daily brief: append-today-brief.ps1 + context JSON + Stop hook. Script reads per-file purpose/detail/functions, transcript changes, git diff" },
+    { "title": "Fix path normalization in brief script", "detail": "Backslash vs forward slash mismatch caused context lookup failures" },
+    { "title": "Configure permission auto-allow", "detail": "Created settings.local.json with allowAuto:true for all core tools" },
+    { "title": "Move daily brief output to project-adjacent folder", "detail": "Output path changed from docs/ to D:/EWM ROBOT/daily-briefs/ to keep project clean" }
+  ],
+  "leftovers": [],
+  "nextActions": [
+    "Verify Stop hook works on next session",
+    "Future sessions: update context JSON during session for richer briefs"
+  ]
+}

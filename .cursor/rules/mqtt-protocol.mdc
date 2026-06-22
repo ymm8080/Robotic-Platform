@@ -1,0 +1,29 @@
+---
+description: MQTT protocol development and best practices for Hikrobot AGV integration, topic hierarchy design, QoS levels, connection management
+globs: mqtt/**/*.py, robot/agv/**/*.py
+---
+
+# MQTT Protocol
+
+Expert guidance for MQTT protocol implementation in the EWM Robotic Platform.
+
+## Auto-Apply Triggers
+- When implementing MQTT topics for Hikrobot AGV communication
+- When configuring QoS levels (0, 1, 2) for message delivery guarantees
+- When designing Pub/Sub patterns for multi-robot coordination
+- When managing MQTT connection lifecycle with auto-reconnect
+- When setting up message retention or Last Will and Testament
+
+## Activation Commands
+→ "Configure MQTT topics for Hikrobot AGV task dispatch"
+→ "Implement MQTT connection with auto-reconnect and exponential backoff"
+→ "Set up QoS 2 for critical task assignment messages"
+→ "Add Last Will and Testament for robot offline detection"
+
+## EWM Platform Integration
+- Topic hierarchy: ewm/robots/{id}/, ewm/tasks/, ewm/sap/
+- QoS 0: telemetry (position, battery)
+- QoS 1: status updates, alerts
+- QoS 2: task dispatch, order completion
+- LWT for offline detection
+- Auto-reconnect with exponential backoff

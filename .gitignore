@@ -65,6 +65,10 @@ build/
 # 临时技能目录
 temp-skills/
 
+# 对话记录（自动生成的个人日志）
+transcripts/
+SESSION_STATUS.md
+
 # Playwright
 /test-results/
 /playwright-report/

@@ -1,0 +1,7 @@
+{
+  "_description": "Environment tags for robot isolation (PROD vs STAGING)",
+  "tags": [
+    { "name": "PROD",     "description": "Production environment — live dispatch" },
+    { "name": "STAGING",  "description": "Staging environment — testing only" }
+  ]
+}

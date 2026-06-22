@@ -1,0 +1,48 @@
+---
+description: Testing patterns for async SAP integration, AGV communication, and network reliability tests with pytest, aiohttp, and mocks
+globs: tests/**/*.py, sap-bridge/**/test_*.py, mqtt/**/test_*.py
+---
+
+# Async Retry & Test Patterns
+
+## Core Requirements
+
+### 1. Test Framework Setup
+- Use pytest with pytest-asyncio for async tests
+- Use `AsyncMock`, `MagicMock`, `patch` from unittest.mock
+- Use aiohttp `ClientSession` for HTTP tests
+- Configure fixtures for event loop and aiohttp session
+
+### 2. SAP Timeout Simulation Tests
+- Test that SAP calls retry on timeout with exponential backoff
+- Test that SAP calls fail after exhausting all retries
+- Test retry on HTTP 503 (service unavailable)
+
+### 3. AGV Communication Failure Tests
+- Test AGV heartbeat timeout triggers Fault state transition
+- Test low battery initiates auto-return to charging station
+- Test AGV rejects illegal state transitions
+
+### 4. Exponential Backoff Verification Tests
+- Verify retry timing follows exponential backoff pattern
+- Test backoff doesn't exceed maximum wait time
+
+### 5. Integration Test with Mock Servers
+- Use aiohttp test utils for mock SAP server
+- Test complete OData flow: fetch CSRF token → create entity
+
+### 6. Test Coverage Requirements
+- SAP integration code: 90%
+- VDA5050 state machine: 95%
+- Retry logic: 100%
+- Battery management: 85%
+
+## Anti-Patterns (DENIED)
+❌ Using time.sleep() in async tests (use asyncio.sleep())
+❌ Not mocking external services (SAP, MQTT broker)
+❌ Testing without asserting retry behavior
+❌ Ignoring race conditions in concurrent AGV tests
+❌ Not testing timeout scenarios
+❌ Skipping CSRF token validation in tests
+❌ Not verifying exponential backoff timing
+❌ Tests that depend on execution order

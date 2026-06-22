@@ -1,0 +1,4 @@
+- [EWM Robot Project Root](ewm-robot-project-root.md) — D:/EWM ROBOT/ROBOTIC PLATFORM CODES/ is permanent project root
+- [Session Persistence Clarified](session-persistence-clarified.md) — User learned about session ephemerality and opted into memory usage
+- [Session Auto-Brief](session-auto-brief.md) — Startup hook shows last session summary automatically
+- [Auto Daily Brief](auto-daily-brief.md) — Stop hook generates per-file daily brief in D:\EWM ROBOT\daily-briefs\

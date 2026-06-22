@@ -1,0 +1,102 @@
+{
+  "dangerouslySkipPermissions": true,
+  "projectRoot": "D:/EWM ROBOT/ROBOTIC PLATFORM CODES/",
+  "description": "SAP EWM → Multi-Brand Robot Dispatch Platform (VDA5050)",
+
+  "autoMemoryEnabled": true,
+  "autoMemoryDirectory": "D:/EWM ROBOT/ROBOTIC PLATFORM CODES/.claude/memory",
+  "autoDreamEnabled": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\show-session-brief.ps1\"",
+            "timeout": 10,
+            "shell": "powershell",
+            "statusMessage": "📋 Loading previous session summary..."
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\load-transcript-context.ps1\"",
+            "timeout": 10,
+            "shell": "powershell",
+            "statusMessage": "🔄 Loading project context..."
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\transcript-logger.ps1\" -EventName SessionStart",
+            "timeout": 10,
+            "shell": "powershell"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\transcript-logger.ps1\" -EventName UserPromptSubmit",
+            "timeout": 10,
+            "shell": "powershell"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\transcript-logger.ps1\" -EventName Stop",
+            "timeout": 10,
+            "shell": "powershell"
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\update-session-status.ps1\"",
+            "timeout": 10,
+            "shell": "powershell",
+            "statusMessage": "Saving session state..."
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\append-today-brief.ps1\"",
+            "timeout": 15,
+            "shell": "powershell",
+            "statusMessage": "📝 Updating daily brief..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\transcript-logger.ps1\" -EventName PostToolUse",
+            "timeout": 10,
+            "shell": "powershell"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\load-transcript-context.ps1\"",
+            "timeout": 10,
+            "shell": "powershell",
+            "statusMessage": "Restoring project context after compression..."
+          }
+        ]
+      }
+    ]
+  }
+}

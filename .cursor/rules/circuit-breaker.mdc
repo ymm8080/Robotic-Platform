@@ -1,0 +1,29 @@
+---
+description: Circuit breaker and rate limiting for SAP bridge, Jiizhijia/MiR APIs, P0 improvement #17, graceful degradation
+globs: sap-bridge/**/*.py, **/http_clients/*.py
+---
+
+# Circuit Breaker
+
+Circuit breaker patterns for EWM Robotic Platform P0 improvement #17.
+
+## Auto-Apply Triggers
+- When implementing P0 #17 (API rate limiting & circuit breaker)
+- When protecting SAP bridge from excessive requests
+- When adding fault tolerance to Jiizhijia/MiR/Dify API calls
+- When implementing graceful degradation patterns
+- When creating request queues for failed operations
+
+## Activation Commands
+→ "Implement circuit breaker for SAP bridge with 5 failure threshold and 2-min recovery"
+→ "Add rate limiting to API endpoints (100 req/min per IP) using Redis sliding window"
+→ "Create fallback strategy for Jiizhijia AGV API when circuit breaker opens"
+→ "Implement graceful degradation for robot status retrieval with cache fallback"
+
+## EWM Circuit Breakers
+- SAP bridge: 5 failures, 120s recovery, 3 successes to close
+- Jiizhijia API: 3 failures, 60s recovery (more sensitive)
+- Dify AI service: 5 failures, 180s recovery
+- Rate limits: SAP 10 req/s, AGV 50 req/s, API 100 req/min per IP
+- Fallbacks: Cache, queue, rule-based logic
+- Monitoring: Emit metrics, alert on open circuits

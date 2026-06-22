@@ -1,0 +1,83 @@
+{
+  "_description": "Sample VDA5050 robot test data for the EWM Robot Dispatch Platform",
+  "manufacturers": ["KUKA", "MiR", "OTTO", "OMRON"],
+  "states": ["IDLE", "EXECUTING", "FAULT", "CHARGING"],
+  "robots": [
+    {
+      "robotId": "KUKA-001",
+      "manufacturer": "KUKA",
+      "serialNumber": "KUKA-SN-20240001",
+      "state": "IDLE",
+      "battery": 85,
+      "position": { "x": 10.5, "y": 20.3, "theta": 0.0 },
+      "lastSeen": "2026-06-21T10:00:00Z",
+      "envTag": "PROD"
+    },
+    {
+      "robotId": "MiR-002",
+      "manufacturer": "MiR",
+      "serialNumber": "MiR-SN-20240002",
+      "state": "EXECUTING",
+      "battery": 72,
+      "position": { "x": 45.1, "y": 12.8, "theta": 90.0 },
+      "lastSeen": "2026-06-21T10:00:05Z",
+      "envTag": "PROD"
+    },
+    {
+      "robotId": "OTTO-003",
+      "manufacturer": "OTTO",
+      "serialNumber": "OTTO-SN-20240003",
+      "state": "CHARGING",
+      "battery": 23,
+      "position": { "x": 0.0, "y": 0.0, "theta": 0.0 },
+      "lastSeen": "2026-06-21T09:55:00Z",
+      "envTag": "STAGING"
+    },
+    {
+      "robotId": "OMRON-004",
+      "manufacturer": "OMRON",
+      "serialNumber": "OMRON-SN-20240004",
+      "state": "FAULT",
+      "battery": 15,
+      "position": { "x": 30.0, "y": 50.0, "theta": 180.0 },
+      "lastSeen": "2026-06-21T09:45:00Z",
+      "envTag": "PROD"
+    },
+    {
+      "robotId": "KUKA-005",
+      "manufacturer": "KUKA",
+      "serialNumber": "KUKA-SN-20240005",
+      "state": "IDLE",
+      "battery": 95,
+      "position": { "x": 5.2, "y": 8.7, "theta": 45.0 },
+      "lastSeen": "2026-06-21T10:00:10Z",
+      "envTag": "PROD"
+    }
+  ],
+  "orders": [
+    {
+      "orderNo": "ORD-20240621-001",
+      "status": "CREATED",
+      "robotId": null,
+      "zoneId": "ZONE-A",
+      "location": "Aisle-3, Rack-12",
+      "weight": 150
+    },
+    {
+      "orderNo": "ORD-20240621-002",
+      "status": "DISPATCHED",
+      "robotId": "MiR-002",
+      "zoneId": "ZONE-B",
+      "location": "Aisle-1, Rack-05",
+      "weight": 200
+    },
+    {
+      "orderNo": "ORD-20240621-003",
+      "status": "EXECUTING",
+      "robotId": "KUKA-001",
+      "zoneId": "ZONE-A",
+      "location": "Aisle-2, Rack-08",
+      "weight": 75
+    }
+  ]
+}

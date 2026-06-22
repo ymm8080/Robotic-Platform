@@ -1,0 +1,59 @@
+---
+description: Build and validate Dify workflow DSL for SAP EWM and robot dispatch automation, with node types, best practices, and integration patterns
+globs: dify/**/*.yml, dify/**/*.yaml, dify/**/*.json, workflows/**/*.yml, nodered/**/*.json
+---
+
+# Dify Workflow Builder
+
+## Overview
+Dify workflows enable AI-powered automation by connecting LLM nodes, code execution, HTTP requests, and conditional logic in a visual workflow. This rule provides standards for creating valid Dify workflow DSL (YAML/JSON).
+
+## Workflow Structure
+```yaml
+app:
+  mode: workflow
+  name: "SAP EWM Order Dispatcher"
+  description: "Processes inbound delivery orders and dispatches to appropriate robot fleet"
+
+workflow:
+  graph:
+    edges:
+      - source: "start"
+        target: "validate_order"
+      - source: "validate_order"
+        target: "check_inventory"
+    nodes:
+      - id: "start"
+        type: "start"
+        title: "Start"
+        data:
+          variables:
+            - label: "order_id"
+              variable: "order_id"
+              type: "string"
+              required: true
+```
+
+## Node Types
+1. **Start Node** - Entry point with input variables
+2. **LLM Node** - AI processing with prompts (model, temperature, max_tokens)
+3. **Code Node** - Execute Python/JavaScript
+4. **HTTP Request Node** - External API calls with timeout
+5. **Condition Node (If-Else)** - Branching logic
+6. **End Node** - Output results
+
+## Best Practices
+1. **Error Handling** - Add try/catch at critical points, validate inputs
+2. **Variable Naming** - Use `snake_case`, be descriptive, prefix with context
+3. **Logging** - Log order processing and dispatch failures
+4. **Validation at Boundaries** - Always validate external inputs
+
+## SAP EWM Integration Patterns
+1. **Order Processing**: start → validate_order → check_sap_inventory → llm_dispatch_decision → http_dispatch_robot → end
+2. **Status Monitoring**: start → http_get_robot_status → condition_battery_low → alert_if_needed → end
+3. **Error Recovery**: start → try_operation → catch_errors → retry_logic → escalate_if_failed → end
+
+## Common Issues
+❌ Invalid variable references to undefined variables
+❌ Missing edges (every node except end must have outgoing edges)
+❌ Type mismatches between node outputs and inputs
