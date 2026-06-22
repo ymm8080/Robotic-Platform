@@ -1,29 +1,0 @@
----
-description: Observability patterns for logging, metrics, distributed tracing, 2.5 operations layer, Prometheus, Grafana, OpenTelemetry
-globs: **/logging/**, **/metrics/**
----
-
-# Observability
-
-Production-grade observability for EWM Robotic Platform 2.5 operations layer.
-
-## Auto-Apply Triggers
-- When implementing structured JSON logging with context (task_id, robot_id)
-- When adding Prometheus metrics for task throughput and duration
-- When setting up distributed tracing with OpenTelemetry/Jaeger
-- When creating Grafana dashboards for operational visibility
-- When configuring Prometheus alert rules for critical events
-
-## Activation Commands
-→ "Add structured JSON logging to watchdog.py with task_id and robot_id context"
-→ "Create Prometheus metrics for task throughput and duration tracking"
-→ "Implement distributed tracing for SAP order sync across bridge and robot"
-→ "Set up Grafana dashboard for EWM platform overview with task and robot metrics"
-
-## EWM Observability Stack
-- Logging: Structured JSON (python-json-logger), Fluent Bit aggregation
-- Metrics: Prometheus (counters, gauges, histograms), /metrics endpoint
-- Tracing: OpenTelemetry + Jaeger, trace context propagation
-- Dashboards: Grafana (task throughput, duration, robot status, API latency)
-- Alerts: Robot offline, high failure rate, SAP bridge down, queue backlog
-- Health checks: /health, /health/ready with dependency checks
