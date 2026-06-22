@@ -1,0 +1,33 @@
+---
+description: Node-RED 铁律
+globs: flows/**/*.json, nodes/**/*.js
+---
+
+# 状态机（Switch硬编码，严禁跳步）
+允许:CREATED→DISPATCHED→EXECUTING→COMPLETED→SAP_CONFIRMED;EXECUTING→DIFF_SUSPENDED(人工确认→COMPLETED);DISPATCHED→RECALLING→CANCELLED
+严禁:CREATED→EXECUTING;EXECUTING无校验→COMPLETED;DIFF_SUSPENDED自动→COMPLETED
+
+# Function节点开头（必须粘贴）
+```javascript
+const tid=msg.trace_id||msg._msgid||("m"+Date.now());msg.trace_id=tid;const p=Array.isArray(msg.payload)?(msg.payload[0]!=null?msg.payload[0]:{}):(msg.payload!=null?msg.payload:{});if(!p.order_id||p.weight==null||p.weight<=0||!p.location){msg.statusCode=400;msg.payload={error:"INVALID",tid};return msg;}const A=msg.current_status||p.current_status,B=msg.next_status||p.next_status;const ok={CREATED:["DISPATCHED","CANCELLED"],DISPATCHED:["EXECUTING","SUSPENDED","RECALLING","CANCELLED"],EXECUTING:["COMPLETED","DIFF_SUSPENDED","SUSPENDED"],COMPLETED:["SAP_CONFIRMED","SAP_PENDING"],SUSPENDED:["DISPATCHED","MANUAL_HANDLED","CANCELLED","DEGRADED"],DIFF_SUSPENDED:["COMPLETED","MANUAL_HANDLED","SUSPENDED"],RECALLING:["CANCELLED"],SAP_PENDING:["SAP_CONFIRMED","SUSPENDED"]};if(A&&B&&ok[A].indexOf(B)===-1){msg.statusCode=409;msg.payload={error:"BAD_STATE",A,B,tid};return msg;}
+```
+
+# 全局Catch
+所有Tab挂CATCH_GLOBAL→audit_log→SUSPENDED→飞书告警,严禁空转
+
+# Outbox/入库/区域锁/热更新
+- Outbox:v3.1顺序写入(audit_log→orders→trace_log)tid关联幂等兜底;V2.0切PG事务双写
+- 入库:HTTP入口校验weight>0/location非空/order_id非空,垃圾返400不进状态机
+- 区域锁:调度前查zone_locks或/api/zone_lock下发带zone_token;预留/api/force_sync盘点退货强制清锁挂起冲突订单
+- 热更新:v3.1即时生效;V2.0加effective_from/to延迟5分钟防雪崩
+
+# 脱敏+重试（外发HTTP前粘贴）
+```javascript
+const mask=o=>{var r=JSON.parse(JSON.stringify(o));["password","token","phone","sap_user"].forEach(k=>{if(r[k]&&typeof r[k]==="string")r[k]="[REDACTED]";});return r;};msg.payload_masked=mask(p);const retry=async(fn,n=5)=>{for(var i=0;i<n;i++){try{return await fn();}catch(e){if(i===n-1)throw e;await new Promise(r=>setTimeout(r,Math.min(1e3*Math.pow(2,i),3e4)));}};
+```
+
+# 禁令
+- 节点名:HTTP_品牌_动作/FN_业务_校验/SW_状态/CATCH_GLOBAL;HTTPtimeout=10000
+- 严禁硬编码密码/APIKey走env.get;严禁Function内手写SQLiteBEGIN/COMMIT
+- 严禁操作Redissystem:safe_mode(Watchdog是宿主机独立进程)
+- 严禁msg.payload||{}或msg.payload.weight||0等falsy陷阱

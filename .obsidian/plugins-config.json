@@ -1,0 +1,69 @@
+{
+  "community-plugins": {
+    "dataview": {
+      "id": "dataview",
+      "name": "Dataview",
+      "description": "Advanced queries and dynamic data display",
+      "enabled": true
+    },
+    "templater-obsidian": {
+      "id": "templater-obsidian",
+      "name": "Templater",
+      "description": "Advanced template system with variables and functions",
+      "enabled": true
+    },
+    "obsidian-git": {
+      "id": "obsidian-git",
+      "name": "Obsidian Git",
+      "description": "Auto-sync vault with Git repository",
+      "enabled": true
+    },
+    "obsidian-excalidraw-plugin": {
+      "id": "obsidian-excalidraw-plugin",
+      "name": "Excalidraw",
+      "description": "Hand-drawn style diagrams and whiteboarding",
+      "enabled": true
+    },
+    "obsidian-kanban": {
+      "id": "obsidian-kanban",
+      "name": "Kanban",
+      "description": "Kanban boards for project management",
+      "enabled": true
+    },
+    "calendar": {
+      "id": "calendar",
+      "name": "Calendar",
+      "description": "Calendar view for daily notes",
+      "enabled": false
+    },
+    "periodic-notes": {
+      "id": "periodic-notes",
+      "name": "Periodic Notes",
+      "description": "Weekly, monthly, quarterly notes",
+      "enabled": false
+    },
+    "obsidian-mind-map": {
+      "id": "obsidian-mind-map",
+      "name": "Mind Map",
+      "description": "Visual mind maps from notes",
+      "enabled": false
+    },
+    "tag-wrangler": {
+      "id": "tag-wrangler",
+      "name": "Tag Wrangler",
+      "description": "Advanced tag management and renaming",
+      "enabled": false
+    }
+  },
+  "installation_order": [
+    "dataview",
+    "templater-obsidian",
+    "obsidian-git",
+    "obsidian-excalidraw-plugin",
+    "obsidian-kanban",
+    "calendar",
+    "periodic-notes",
+    "obsidian-mind-map",
+    "tag-wrangler"
+  ]
+}

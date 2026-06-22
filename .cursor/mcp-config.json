@@ -1,0 +1,125 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://localhost:5432/your_database"
+      ],
+      "disabled": true,
+      "note": "Update the PostgreSQL connection string with your actual database URL"
+    },
+    "redis": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-redis",
+        "redis://localhost:6379"
+      ],
+      "disabled": true,
+      "note": "Update the Redis connection string with your actual Redis URL. Note: @modelcontextprotocol/server-redis is archived - see https://github.com/modelcontextprotocol/servers"
+    },
+    "fetch": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-fetch"
+      ]
+    },
+    "brave-search": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "your_brave_api_key_here"
+      },
+      "disabled": true,
+      "note": "Get your API key at https://brave.com/search/api/"
+    },
+    "memory": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    },
+    "filesystem": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "d:/EWM Robot/Robotic Platform Codes"
+      ],
+      "note": "Update the allowed directory paths as needed"
+    },
+    "docker": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-docker"
+      ],
+      "disabled": true,
+      "note": "Docker MCP server - may require community implementation. Check https://github.com/modelcontextprotocol/servers"
+    },
+    "postman": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@postman/postman-api-mcp"
+      ],
+      "env": {
+        "POSTMAN_API_KEY": "your_postman_api_key_here"
+      },
+      "disabled": true,
+      "note": "Get your API key from Postman settings. Package name may vary - check npm registry"
+    }
+
+
+    
+
+    "Database_Memory_Skill": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://user:password@localhost:5432/ewm_db"
+      ]
+    },
+    "API_Testing_Skill": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ]
+    },
+    "File_Context_Skill": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/absolute/path/to/your/SAP_EWM_Robot_System"
+      ]
+    }
+  
+
+
+  }
+}

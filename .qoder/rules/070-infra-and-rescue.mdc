@@ -1,0 +1,29 @@
+---
+description: SAP-EWM 机器人调度订单状态机与安全模式规则
+globs: docker-compose*.yml, k8s/**/*.yaml, rescue/**/*.sh
+---
+
+# 订单状态机与安全模式宪法
+
+## 1. 订单状态转移图（严格单向，禁止跳步）
+CREATED -> DISPATCHED -> EXECUTING -> COMPLETED
+                 |             |
+                 +--> CANCELLED|
+                               +--> SUSPENDED (人工介入)
+                               +--> DIFF_SUSPENDED (位移/重量偏差，必须人工确认才能转 COMPLETED)
+
+## 2. 状态机铁律
+- 禁止从 CREATED 直接跳到 EXECUTING（必须经过 DISPATCHED 锁定资源）。
+- 禁止从 EXECUTING 直接跳到 COMPLETED（必须经过物理坐标/重量校验）。
+- DIFF_SUSPENDED 状态禁止自动转 COMPLETED，必须由 HUMAN_TASK 节点人工确认。
+- HUMAN_TASK 类型的订单 robot_id 为 NULL，不参与 zone_lock 互锁。
+
+## 3. 安全模式接管（Watchdog 控制）
+- Node-RED 启动时不硬编码 `NODE_RED_ENABLE_SAFE_MODE`，由 Watchdog 通过 Redis `system:safe_mode` 动态控制。
+- 安全模式触发条件：Redis OOM / Node-RED CPU > 80% 持续 10 秒 / Checkpoint 卡死。
+- 安全模式下：所有新派单停止（不进 DISPATCHED），已执行订单继续跑完。
+- 安全模式恢复：连续 3 次检测正常才解除（防抖动）。
+
+## 4. 数据判空铁律
+- 必须使用精确判空：`msg.payload !== undefined && msg.payload !== null`。
+- 防止 weight=0 或 is_urgent=false 等 falsy 值被吞掉导致业务数据黑洞。

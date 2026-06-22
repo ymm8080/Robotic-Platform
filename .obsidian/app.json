@@ -1,0 +1,55 @@
+{
+  "vault": {
+    "name": "EWM Robotic Platform",
+    "path": "d:/EWM Robot/Robotic Platform Codes"
+  },
+  "appearance": {
+    "theme": "obsidian",
+    "baseFontSize": 16,
+    "translucency": false,
+    "nativeMenus": true
+  },
+  "editor": {
+    "showLineNumber": true,
+    "tabSize": 2,
+    "defaultViewMode": "source",
+    "spellcheck": false,
+    "strictLineBreaks": true
+  },
+  "file": {
+    "defaultLocation": "current",
+    "newFileFolderPath": "00_inbox",
+    "attachmentFolderPath": "assets/attachments",
+    "useMarkdownLinks": false,
+    "showUnsupportedFiles": true
+  },
+  "corePlugins": {
+    "file-explorer": true,
+    "global-search": true,
+    "switcher": true,
+    "graph": true,
+    "backlink": true,
+    "outgoing-link": true,
+    "tag-pane": true,
+    "page-preview": true,
+    "daily-notes": true,
+    "templates": true,
+    "note-composer": true,
+    "command-palette": true,
+    "outline": true,
+    "word-count": true,
+    "file-recovery": true
+  },
+  "communityPlugins": {
+    "dataview": true,
+    "mermaid-tools": true,
+    "excalidraw": true,
+    "kanban": true,
+    "templater-obsidian": true,
+    "obsidian-git": true,
+    "calendar": true,
+    "periodic-notes": true,
+    "obsidian-mind-map": true,
+    "tag-wrangler": true
+  }
+}

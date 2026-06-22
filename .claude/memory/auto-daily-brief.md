@@ -72,6 +72,8 @@ metadata:
 
 **Critical rules:**
 - Always update `files` entries when creating/modifying files
+- If writing reference docs to `D:\EWM ROBOT\Reference\05_reference\`, add a `requests` entry describing what was created so today's brief includes it
+- Reference docs are NOT in git — brief relies on `today-session-context.json` to track them
 - Group files into `phases` — each logical work chunk is one phase
 - Update `statistics` at end of session (or periodically)
 - Add `keyFiles` for files someone would want to quick-reference
