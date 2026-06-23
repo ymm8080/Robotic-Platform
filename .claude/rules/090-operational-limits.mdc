@@ -1,0 +1,29 @@
+---
+description: Node-RED 限流阈值、WAL 维护、成本哨兵规则
+globs: nodered/**/*, docker-compose*.yml
+alwaysApply: true
+---
+
+# 运维限流与成本策略
+
+## 1. Node-RED 节流阈值
+- CPU > 80% 持续 5 秒 + Checkpoint 延迟 > 5000ms → 限流至 30% 处理能力
+- WAL 文件 > 100MB → 触发 SQLite WAL checkpoint（`PRAGMA wal_checkpoint(TRUNCATE)`）
+- 限流方式：丢弃非关键 P2 消息，P0/P1 消息不受影响
+- 恢复条件：连续 3 次检测 CPU < 60% 且 Checkpoint < 2000ms
+
+## 2. Docker 资源硬限制
+- Redis：maxmemory=256MB，策略 allkeys-lru
+- 日志旋转：每个容器 10MB × 3 个文件（`max-size=10m max-file=3`）
+- 所有容器必须设置 `--memory` 上限（禁止无限制使用宿主机内存）
+- Docker socket 必须通过代理暴露（禁止直接挂载 `/var/run/docker.sock`）
+
+## 3. 部署防护
+- Node-RED `settings.js` 在 deploy 前检查 Git 工作区是否干净
+- 工作区有未提交变更时 HTTP 403，拒绝部署
+- 所有持久化数据使用 named volume（禁止匿名 volume + bind mount 混用）
+
+## 4. 成本哨兵
+- 短信：每日 100 条硬上限（第 100 条后记录但不发送）
+- 同一告警原因 30 分钟冷却期（冷却期内日志记录，不重复发送）
+- AI Token 消耗：设置每周预算阈值，超限后日志告警（不自动降级）

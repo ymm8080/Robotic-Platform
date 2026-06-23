@@ -28,3 +28,10 @@ CREATED -> DISPATCHED -> EXECUTING -> COMPLETED
 - 校验 payload 数据时，禁止使用 `msg.payload || {}` 或 `msg.payload.weight || 0`。
 - 必须使用精确判空：`msg.payload !== undefined && msg.payload !== null`。
 - 防止 weight=0 或 is_urgent=false 等 falsy 值被吞掉导致业务数据黑洞。
+
+## 5. Outbox 投递铁律
+- 写入顺序：先 audit_log → 再 orders → 最后 trace_log，防止部分写失败导致状态丢失。
+- 重试策略：指数退避 1s → 2s → 4s → 8s → 16s，最多 5 次。
+- 超过 5 次失败进 dead_letter_queue（DLQ），不再自动重试。
+- 幂等键：`order_id + event_type` 联合唯一索引，防止重复投递。
+- 消费者必须带幂等检查：先查询再写入，重复消息静默忽略。

@@ -47,6 +47,8 @@ All Cursor rules synced. Key ones:
 | `idempotency-patterns.mdc` | Idempotency patterns | context |
 | `mqtt-protocol.mdc` | MQTT protocol rules | context |
 | `observability.mdc` | Logging/metrics/tracing | context |
+| `080-enterprise-policies.mdc` | Notification matrix + compliance | context |
+| `090-operational-limits.mdc` | Node-RED throttling + cost sentinel | context |
 
 ## Skills (129 items in `.claude/skills/`)
 
