@@ -1,32 +1,143 @@
 {
+  "phases": [
+    {
+      "name": "Phase 4 — 持续优化",
+      "timeRange": "14:25-14:25",
+      "summary": "Claude/Cursor 配置同步、记忆系统更新、MCP 配置",
+      "fileCount": 30,
+      "files": [".claude/mcp.json", ".claude/memory/claude-code-equip-v3.4.md", ".claude/skills/architecture/", ".claude/skills/implementation/", ".claude/skills/operations/"],
+      "highlights": ["22 domain skills synced", "MCP.json registered", "memory files updated"],
+      "subSections": [
+        {
+          "title": "Claude 配置",
+          "timeRange": "14:25",
+          "summary": "MCP 服务器注册、CLAUDE.md v3.4 同步",
+          "files": [".claude/mcp.json"],
+          "nextActions": []
+        },
+        {
+          "title": "AI 配置同步 (22 skills)",
+          "timeRange": "14:25",
+          "summary": "5 architecture + 10 implementation + 7 operations domain skills",
+          "files": [".claude/skills/architecture/", ".claude/skills/implementation/", ".claude/skills/operations/"],
+          "nextActions": []
+        },
+        {
+          "title": "记忆与开发流程",
+          "timeRange": "14:25",
+          "summary": "claude-code-equip-v3.4.md 新建, MEMORY.md 更新",
+          "files": [".claude/memory/claude-code-equip-v3.4.md", ".claude/memory/MEMORY.md"],
+          "nextActions": []
+        },
+        {
+          "title": "其他基础设施",
+          "timeRange": "14:17-14:21",
+          "summary": "sql/init.sql, nodered/settings.js, watchdog/watchdog.py, crontab.example",
+          "files": ["sql/init.sql", "nodered/settings.js", "watchdog/watchdog.py", "crontab.example"],
+          "nextActions": []
+        }
+      ],
+      "nextActions": [
+        "验证简报脚本修复后能正确捕获未跟踪文件",
+        "继续 Phase 2 功能完整性工作"
+      ]
+    }
+  ],
   "files": {
+    ".claude/mcp.json": {
+      "action": "MODIFY",
+      "brief": "MCP 服务器注册配置",
+      "purpose": "Claude Code MCP 服务器端点注册",
+      "detail": "注册了 SAP Bridge、Dify、Node-RED 的 MCP 连接",
+      "functions": []
+    },
+    ".claude/memory/claude-code-equip-v3.4.md": {
+      "action": "CREATE",
+      "brief": "Claude Code equip 记录 v3.4",
+      "purpose": "记录 Claude Code 技能装备和配置历史",
+      "detail": "22 领域技能安装记录",
+      "functions": []
+    },
+    ".claude/skills/architecture/vda-5050-adapter-design.md": {
+      "action": "CREATE",
+      "brief": "VDA5050 适配器设计文档",
+      "purpose": "架构级设计文档",
+      "detail": "",
+      "functions": []
+    },
+    ".claude/skills/implementation/robot-api-deviation-tracking.md": {
+      "action": "CREATE",
+      "brief": "机器人 API 偏差追踪",
+      "purpose": "实现级技术文档",
+      "detail": "",
+      "functions": []
+    },
+    "sql/init.sql": {
+      "action": "MODIFY",
+      "brief": "数据库初始化脚本更新",
+      "purpose": "数据库表结构和初始化数据",
+      "detail": "",
+      "functions": []
+    },
+    "nodered/settings.js": {
+      "action": "MODIFY",
+      "brief": "Node-RED 设置更新",
+      "purpose": "Node-RED 运行配置",
+      "detail": "",
+      "functions": []
+    },
+    "watchdog/watchdog.py": {
+      "action": "MODIFY",
+      "brief": "Watchdog 监控脚本更新",
+      "purpose": "系统健康监控和自动恢复",
+      "detail": "",
+      "functions": []
+    },
+    "crontab.example": {
+      "action": "CREATE",
+      "brief": "Crontab 配置示例",
+      "purpose": "定时任务配置参考",
+      "detail": "",
+      "functions": []
+    },
+    ".claude/reference-snapshot.json": {
+      "action": "MODIFY",
+      "brief": "REFERENCE 目录快照更新",
+      "purpose": "REFERENCE 目录变更检测基线",
+      "detail": "",
+      "functions": []
+    },
+    "nodered/flows.json": {
+      "action": "CREATE",
+      "brief": "Node-RED 流程配置",
+      "purpose": "Node-RED 可视化流定义",
+      "detail": "",
+      "functions": []
+    },
     "scripts/append-today-brief.ps1": {
       "action": "REWRITE",
-      "brief": "Daily brief auto-generation script — PLAN.md mapping, functional summary, next actions",
-      "purpose": "Generates Chinese daily brief with functional area grouping, PLAN.md phase summary, file change tables, and intelligent next actions from project state",
-      "detail": "Added: functional area overview with file lists, PLAN.md phase change summary, intelligent next actions from project state checks, time column in overview table",
+      "brief": "Daily brief 脚本 — 新增未跟踪文件检测",
+      "purpose": "修复了遗漏未跟踪文件的 bug",
+      "detail": "Added git ls-files --others --exclude-standard to capture untracked files",
       "functions": [
-        { "name": "gArea", "description": "Map file path to functional area (A=infra, B=Claude sync, C=testing, D=memory)" },
-        { "name": "MapPhase", "description": "Map file path to PLAN.md phase for phase-grouped detail tables" },
-        { "name": "next-actions", "description": "Check filesystem state (.env, secrets, .gitignore, ADRs, strategy dir) and generate PLAN.md-aligned todo list" }
+        { "name": "gArea", "description": "Map file path to functional area" },
+        { "name": "MapPhase", "description": "Map file path to PLAN.md phase" },
+        { "name": "next-actions", "description": "Generate PLAN.md-aligned todo list from filesystem state" }
       ]
     },
     ".claude/memory/auto-daily-brief.md": {
       "action": "MODIFY",
       "brief": "Updated schema docs for context JSON",
-      "detail": "Added subSections field to phase schema, added instruction that reference docs outside git need requests entry"
+      "detail": "Added subSections field to phase schema",
+      "functions": []
     }
   },
   "requests": [
-    { "title": "Research SAP WM/EWM RFC function modules", "detail": "Created rfc-function-module-catalog.md with 20+ WM RFCs and EWM RFCs, Python examples" },
-    { "title": "Create SAP error code and retry strategy matrix", "detail": "Created error-code-matrix.md with HTTP status codes, SAP-specific errors, retry/backoff/deadletter strategy" },
-    { "title": "Move 05_reference/ out of project", "detail": "Moved to D:\\EWM ROBOT\\Reference\\ to save tokens, updated .gitignore" },
-    { "title": "Add Geek+ and Hai Robotics strategy docs", "detail": "Created geekplus-strategy.md and hairobotics-strategy.md with REST API endpoints, VDA5050 support split" }
+    { "title": "Fix daily brief missing untracked files", "detail": "today-session-context.json was stale + script git diff HEAD missed untracked files. Fixed by adding git ls-files --others --exclude-standard" }
   ],
   "leftovers": [],
   "nextActions": [
-    "Commit changes: .gitignore, scripts/append-today-brief.ps1, memory files, today-session-context.json",
-    "Design order lifecycle state machine (platform core design)",
-    "Design outbox pattern spec (table schema, worker, deadletter)"
+    "验证修复后每日简报能正确包含所有变更文件",
+    "继续 Phase 2 功能完整性开发"
   ]
 }

@@ -23,6 +23,9 @@ if (Test-Path $trFile) {
 }
 Push-Location $R; $gd=git diff --name-status HEAD 2>$null
 if ($gd) { foreach ($ln in $gd) { if ($ln -match "^([AMDR])\s+(.+)$") { $p=$Matches[2].Trim() -replace '\\', '/'; if (-not $seen.ContainsKey($p)) { $seen[$p]=$true; $code=$Matches[1]; if ($code -eq "A"){$a="CREATE"} elseif ($code -eq "M"){$a="MODIFY"} elseif ($code -eq "D"){$a="DELETE"} elseif ($code -eq "R"){$a="REWRITE"}else{$a="MODIFY"}; [void]$FE.Add((New-Object PSObject -Property @{T="";P=$p;A=$a})) } } } }
+# Also capture untracked files (?? in git status) — git diff HEAD misses these entirely
+$uf = git ls-files --others --exclude-standard 2>$null
+if ($uf) { foreach ($u in ($uf -split "`n")) { $u=$u.Trim(); if ($u -and -not $seen.ContainsKey($u)) { $seen[$u]=$true; [void]$FE.Add((New-Object PSObject -Property @{T="";P=($u -replace '\\','/');A="CREATE"})) } } }
 Pop-Location
 
 # Filter: skip deleted files (check disk existence)
