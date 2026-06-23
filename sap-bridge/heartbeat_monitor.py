@@ -32,6 +32,7 @@ class HeartbeatMonitor:
         self.redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         self.client = mqtt.Client(
             client_id="robot-platform-heartbeat-monitor",
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             clean_session=True,
         )
         self.client.on_connect = self._on_connect

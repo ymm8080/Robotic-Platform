@@ -39,6 +39,7 @@ class VDA5050Publisher:
         self.redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         self.client = mqtt.Client(
             client_id=MQTT_CLIENT_ID,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             clean_session=False,
             protocol=mqtt.MQTTv311,
         )

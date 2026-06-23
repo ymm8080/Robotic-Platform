@@ -68,6 +68,7 @@ class BaseRobotSimulator:
         # MQTT client
         self._client = mqtt.Client(
             client_id=f"sim-{manufacturer}-{serial_number}",
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             clean_session=False,
         )
         self._client.on_connect = self._on_connect

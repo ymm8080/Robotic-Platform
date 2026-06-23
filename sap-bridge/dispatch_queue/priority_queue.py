@@ -32,13 +32,14 @@ class PriorityQueue:
     # ── Enqueue ──────────────────────────────────────
 
     def enqueue(self, order_no: str, priority: int = 3, payload: Optional[dict] = None) -> bool:
-        """Push order onto queue. Score = priority + timestamp for FIFO within priority."""
-        # Score format: 0CCCCTTTTTTTTTTTT
-        #   C = complement of priority (so 0 floats to top)
-        #   T = timestamp nanoseconds (for FIFO within same priority)
-        prio_complement = 3 - min(3, max(0, priority))  # 3→0, 0→3
+        """Push order onto queue. Score = priority + timestamp for FIFO within priority.
+
+        BZPOPMIN pops lowest score first, so lower priority number = higher priority.
+        Score format: PCCCTTTTTTTTTTTT where P = priority, T = timestamp ns.
+        """
+        p = min(3, max(0, priority))
         ts = time.time_ns()
-        score = float(f"{prio_complement}{ts:019d}")
+        score = float(f"{p}{ts:019d}")
 
         item = json.dumps({"order_no": order_no, "payload": payload, "enqueued_at": time.time()})
 
@@ -51,9 +52,9 @@ class PriorityQueue:
         pipe = self._redis.pipeline()
         count = 0
         for order_no, priority, payload in items:
-            prio_complement = 3 - min(3, max(0, priority))
+            p = min(3, max(0, priority))
             ts = time.time_ns() + count  # Unique timestamps within batch
-            score = float(f"{prio_complement}{ts:019d}")
+            score = float(f"{p}{ts:019d}")
             item = json.dumps({"order_no": order_no, "payload": payload, "enqueued_at": time.time()})
             pipe.zadd(QUEUE_KEY, {item: score})
             count += 1

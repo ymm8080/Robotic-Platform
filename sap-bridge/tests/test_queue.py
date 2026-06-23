@@ -2,23 +2,124 @@
 import json
 import time
 import pytest
+from unittest.mock import MagicMock, patch
 from dispatch_queue.priority_queue import PriorityQueue
 from dispatch_queue.deadletter import DeadLetterHandler
 
 
-# Use a separate Redis DB for testing
-TEST_REDIS_URL = "redis://localhost:6379/15"
+def _make_mock_redis():
+    """Build a MagicMock that supports all Redis commands used by PriorityQueue."""
+
+    class _FakeRedis:
+        """In-memory fake for Redis sorted-set operations used by PriorityQueue.
+
+        Supports: zadd, zcard, zrange, zrem, delete, bzpopmin, hset, hgetall,
+        hdel, expire, ping, pipeline.
+        """
+        def __init__(self):
+            self._zsets: dict[str, dict[str, float]] = {}  # key → {member: score}
+            self._hsets: dict[str, dict[str, str]] = {}    # key → {field: value}
+            self._pipe = None
+
+        def zadd(self, key, mapping):
+            self._zsets.setdefault(key, {}).update(mapping)
+            return len(mapping)
+
+        def zcard(self, key):
+            return len(self._zsets.get(key, {}))
+
+        def zrange(self, key, start, end, withscores=False, desc=False):
+            items = sorted(self._zsets.get(key, {}).items(), key=lambda x: x[1])
+            sliced = items[start:end + 1 if end >= 0 else None]
+            if withscores:
+                return sliced
+            return [m for m, _ in sliced]
+
+        def zrem(self, key, *members):
+            d = self._zsets.get(key, {})
+            count = 0
+            for m in members:
+                if m in d:
+                    del d[m]
+                    count += 1
+            return count
+
+        def delete(self, *keys):
+            count = 0
+            for k in keys:
+                if k in self._zsets:
+                    del self._zsets[k]
+                    count += 1
+                if k in self._hsets:
+                    del self._hsets[k]
+                    count += 1
+            return count
+
+        def bzpopmin(self, keys, timeout=0):
+            # keys is a list; take first
+            key = keys[0] if isinstance(keys, list) else keys
+            d = self._zsets.get(key, {})
+            if not d:
+                return None
+            member = min(d, key=lambda m: d[m])
+            score = d[member]
+            del d[member]
+            return (key, member, score)
+
+        def hset(self, key, field, value):
+            self._hsets.setdefault(key, {})[field] = str(value)
+            return 1
+
+        def hgetall(self, key):
+            return dict(self._hsets.get(key, {}))
+
+        def hdel(self, key, *fields):
+            d = self._hsets.get(key, {})
+            count = 0
+            for f in fields:
+                if f in d:
+                    del d[f]
+                    count += 1
+            return count
+
+        def expire(self, key, ttl):
+            return True
+
+        def ping(self):
+            return True
+
+        def pipeline(self):
+            return _FakePipeline(self)
+
+    class _FakePipeline:
+        def __init__(self, redis):
+            self._redis = redis
+            self._commands = []
+
+        def zadd(self, key, mapping):
+            self._commands.append(('zadd', key, mapping))
+            return self
+
+        def execute(self):
+            results = []
+            for cmd in self._commands:
+                if cmd[0] == 'zadd':
+                    results.append(self._redis.zadd(cmd[1], cmd[2]))
+            self._commands = []
+            return results
+
+    return _FakeRedis()
 
 
 class TestPriorityQueue:
-    """Priority queue tests (requires Redis)."""
+    """Priority queue tests (mocked Redis)."""
 
     @pytest.fixture
     def q(self):
-        q = PriorityQueue(redis_url=TEST_REDIS_URL)
-        q.clear()
-        yield q
-        q.clear()
+        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+            mock_ru.return_value = _make_mock_redis()
+            q = PriorityQueue()
+            yield q
 
     def test_enqueue_single(self, q):
         assert q.depth() == 0
