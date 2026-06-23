@@ -539,6 +539,9 @@ volumes:
     driver: local
   watchdog-logs:
     driver: local
+  # [v4.0] 迁移到 PostgreSQL 后取消注释
+  # pg-data:
+  #   driver: local
 
 # =============================================================================
 # Docker Secrets（凭证管理，禁止硬编码）
@@ -546,6 +549,82 @@ volumes:
 secrets:
   sap_password:
     file: ./secrets/sap_password.txt
+  # [v4.0] PostgreSQL 密码
+  # pg_password:
+  #   file: ./secrets/pg_password.txt
+
+# =============================================================================
+# [v4.0] PostgreSQL 服务 — 替代 SQLite（迁移前保持注释）
+# 激活前必须：
+#   1. 运行 scripts/data-migration-sqlite-to-pg.sh
+#   2. 更新 Node-RED 和 SAP Bridge 的 DB_URL
+#   3. 取消下方注释并重启
+# =============================================================================
+# postgres:
+#   image: postgres:15-alpine
+#   container_name: robot-platform-postgres
+#   restart: unless-stopped
+#   ports:
+#     - "127.0.0.1:5432:5432"
+#   volumes:
+#     - pg-data:/var/lib/postgresql/data
+#     - ./sql/init-pg.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+#   environment:
+#     - TZ=UTC
+#     - POSTGRES_DB=robot_platform
+#     - POSTGRES_USER=robot_platform
+#     - POSTGRES_PASSWORD_FILE=/run/secrets/pg_password
+#   healthcheck:
+#     test: ["CMD-SHELL", "pg_isready -U robot_platform"]
+#     interval: 10s
+#     timeout: 5s
+#     retries: 5
+#   networks:
+#     - internal
+#   secrets:
+#     - pg_password
+#   deploy:
+#     resources:
+#       limits:
+#         cpus: '1.0'
+#         memory: 512M
+#       reservations:
+#         cpus: '0.25'
+#         memory: 128M
+#   logging:
+#     driver: json-file
+#     options:
+#       max-size: "10m"
+#       max-file: "3"
+
+# =============================================================================
+# [v4.0] WCS 影子沙箱（品牌适配 Mock 服务）
+# 激活前取消注释
+# =============================================================================
+# wcs-sandbox:
+#   build:
+#     context: ./wcs-sandbox
+#     dockerfile: Dockerfile
+#   image: robot-platform-wcs-sandbox:latest
+#   container_name: robot-platform-wcs-sandbox
+#   restart: unless-stopped
+#   ports:
+#     - "127.0.0.1:8100:8100"
+#   environment:
+#     - TZ=UTC
+#     - PYTHONUNBUFFERED=1
+#   networks:
+#     - internal
+#   deploy:
+#     resources:
+#       limits:
+#         cpus: '0.25'
+#         memory: 128M
+#   logging:
+#     driver: json-file
+#     options:
+#       max-size: "10m"
+#       max-file: "3"
 
 # =============================================================================
 # 内部网络
