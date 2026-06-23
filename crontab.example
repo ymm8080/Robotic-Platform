@@ -1,0 +1,14 @@
+# SAP-EWM 机器人调度平台 Crontab 配置
+# 部署到宿主机或 Docker 主机：crontab /opt/robot-platform/crontab.example
+#
+# 格式: 分 时 日 月 周 命令
+# 时区: UTC (容器内)
+
+# 每日凌晨 2:00 自动备份
+0 2 * * * /opt/robot-platform/scripts/backup.sh >> /var/log/robot-backup.log 2>&1
+
+# 每日凌晨 3:00 清理旧日志（业务低谷期）
+0 3 * * * /opt/robot-platform/scripts/cleanup_old_logs.sh >> /var/log/robot-cleanup.log 2>&1
+
+# 每小时检查备份完整性（仅校验，不重做）
+0 * * * * /opt/robot-platform/scripts/backup.sh --verify-only >> /var/log/robot-verify.log 2>&1

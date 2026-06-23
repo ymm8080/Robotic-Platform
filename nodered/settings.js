@@ -85,13 +85,23 @@ module.exports = {
             password: process.env.NODE_RED_ADMIN_PASS || "$2a$08$zZWtXTja0fB1pzD4sHCMyOCMYz2Z6dNbM6tlbUCJYWp6J2p/ikDqG", // 默认密码 'admin'，生产必须修改
             permissions: "*"
         }],
-        // 等保要求：密码复杂度校验（Node-RED 默认不校验，需外部拦截或定期审计）
+        // [Gap #9 修复] 等保三级密码复杂度校验
+        authenticate: function(username, password) {
+            // 密码复杂度检查：≥8位，含大小写+数字+特殊字符
+            const complexityRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
+            if (password && !complexityRegex.test(password)) {
+                console.warn(`[AUTH] 密码复杂度不足: ${username}`);
+                return false;
+            }
+            // 这里可接入外部认证（LDAP / TOTP），当前使用默认密码校验
+            return null; // null = 使用 Node-RED 默认密码校验
+        },
         default: {
             permissions: "read"  // 默认只读，防止未授权修改
         }
     },
 
-    // --- 安全：HTTP 节点中间件（IP 白名单 + 急救页保护） ---
+    // --- 安全：HTTP 节点中间件（全路径 IP 白名单 + 急救页保护） ---
     httpNodeMiddleware: function(req, res, next) {
         // 信任代理列表（仅这些来源的 x-forwarded-for 可信）
         const trustedProxies = ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
@@ -105,21 +115,22 @@ module.exports = {
             clientIP = cleanIP(rawIP.split(',')[0].trim());
         }
 
-        // 急救相关路径白名单保护
-        const rescuePaths = ['/dashboard/rescue', '/api/safe-mode', '/api/restore-mode'];
-        const isRescuePath = rescuePaths.some(p => req.path === p || req.path.startsWith(p));
+        const allowedIPsStr = process.env.RESCUE_DASHBOARD_ALLOWED_IPS || '127.0.0.1';
+        const allowedIPs = allowedIPsStr.split(',').map(s => s.trim());
 
-        if (isRescuePath) {
-            const allowedIPsStr = process.env.RESCUE_DASHBOARD_ALLOWED_IPS || '127.0.0.1';
-            const allowedIPs = allowedIPsStr.split(',').map(s => s.trim());
+        // [Gap #7 修复] 保护所有 API 路径，不仅限急救路径
+        const apiPostPaths = ['/api/safe-mode', '/api/restore-mode', '/api/orders', '/api/force_sync', '/api/zone_lock'];
+        const isProtectedPath = apiPostPaths.some(p => req.path === p || req.path.startsWith(p))
+            || req.method === 'POST';
 
+        if (isProtectedPath) {
             const isAllowed = allowedIPs.some(allowed => {
                 if (allowed.includes('/')) return isInCIDR(clientIP, allowed);
                 return clientIP === allowed;
             });
 
             if (!isAllowed) {
-                console.warn(`[SECURITY] 拒绝未授权访问 ${req.path} from ${clientIP}`);
+                console.warn(`[SECURITY] 拒绝未授权访问 ${req.method} ${req.path} from ${clientIP}`);
                 return res.status(403).json({
                     error: 'Forbidden',
                     clientIP: clientIP,
@@ -139,13 +150,18 @@ module.exports = {
             const { exec } = require('child_process');
 
             // 异步非阻塞 Git 检查，2 秒超时防悬挂
-            exec('git diff --quiet', { cwd: '/data', timeout: 2000 }, (err) => {
-                if (err) {
-                    if (err.code === 128) {
-                        // 不是 Git 仓库，允许 Deploy 但告警
-                        console.warn('[WARN] /data 未初始化为 Git 仓库，建议启用 Node-RED Projects 功能');
-                        next();
-                    } else {
+            exec('git rev-parse --git-dir', { cwd: '/data', timeout: 2000 }, (errGit) => {
+                if (errGit) {
+                    // 不是 Git 仓库 → 直接拦截（Gap #6 修复）
+                    console.error('[BLOCKED] /data 不是 Git 仓库，禁止部署');
+                    return res.status(403).json({
+                        error: "请先初始化 Git 仓库！禁止直接部署未版本化的修改。",
+                        hint: "在 Node-RED 右上角 Projects 面板启用版本控制，或执行：",
+                        cmd: "cd /data && git init && git add . && git commit -m 'initial'"
+                    });
+                }
+                exec('git diff --quiet', { cwd: '/data', timeout: 2000 }, (err) => {
+                    if (err) {
                         // 有未提交变更（err.code === 1）或其他错误
                         console.error('[BLOCKED] 禁止部署未版本化的修改');
                         return res.status(403).json({
@@ -154,11 +170,11 @@ module.exports = {
                             cmd: `cd /data && git add . && git commit -m 'deploy-v${new Date().toISOString()}'`,
                             code: err.code
                         });
+                    } else {
+                        // 无未提交变更，放行
+                        next();
                     }
-                } else {
-                    // 无未提交变更，放行
-                    next();
-                }
+                });
             });
         } else {
             next();

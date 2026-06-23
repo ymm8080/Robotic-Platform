@@ -100,6 +100,26 @@ CREATE TABLE IF NOT EXISTS dispatch_rules (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+--等保合规：禁止清理 180 天内审计日志
+CREATE TRIGGER IF NOT EXISTS trg_audit_log_protect
+BEFORE DELETE ON audit_log
+BEGIN
+    SELECT CASE
+        WHEN julianday('now') - julianday(OLD.timestamp) < 180 THEN
+            raise(ABORT, '等保合规：180 天内数据禁止清理')
+    END;
+END;
+
+--等保合规：禁止清理 180 天内订单日志
+CREATE TRIGGER IF NOT EXISTS trg_orders_protect
+BEFORE DELETE ON orders
+BEGIN
+    SELECT CASE
+        WHEN julianday('now') - julianday(OLD.created_at) < 180 THEN
+            raise(ABORT, '等保合规：180 天内数据禁止清理')
+    END;
+END;
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_robot ON orders(robot_id);

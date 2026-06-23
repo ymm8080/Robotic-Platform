@@ -2,124 +2,45 @@
   "mcpServers": {
     "postgres": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-postgres",
-        "postgresql://localhost:5432/your_database"
-      ],
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost:5432/ewm_db"],
       "disabled": true,
-      "note": "Update the PostgreSQL connection string with your actual database URL"
+      "note": "Update PostgreSQL connection string"
     },
     "redis": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-redis",
-        "redis://localhost:6379"
-      ],
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-redis", "redis://localhost:6379"],
       "disabled": true,
-      "note": "Update the Redis connection string with your actual Redis URL. Note: @modelcontextprotocol/server-redis is archived - see https://github.com/modelcontextprotocol/servers"
+      "note": "Docker exec alt: docker exec robot-platform-redis redis-cli"
     },
     "fetch": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-fetch"
-      ]
-    },
-    "brave-search": {
-      "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-brave-search"
-      ],
-      "env": {
-        "BRAVE_API_KEY": "your_brave_api_key_here"
-      },
-      "disabled": true,
-      "note": "Get your API key at https://brave.com/search/api/"
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-fetch"]
     },
     "memory": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ]
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-memory"]
     },
     "filesystem": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "d:/EWM Robot/Robotic Platform Codes"
-      ],
-      "note": "Update the allowed directory paths as needed"
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-filesystem", "d:/EWM Robot/Robotic Platform Codes"]
+    },
+    "mqtt": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@nicepkg/mcp-server-mqtt"],
+      "disabled": true,
+      "note": "Alt: mosquitto_pub/sub via Bash"
     },
     "docker": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-docker"
-      ],
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-docker"],
       "disabled": true,
-      "note": "Docker MCP server - may require community implementation. Check https://github.com/modelcontextprotocol/servers"
+      "note": "Alt: use Bash/PowerShell tool"
     },
-    "postman": {
+    "brave-search": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@postman/postman-api-mcp"
-      ],
-      "env": {
-        "POSTMAN_API_KEY": "your_postman_api_key_here"
-      },
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-brave-search"],
       "disabled": true,
-      "note": "Get your API key from Postman settings. Package name may vary - check npm registry"
+      "note": "Get API key at https://brave.com/search/api/"
     }
-
-
-    
-
-    "Database_Memory_Skill": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-postgres",
-        "postgresql://user:password@localhost:5432/ewm_db"
-      ]
-    },
-    "API_Testing_Skill": {
-      "command": "uvx",
-      "args": [
-        "mcp-server-fetch"
-      ]
-    },
-    "File_Context_Skill": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "/absolute/path/to/your/SAP_EWM_Robot_System"
-      ]
-    }
-  
-
-
   }
 }

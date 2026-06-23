@@ -10,6 +10,11 @@
         "size":  2529
     },
     {
+        "path":  "CURSOR 3.4 docs/CURSOR_ARCHITECTURE_MANIFEST_v3.4.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  11731
+    },
+    {
         "path":  "05_reference/robots/geekplus-strategy.md",
         "mtime":  "2026-06-22T06:36:35.8535748Z",
         "size":  5402
@@ -55,6 +60,21 @@
         "size":  5248
     },
     {
+        "path":  "CURSOR 3.4 docs/CHECKLIST_ADDITIONS_v3.4.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  2669
+    },
+    {
+        "path":  "CURSOR 3.4 docs/APPENDIX_BACKUP.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  4928
+    },
+    {
+        "path":  "CURSOR 3.4 docs/APPENDIX_NTP.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  2478
+    },
+    {
         "path":  "05_reference/sap/README.md",
         "mtime":  "2026-06-21T10:38:23.0022520Z",
         "size":  898
@@ -65,14 +85,29 @@
         "size":  5160
     },
     {
+        "path":  "CURSOR 3.4 docs/DEPLOY_GUIDE_v3.4.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  11507
+    },
+    {
         "path":  "05_reference/robots/hairobotics-strategy.md",
         "mtime":  "2026-06-22T06:36:51.9177693Z",
         "size":  6925
     },
     {
+        "path":  "CURSOR 3.4 docs/APPENDIX_NOTIFICATION.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  3117
+    },
+    {
         "path":  "05_reference/protocols/vda5050/vda5050-message-schemas.md",
         "mtime":  "2026-06-22T15:23:23.9964229Z",
         "size":  7149
+    },
+    {
+        "path":  "CURSOR 3.4 docs/48h-checklist-v3.4.md",
+        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "size":  27645
     },
     {
         "path":  "05_reference/sap/odata-warehouse-task-api.md",

@@ -157,6 +157,11 @@ SAP_BRIDGE_CONTAINER = os.getenv('SAP_BRIDGE_CONTAINER', 'robot-platform-sap-bri
 MQTT_CONTAINER = os.getenv('MQTT_CONTAINER', 'robot-platform-mqtt')
 FEISHU_WEBHOOK_URL = os.getenv('FEISHU_WEBHOOK_URL', '')
 FEISHU_WEBHOOK_SECRET = os.getenv('FEISHU_WEBHOOK_SECRET', '')
+# [Gap #12] 企微备用通道
+WECOM_WEBHOOK_URL = os.getenv('WECOM_WEBHOOK_URL', '')
+WECOM_CORP_ID = os.getenv('WECOM_CORP_ID', '')
+WECOM_AGENT_ID = os.getenv('WECOM_AGENT_ID', '')
+WECOM_SECRET = os.getenv('WECOM_SECRET', '')
 OPS_PHONE = os.getenv('RESCUE_OPS_PHONE', '13800000000')
 HOST = os.getenv('HOST', 'localhost')
 
@@ -437,6 +442,49 @@ class FeishuAlerter:
 alerter = FeishuAlerter(FEISHU_WEBHOOK_URL, FEISHU_WEBHOOK_SECRET)
 
 # ==========================================
+# 企业微信告警（备用通道，Gap #12 修复）
+# ==========================================
+class WeComAlerter:
+    """企微 Webhook 告警，飞书失败时自动切换"""
+    def __init__(self, webhook_url: str = ''):
+        self.webhook_url = webhook_url
+        self._last_alert_time: Dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def _should_alert(self, key: str, cooldown_seconds: int) -> bool:
+        with self._lock:
+            now = time.time()
+            last = self._last_alert_time.get(key, 0)
+            if now - last >= cooldown_seconds:
+                self._last_alert_time[key] = now
+                return True
+            return False
+
+    def send(self, title: str, content: str, level: str = "warning", template_key: str = ''):
+        if not self.webhook_url:
+            return
+        if template_key:
+            cooldown = CONFIG['alert_cooldown'].get(template_key, 300)
+            if not self._should_alert(template_key, cooldown):
+                return
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "content": f"## {title}\n{content}\n\n⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            }
+        }
+        try:
+            resp = requests.post(self.webhook_url, json=payload, timeout=10)
+            if resp.status_code != 200:
+                logger.warning(f"企微告警发送失败: HTTP {resp.status_code}")
+            else:
+                logger.info(f"✅ 企微告警已发送: {title}")
+        except Exception as e:
+            logger.warning(f"企微告警请求异常: {e}")
+
+wecom_alerter = WeComAlerter(WECOM_WEBHOOK_URL)
+
+# ==========================================
 # 指标采集器
 # ==========================================
 class MetricsCollector:
@@ -602,6 +650,26 @@ class MetricsCollector:
         return result
 
     @staticmethod
+    def check_clock_drift() -> Dict[str, Any]:
+        """[Gap #11] NTP 时钟漂移检测：对比 Redis TIME 与本地时间"""
+        result = {'drift_seconds': 0, 'status': 'ok', 'error': None}
+        try:
+            # Redis TIME 返回 [seconds, microseconds] (UTC)
+            redis_time = redis_client._client.time() if redis_client._client else None
+            if redis_time:
+                redis_utc = datetime.fromtimestamp(redis_time[0] + redis_time[1] / 1_000_000, tz=timezone.utc)
+                local_utc = datetime.now(timezone.utc)
+                drift = abs((local_utc - redis_utc).total_seconds())
+                result['drift_seconds'] = round(drift, 2)
+                if drift > 30:
+                    result['status'] = 'critical'
+                elif drift > 5:
+                    result['status'] = 'warning'
+        except Exception as e:
+            result['error'] = str(e)
+        return result
+
+    @staticmethod
     def get_sqlite_wal_size() -> float:
         """获取 SQLite WAL 文件大小（MB）"""
         try:
@@ -723,6 +791,10 @@ class WatchdogEngine:
                 checkpoint=snapshot.checkpoint_ms,
                 memory=snapshot.memory_percent
             )
+            # [Gap #12] 企微备用通道
+            wecom_alerter.send("系统熔断保护",
+                f"🔴 安全模式已启动\n原因: {reason}\nCPU: {snapshot.cpu_percent:.1f}%\nCheckpoint: {snapshot.checkpoint_ms}ms\n联系人: {OPS_PHONE}",
+                level="fatal", template_key='safe_mode')
 
     def exit_safe_mode(self, reason: str = "manual"):
         """退出安全模式"""
@@ -744,6 +816,9 @@ class WatchdogEngine:
                 level="info",
                 template_key='safe_mode_recovery'
             )
+            wecom_alerter.send("系统恢复正常",
+                "🟢 安全模式已解除，系统恢复正常派单。",
+                level="info", template_key='safe_mode_recovery')
 
     def enter_throttle(self, rate: int, snapshot: HealthSnapshot, severity: str = "normal"):
         """进入限流模式"""
@@ -866,6 +941,23 @@ class WatchdogEngine:
 
         self.last_snapshot = snapshot
         self._record_snapshot(snapshot)
+
+        # [Gap #11] NTP 时钟漂移检测
+        clock_drift = MetricsCollector.check_clock_drift()
+        if clock_drift['status'] == 'critical' and not self.safe_mode_active:
+            logger.critical(f"🔴 NTP 时钟漂移严重: {clock_drift['drift_seconds']}s")
+            self.enter_safe_mode(f'CLOCK_DRIFT_{clock_drift["drift_seconds"]}s', snapshot)
+            alerter.send(
+                title="NTP 时钟漂移严重",
+                content=f"🔴 时钟偏差 {clock_drift['drift_seconds']}s，已触发安全模式。",
+                level="fatal",
+                template_key='safe_mode'
+            )
+            wecom_alerter.send("NTP 时钟漂移严重",
+                f"🔴 时钟偏差 {clock_drift['drift_seconds']}s，已触发安全模式。")
+            return
+        elif clock_drift['status'] == 'warning':
+            logger.warning(f"🟡 NTP 时钟漂移警告: {clock_drift['drift_seconds']}s")
 
         # 3. 日志输出（结构化）
         logger.info(
