@@ -9,10 +9,18 @@ metadata:
 
 Equipped the project for Claude Code (not Cursor) as the primary IDE. This involved:
 
-1. **Domain skills created in `.claude/skills/`** (22 files across 3 subdirs):
-   - `architecture/` (5): VDA5050 adapter, event-driven outbox, Node-RED data boundary, human-loop notification matrix, compliance checklist
-   - `implementation/` (10): lowcode patterns, debug interpretation, flow integrity check, schema migration, firmware OTA, data masking, LLM noise reduction, physical-digital friction, language boundary contract, API deviation tracking
-   - `operations/` (7): rescue dashboard, docker infra patterns, notification traffic control, degradation drill SOP, cost budget sentinel, implementation roadmap, Node-RED git workflow
+1. **Domain skills created in `.claude/skills/`** — 22 files created, then 15 absorbed into rules/memory, 7 retained as skills:
+   - `architecture/` (2 retained): vda-5050-adapter-design (strategy pattern), node-red-data-boundary (throttling thresholds)
+   - `implementation/` (2 retained): robot-firmware-ota (OTA control flow), schema-migration-automation (migration steps)
+   - `operations/` (3 retained): degradation-drill-sop (3/7/14 drills), nodered-git-workflow (branch strategy), rescue-dashboard (degradation recovery)
+
+   **15 absorbed into rules/memory** (skills files deleted, content lives in rules that auto-load):
+   - `010-nodered-core.mdc` → language-boundary, flow-integrity, LLM-noise, lowcode-patterns, data-masking
+   - `030-robot-device.mdc` → physical-digital-friction, robot-api-deviation-tracking
+   - `060-db-and-outbox.mdc` → event-driven-outbox
+   - `080-enterprise-policies.mdc` → notification-matrix, compliance-checklist, notification-traffic-control
+   - `090-operational-limits.mdc` → node-red-data-boundary (merged), cost-budget-sentinel, docker-infra-patterns
+   - `memory/` → nodered-debug-interpretation, implementation-roadmap, rescue-dashboard
 
 2. **Reference docs copied** from CURSOR 3.4 DOCS into `docs/` (7 files: 48h-checklist, architecture manifest, deploy guide, 3 appendices, checklist additions)
 

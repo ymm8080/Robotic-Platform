@@ -1,29 +1,29 @@
----
-description: 仓储调度平台全局铁律，任何代码生成和修改必须遵守
+---
+description: 仓储调度平台全局铁律，任何代码生成和修改必须遵守
 alwaysApply: true
----
-
-# 全局宪法 (v3.4)
-
-1. **LLM 绝对禁令**：LLM 只做翻译/建议，绝对不能做调度决策。派单、锁资源必须走确定性规则。
-2. **物理急停红线**：Node-RED 绝不碰物理急停！急停必须走硬接线/PLC (延迟≤50ms)。
-3. **位移与急停互锁**：发送任何移动指令(含后退让路)前，必须先查急停状态。急停=True时绝对禁止发送，直接 SUSPENDED。
-4. **数据主权合规**：Dify 必须强制 `HF_HUB_OFFLINE=1`，禁止运行时境外连接。
-5. **凭证管理**：密码绝对不能硬编码，必须走 `.env` 或 Docker Secrets。
-6. **时区统一**：全系统 UTC 存储。状态机流转只看逻辑时钟(递增序号)，容忍±5分钟物理时间偏移。
-7. **微创手术协议**：绝对禁止生成完整的 `flows.json`。只输出 Function 节点的 JS 代码或 SQL 语句，由用户粘贴。
-8. **语言边界铁律**：
-   - Node-RED Function 节点：只写 JavaScript (ES6+)，绝对禁止 TypeScript
-   - SAP 桥接层 & WCS Mock：只写 Python (3.11+)，绝对禁止 TypeScript
-   - Shell 脚本（看门狗/备份）：只写 Bash
-   - 如果用户要求用 TypeScript，必须拒绝并解释：当前架构不支持
-9. **版本与合规约束**：启动时校验 `.cursor/rules/VERSION` 与文档版本一致；等保要求审计日志留存≥6个月，禁止清理 180 天内的 trace_log。
-10. **数据持久化铁律**：所有 Redis 和 PostgreSQL 必须启用持久化（AOF/RDB）并挂载宿主机 Volume，禁止纯内存运行。
-11. **变更前备份铁律**：Docker Compose 升级前必须自动备份当前配置和 `.env` 文件，禁止直接覆盖。
-12. **MQTT 变更回滚铁律**：任何涉及 MQTT Broker 的变更必须在 `ops/backup/` 目录留存回滚快照，禁止无回滚方案的修改。
-
-**恐慌模式触发词库**：崩了/卡了/全红了/挂了/死了/不动了/没反应/打不开/连不上/没消息/没回传/乱套了/出事了/怎么办/急/救命/完了
-- **遇到以上词汇，只输出 safe-mode 命令和看日志命令，绝不给修改代码的建议。**
+---
+
+# 全局宪法 (v3.4)
+
+1. **LLM 绝对禁令**：LLM 只做翻译/建议，绝对不能做调度决策。派单、锁资源必须走确定性规则。
+2. **物理急停红线**：Node-RED 绝不碰物理急停！急停必须走硬接线/PLC (延迟≤50ms)。
+3. **位移与急停互锁**：发送任何移动指令(含后退让路)前，必须先查急停状态。急停=True时绝对禁止发送，直接 SUSPENDED。
+4. **数据主权合规**：Dify 必须强制 `HF_HUB_OFFLINE=1`，禁止运行时境外连接。
+5. **凭证管理**：密码绝对不能硬编码，必须走 `.env` 或 Docker Secrets。
+6. **时区统一**：全系统 UTC 存储。状态机流转只看逻辑时钟(递增序号)，容忍±5分钟物理时间偏移。
+7. **微创手术协议**：绝对禁止生成完整的 `flows.json`。只输出 Function 节点的 JS 代码或 SQL 语句，由用户粘贴。
+8. **语言边界铁律**：
+   - Node-RED Function 节点：只写 JavaScript (ES6+)，绝对禁止 TypeScript
+   - SAP 桥接层 & WCS Mock：只写 Python (3.11+)，绝对禁止 TypeScript
+   - Shell 脚本（看门狗/备份）：只写 Bash
+   - 如果用户要求用 TypeScript，必须拒绝并解释：当前架构不支持
+9. **版本与合规约束**：启动时校验 `.cursor/rules/VERSION` 与文档版本一致；等保要求审计日志留存≥6个月，禁止清理 180 天内的 trace_log。
+10. **数据持久化铁律**：所有 Redis 和 PostgreSQL 必须启用持久化（AOF/RDB）并挂载宿主机 Volume，禁止纯内存运行。
+11. **变更前备份铁律**：Docker Compose 升级前必须自动备份当前配置和 `.env` 文件，禁止直接覆盖。
+12. **MQTT 变更回滚铁律**：任何涉及 MQTT Broker 的变更必须在 `ops/backup/` 目录留存回滚快照，禁止无回滚方案的修改。
+
+**恐慌模式触发词库**：崩了/卡了/全红了/挂了/死了/不动了/没反应/打不开/连不上/没消息/没回传/乱套了/出事了/怎么办/急/救命/完了
+- **遇到以上词汇，只输出 safe-mode 命令和看日志命令，绝不给修改代码的建议。**
 
 
 ## 13. 文件放置铁律（创建任何文件前必须执行此决策树）
@@ -69,3 +69,37 @@ alwaysApply: true
 - 任何读取文件列表的脚本必须同时覆盖：已跟踪变更（git diff HEAD）+ 未跟踪文件（git ls-files --others）
 - 任何分类映射（area/phase mapping）必须考虑未匹配 fallback，并验证 fallback 在输出中可见
 - 写工具脚本时自问：有什么文件这个脚本会漏掉？回答「没有」之前不算写完
+
+## 16. 内容迁移清理铁律（防止残留重复文件）
+当内容从 `.claude/skills/` 迁移/被吸收到 `.claude/rules/` 或 `.claude/memory/` 时：
+
+### 强制规则
+- **同一次提交中必须删除旧技能文件**。禁止「先迁移内容，以后清理」的分步做法
+- 迁移后执行 `git status --short .claude/skills/` 确认没有该文件的跟踪记录
+- 如果旧文件未跟踪，在迁移前执行 `rm` 清理，用 `git status` 验证
+- 迁移后更新引用数据：MEMORY.md 索引、CLAUDE.md 规则表、today-session-context
+
+### 自动检测（部署前/每周）
+```bash
+git status --short .claude/skills/ \
+  | grep '^\?\?' \
+  | while read _ f; do
+      grep -q "^---" "$f" 2>/dev/null \
+        || echo "[WARN] $f missing frontmatter"
+    done
+```
+
+## 17. skills/ 文件 frontmatter 铁律
+`.claude/skills/` 下的每个 Markdown 文件**必须**以 YAML frontmatter 开头：
+
+```yaml
+---
+name: kebab-case-filename    # 必须匹配文件名（不含 .md）
+description: 一行英文描述   # 必须说明用途，供索引/搜索
+---
+```
+
+### 禁止
+- 禁止在 `.claude/skills/` 中存放 YAML frontmatter 缺失的文件（不会被 skill 加载器识别）
+- 禁止将约束规则（must-do）放入 skills/，必须放入 rules/
+- 禁止在迁移/重构后留下旧位置的孤儿文件

@@ -1,3 +1,8 @@
+---
+name: SAP_OData_Handler
+description: SAP OData integration handler — CSRF token management, retry with circuit breaker, SAP EWM warehouse task orchestration
+---
+
 # SAP_OData_Handler
 
 ## Trigger

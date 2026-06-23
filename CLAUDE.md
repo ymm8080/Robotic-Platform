@@ -27,7 +27,7 @@ Microservices on Docker Compose with Node-RED, MQTT, Redis, PostgreSQL.
 
 Applies globally to every response — research, analysis, problem-solving, code review, Q&A.
 
-## Rules (17 files in `.claude/rules/`)
+## Rules (20 files in `.claude/rules/`)
 
 All Cursor rules synced. Key ones:
 
@@ -49,6 +49,11 @@ All Cursor rules synced. Key ones:
 | `observability.mdc` | Logging/metrics/tracing | context |
 | `080-enterprise-policies.mdc` | Notification matrix + compliance | context |
 | `090-operational-limits.mdc` | Node-RED throttling + cost sentinel | context |
+| `async-retry-tester.mdc` | Async retry test patterns | context |
+| `dify-workflow.mdc` | Dify workflow integration | context |
+| `ewm-state-machine.mdc` | EWM state machine rules | context |
+| `sap-odata-handler.mdc` | SAP OData handler rules | context |
+| `vda5050-state-machine.mdc` | VDA5050 state machine rules | context |
 
 ## Skills (129 items in `.claude/skills/`)
 

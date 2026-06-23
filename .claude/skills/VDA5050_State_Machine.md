@@ -1,3 +1,8 @@
+---
+name: VDA5050_State_Machine
+description: VDA5050 AGV state machine — connection lifecycle, order states, action execution, fault recovery, battery management
+---
+
 # VDA5050_State_Machine
 
 ## Trigger

@@ -1,3 +1,8 @@
+---
+name: Async_Retry_Tester
+description: Async retry testing with pytest-asyncio — mock SAP/AGV, exponential backoff verification, timeout testing
+---
+
 # Async_Retry_Tester
 
 ## Trigger
