@@ -474,6 +474,47 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ===========================================================================
+  # 10. Dashboard — 操作员监控看板（React SPA, Nginx serve）
+  # ===========================================================================
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: robot-platform-dashboard:latest
+    container_name: robot-platform-dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:80"
+    depends_on:
+      sap-bridge:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+        reservations:
+          cpus: '0.05'
+          memory: 16M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # =============================================================================
 # 持久化卷（named volumes，避免 bind mount 的 cwd 依赖问题）
 # =============================================================================

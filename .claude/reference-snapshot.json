@@ -1,0 +1,82 @@
+﻿[
+    {
+        "path":  "05_reference/robots/robotic-interface-specs-overview.md",
+        "mtime":  "2026-06-22T15:23:46.8931322Z",
+        "size":  7656
+    },
+    {
+        "path":  "05_reference/README.md",
+        "mtime":  "2026-06-22T07:07:52.3745885Z",
+        "size":  2529
+    },
+    {
+        "path":  "05_reference/robots/geekplus-strategy.md",
+        "mtime":  "2026-06-22T06:36:35.8535748Z",
+        "size":  5402
+    },
+    {
+        "path":  "05_reference/protocols/lwt-config.md",
+        "mtime":  "2026-06-22T15:23:33.4133223Z",
+        "size":  1582
+    },
+    {
+        "path":  "05_reference/sap/auth/csrf-token-flow.md",
+        "mtime":  "2026-06-22T06:23:45.4887433Z",
+        "size":  5089
+    },
+    {
+        "path":  "05_reference/robots/README.md",
+        "mtime":  "2026-06-22T15:14:10.3394018Z",
+        "size":  4373
+    },
+    {
+        "path":  "05_reference/robots/quicktron-strategy.md",
+        "mtime":  "2026-06-22T15:14:01.1983074Z",
+        "size":  1531
+    },
+    {
+        "path":  "05_reference/sap/wm-classic-integration.md",
+        "mtime":  "2026-06-22T06:27:15.8457742Z",
+        "size":  7660
+    },
+    {
+        "path":  "05_reference/protocols/vda5050/vda5050-state-machine.md",
+        "mtime":  "2026-06-22T06:23:36.5888933Z",
+        "size":  6520
+    },
+    {
+        "path":  "05_reference/sap/idoc/ewm-warehouse-task-idoc.md",
+        "mtime":  "2026-06-22T06:23:45.9680497Z",
+        "size":  8253
+    },
+    {
+        "path":  "05_reference/sap/rfc-function-module-catalog.md",
+        "mtime":  "2026-06-22T06:48:16.6132795Z",
+        "size":  5248
+    },
+    {
+        "path":  "05_reference/sap/README.md",
+        "mtime":  "2026-06-21T10:38:23.0022520Z",
+        "size":  898
+    },
+    {
+        "path":  "05_reference/sap/error-code-matrix.md",
+        "mtime":  "2026-06-22T06:48:25.1270678Z",
+        "size":  5160
+    },
+    {
+        "path":  "05_reference/robots/hairobotics-strategy.md",
+        "mtime":  "2026-06-22T06:36:51.9177693Z",
+        "size":  6925
+    },
+    {
+        "path":  "05_reference/protocols/vda5050/vda5050-message-schemas.md",
+        "mtime":  "2026-06-22T15:23:23.9964229Z",
+        "size":  7149
+    },
+    {
+        "path":  "05_reference/sap/odata-warehouse-task-api.md",
+        "mtime":  "2026-06-22T06:23:45.0760263Z",
+        "size":  5518
+    }
+]

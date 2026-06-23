@@ -5,6 +5,8 @@ $ctxFile = Join-Path $R ".claude\today-session-context.json"; $brDir = "D:\EWM R
 if (-not (Test-Path $brDir)) { New-Item -ItemType Directory -Path $brDir -Force | Out-Null }
 $brFile = Join-Path $brDir ("claude-code-today-brief-$DS.md")
 $trDir = Join-Path $R "transcripts"; $trFile = Join-Path $trDir ("transcript-$DF.md")
+$refDir = "D:\EWM ROBOT\REFERENCE"
+$refSnapFile = Join-Path $R ".claude\reference-snapshot.json"
 
 $SC=$null; $HC=$false
 if (Test-Path $ctxFile) { try { $SC=(Get-Content $ctxFile -Raw -Encoding UTF8)|ConvertFrom-Json; $HC=$true } catch {} }
@@ -23,13 +25,62 @@ Push-Location $R; $gd=git diff --name-status HEAD 2>$null
 if ($gd) { foreach ($ln in $gd) { if ($ln -match "^([AMDR])\s+(.+)$") { $p=$Matches[2].Trim() -replace '\\', '/'; if (-not $seen.ContainsKey($p)) { $seen[$p]=$true; $code=$Matches[1]; if ($code -eq "A"){$a="CREATE"} elseif ($code -eq "M"){$a="MODIFY"} elseif ($code -eq "D"){$a="DELETE"} elseif ($code -eq "R"){$a="REWRITE"}else{$a="MODIFY"}; [void]$FE.Add((New-Object PSObject -Property @{T="";P=$p;A=$a})) } } } }
 Pop-Location
 
-# Filter: skip trivial deletions (just log them separately)
+# Filter: skip deleted files (check disk existence)
 $sigFE=New-Object System.Collections.ArrayList; $trimmed=New-Object System.Collections.ArrayList
 foreach ($fe in $FE) {
     $isTrivial = $fe.A -eq "DELETE" -or $fe.P -match '\.gitkeep|erl_crash\.dump|package-lock'
+    # Files recorded as CREATE/MODIFY that no longer exist on disk were deleted by later operations — skip entirely
+    if (-not $isTrivial -and $fe.A -ne "DELETE") {
+        $resolved = if ([System.IO.Path]::IsPathRooted($fe.P)) { $fe.P } else { Join-Path $R $fe.P }
+        if (-not (Test-Path $resolved)) { continue }
+    }
     if ($isTrivial) { [void]$trimmed.Add($fe) } else { [void]$sigFE.Add($fe) }
 }
-$cnt=$sigFE.Count; $trivialCnt=$trimmed.Count; if ($cnt -eq 0) { exit 0 }
+$cnt=$sigFE.Count; $trivialCnt=$trimmed.Count
+
+# === REFERENCE DIRECTORY CHANGE DETECTION ===
+$refFE = New-Object System.Collections.ArrayList
+$refChangedCnt = 0
+$curSnap = @{}
+if (Test-Path $refDir) {
+    $oldSnap = @{}
+    if (Test-Path $refSnapFile) {
+        try {
+            $snapData = Get-Content $refSnapFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($item in $snapData) { $oldSnap[$item.path] = @{ mtime=$item.mtime; size=$item.size } }
+        } catch {}
+    }
+    $isFirstRun = ($oldSnap.Count -eq 0)
+    Get-ChildItem $refDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $relPath = ($_.FullName.Substring($refDir.Length + 1) -replace '\\', '/')
+        $curSnap[$relPath] = @{ mtime = $_.LastWriteTimeUtc.ToString('o'); size = $_.Length }
+        if ($isFirstRun) { return }
+        if (-not $oldSnap.ContainsKey($relPath)) {
+            [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$relPath";A="CREATE"}))
+        } else {
+            $old = $oldSnap[$relPath]
+            if ($old.mtime -ne $curSnap[$relPath].mtime -or $old.size -ne $curSnap[$relPath].size) {
+                [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$relPath";A="MODIFY"}))
+            }
+        }
+    }
+    # Deletions
+    foreach ($key in $oldSnap.Keys) {
+        if (-not $curSnap.ContainsKey($key)) {
+            [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$key";A="DELETE"}))
+        }
+    }
+    $refChangedCnt = $refFE.Count
+    # Save REFERENCE snapshot immediately (even if no changes, to establish baseline)
+    $snapArray = $curSnap.Keys | ForEach-Object { @{path=$_; mtime=$curSnap[$_].mtime; size=$curSnap[$_].size} }
+    $snapArray | ConvertTo-Json | Set-Content $refSnapFile -Encoding UTF8
+}
+# Merge ref findings into sigFE
+if ($refChangedCnt -gt 0) {
+    foreach ($refFe in $refFE) { [void]$sigFE.Add($refFe) }
+    $cnt = $sigFE.Count
+}
+if ($cnt -eq 0 -and $refChangedCnt -eq 0) { exit 0 }
 
 # Helpers
 function gDetail($p,$a) {
@@ -58,6 +109,16 @@ function gDetail($p,$a) {
     if ($p -match 'e2e/global') { return "测试全局钩子" }
     if ($p -match 'e2e/test-data') { return "测试数据" }
     if ($p -match 'docs/playwright') { return "测试框架文档" }
+    if ($p -match '^REFERENCE:') {
+        $rp = $p -replace '^REFERENCE:', ''
+        if ($rp -match 'sap/') { return "SAP 参考文档" }
+        if ($rp -match 'robots/') { return "机器人品牌参考" }
+        if ($rp -match 'protocols/vda5050') { return "VDA5050 协议参考" }
+        if ($rp -match 'protocols/') { return "通信协议参考" }
+        if ($a -eq "CREATE") { return "新增参考文档" }
+        if ($a -eq "DELETE") { return "删除参考文档" }
+        return "参考文档更新"
+    }
     if ($a -eq "CREATE") { return "新建文件" }
     if ($a -eq "DELETE") { return "清理废弃文件" }
     return "功能优化"
@@ -67,6 +128,7 @@ function gBrief($p) {
     if ($p -match '\.cursor/rules/') { return "Cursor 规则" }; if ($p -match 'e2e/pages/') { return "Page Object" }; if ($p -match 'e2e/spec') { return "E2E 测试" }
     if ($p -match 'e2e/fixtures') { return "Fixture" }; if ($p -match 'sap-bridge/') { return "SAP Bridge" }; if ($p -match 'scripts/') { return "脚本" }
     if ($p -match 'docs/') { return "文档" }; if ($p -match '\.claude/') { return "Claude 配置" }
+    if ($p -match '^REFERENCE:') { $rp=$p -replace '^REFERENCE:',''; if($rp -match 'sap/'){return "SAP 参考"}elseif($rp -match 'robots/'){return "机器人参考"}elseif($rp -match 'protocols/'){return "协议参考"}else{return "参考文档"} }
     $e=[System.IO.Path]::GetExtension($p).ToLower()
     if ($e -eq '.md') { return "文档" }; if ($e -in '.json','.yml','.yaml') { return "配置" }; if ($e -eq '.js') { return "JS" }
     if ($e -eq '.py') { return "Python" }; if ($e -eq '.ps1') { return "PowerShell" }; if ($e -eq '.mdc') { return "AI 规则" }; return "文件"
@@ -80,10 +142,11 @@ function gArea($p) {
     if ($p -match '^\.claude/rules/|^\.claude/skills/|^\.claude/agents/|^\.cursor/rules/|^CLAUDE\.md|^\.clinerules|^\.claude/mcp\.json') { return @{K="B";N="Claude/Cursor 配置同步"} }
     if ($p -match '^e2e/|^playwright|^package\.json|^docs/playwright') { return @{K="C";N="测试框架搭建"} }
     if ($p -match '^\.claude/memory|^scripts/transcript|^scripts/update-session|^scripts/load-transcript|^scripts/append-today|^scripts/show-session|^\.claude/today-session|^\.claude/settings\.local|^SESSION_STATUS') { return @{K="D";N="记忆系统与开发流程"} }
+    if ($p -match '^REFERENCE:') { return @{K="E";N="参考文档变更"} }
     return @{K="Z";N="其他"}
 }
 
-$areaOrder = @("A","B","C","D")
+$areaOrder = @("A","B","C","D","E")
 
 # Build functional groups
 $areaGroups = @{}
@@ -104,9 +167,12 @@ function MapPhase($path) {
     if ($path -match '^CLAUDE\.md|^\.clinerules|^\.claude/mcp|^\.claude/settings') { return @{P="Phase 4";L="持续优化";S="4.1 Claude 配置"} }
     if ($path -match '^e2e/|^playwright|^package\.json') { return @{P="Phase 3";L="生产就绪";S="3.1 测试框架"} }
     if ($path -match '^\.claude/memory|^scripts/transcript|^scripts/update-session|^scripts/load-transcript|^scripts/append-today|^\.claude/today-session|^SESSION_STATUS|^\.claude/settings\.local') { return @{P="Phase 4";L="持续优化";S="4.1 记忆与开发流程"} }
+    if ($path -match '^REFERENCE:') { return @{P="Phase R";L="参考文档";S="R.1 外部参考"} }
     return @{P="Phase 4";L="持续优化";S="4.x 其他"}
 }
 foreach ($fe in $sigFE) {
+    # Skip REFERENCE entries — handled in dedicated section
+    if ($fe.P -match '^REFERENCE:') { continue }
     $pm=MapPhase $fe.P; $key="{0}|{1}|{2}" -f $pm.P,$pm.L,$pm.S
     if (-not $phaseGroups.ContainsKey($key)) { $phaseGroups[$key]=New-Object System.Collections.ArrayList; $planPhases+=@{P=$pm.P;L=$pm.L;S=$pm.S;K=$key} }
     $dt=gDetail $fe.P $fe.A; $br=gBrief $fe.P; $tm=if ($fe.T){$fe.T}else{""}
@@ -205,6 +271,23 @@ foreach ($pp in $uniq) {
     $O.Add("")
 }
 
+# Reference document changes
+if ($refChangedCnt -gt 0) {
+    $O.Add("## 参考文档变更"); $O.Add("")
+    $O.Add("| 时间 | 文件路径 | 类型 | 说明 |"); $O.Add("|------|----------|------|------|")
+    foreach ($refFe in $refFE) {
+        $displayPath = $refFe.P -replace '^REFERENCE:', ''
+        $tm=if ($refFe.T){$refFe.T}else{"—"}; $icon=gIcon $refFe.A; $label=gLabel $refFe.A
+        $desc = "参考文档"
+        if ($displayPath -match 'sap/') { $desc = "SAP 参考" }
+        elseif ($displayPath -match 'robots/') { $desc = "机器人参考" }
+        elseif ($displayPath -match 'protocols/vda5050') { $desc = "VDA5050 协议" }
+        elseif ($displayPath -match 'protocols/') { $desc = "通信协议" }
+        $O.Add(("| {0} | ``{1}`` | {2} {3} | {4} |" -f $tm, $displayPath, $icon, $label, $desc))
+    }
+    $O.Add("")
+}
+
 # Trivial changes (if any)
 if ($trivialCnt -gt 0) {
     $O.Add("## 清理维护"); $O.Add("")
@@ -273,6 +356,7 @@ $O.Add("")
 $O.Add("---"); $O.Add(""); $O.Add(("*文档生成：{0} {1} | 由 Claude Code 自动汇总*" -f $DF, $TS)); $O.Add("")
 
 $nl=[System.Environment]::NewLine; [System.IO.File]::WriteAllText($brFile, ($O -join $nl), [System.Text.Encoding]::UTF8)
+
 
 
 

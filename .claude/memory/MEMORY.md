@@ -2,3 +2,5 @@
 - [Session Persistence Clarified](session-persistence-clarified.md) — User learned about session ephemerality and opted into memory usage
 - [Session Auto-Brief](session-auto-brief.md) — Startup hook shows last session summary automatically
 - [Auto Daily Brief](auto-daily-brief.md) — Stop hook generates per-file daily brief in D:\EWM ROBOT\daily-briefs\
+- [REFERENCE Monitoring](reference-monitoring.md) — REFERENCE dir change detection added to today-brief
+- [Robot Dashboard Phase 1](robot-dashboard-phase1.md) — React + MQTT real-time robot monitoring dashboard
