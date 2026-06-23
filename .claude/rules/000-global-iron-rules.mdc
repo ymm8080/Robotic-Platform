@@ -24,3 +24,48 @@ alwaysApply: true
 
 **恐慌模式触发词库**：崩了/卡了/全红了/挂了/死了/不动了/没反应/打不开/连不上/没消息/没回传/乱套了/出事了/怎么办/急/救命/完了
 - **遇到以上词汇，只输出 safe-mode 命令和看日志命令，绝不给修改代码的建议。**
+
+
+## 13. 文件放置铁律（创建任何文件前必须执行此决策树）
+创建新内容时，按以下优先级决定存放位置：
+
+### 决策树
+```
+内容分类？
+├─ 强制约束（must-do rules） → .claude/rules/*.mdc
+│   例：必须脱敏、必须用 outbox、状态不得跳步
+│   特征：不遵守=系统错误或安全事故
+│
+├─ 领域参考知识（reference） → .claude/memory/*.md 并更新 MEMORY.md 索引
+│   例：VDA5050 消息结构、调试错误速查、版本路线图
+│   特征：有用但无遵守/不遵守不影响运行
+│
+├─ 步骤流程（step-by-step） → .claude/skills/（保留为 skill）
+│   例：OTA 升级流程、降级演练 SOP、DB 迁移步骤
+│   特征：用户主动触发执行，不是被动约束
+│
+├─ 项目功能代码 → 对应业务目录（dashboard/ sap-bridge/ watchdog/ 等）
+│
+└─ 工具脚本 → scripts/
+```
+
+### 禁止
+- 禁止将约束规则放到 skills/（不会自动加载，= 不存在）
+- 禁止创建文件后不更新 MEMORY.md 索引
+- 禁止将参考知识放到 CLAUDE.md（膨胀上下文，降低信噪比）
+
+## 14. 文件创建完成检查清单（每创建/修改一个文件后执行）
+```
+□ 1. 文件放在正确的目录？（按决策树）
+□ 2. 如果是 memory/ 文件 → MEMORY.md 加上指针了？
+□ 3. 如果是 rules/ 文件 → CLAUDE.md 的规则表格加上了？
+□ 4. today-session-context.json 的 files 字段加了这个文件的 detail/purpose？
+□ 5. 如果涉及功能变更 → 简要记录到 today-session-context.json 的 requests？
+□ 6. 验证机制：新规则我自己能读到吗？新功能有测试吗？
+    回答"是"之前不能 claim done
+```
+
+## 15. 脚本防御性编程铁律
+- 任何读取文件列表的脚本必须同时覆盖：已跟踪变更（git diff HEAD）+ 未跟踪文件（git ls-files --others）
+- 任何分类映射（area/phase mapping）必须考虑未匹配 fallback，并验证 fallback 在输出中可见
+- 写工具脚本时自问：有什么文件这个脚本会漏掉？回答「没有」之前不算写完

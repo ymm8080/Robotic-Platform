@@ -27,7 +27,7 @@ Microservices on Docker Compose with Node-RED, MQTT, Redis, PostgreSQL.
 
 Applies globally to every response — research, analysis, problem-solving, code review, Q&A.
 
-## Rules (15 files in `.claude/rules/`)
+## Rules (17 files in `.claude/rules/`)
 
 All Cursor rules synced. Key ones:
 

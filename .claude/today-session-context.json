@@ -119,12 +119,27 @@
       "purpose": "修复 Z 分区缺失、新增工具变更摘要",
       "detail": "areaOrder 加入 Z；新增 requests 字段渲染工具变更摘要",
       "functions": []
+    },
+    ".claude/rules/000-global-iron-rules.mdc": {
+      "action": "MODIFY",
+      "brief": "全局铁律扩展",
+      "purpose": "新增文件放置决策树、创建检查清单、脚本防御性编程铁律",
+      "detail": "§13 文件放置决策树：rules/memory/skills 精确分类；§14 文件创建完成检查清单 6 项；§15 脚本防御性编程：必须覆盖已跟踪+未跟踪文件",
+      "functions": []
+    },
+    ".claude/memory/file-placement-lessons.md": {
+      "action": "CREATE",
+      "brief": "文件放置教训记录",
+      "purpose": "根因分析和系统级预防措施，供未来会话学习",
+      "detail": "4 个根因、修复措施、key pattern 总结",
+      "functions": []
     }
   },
   "requests": [
     { "title": "规则迁移：skills 中 8 个规则集→.claude/rules/", "detail": "skills/ 中的强制约束提取到 .mdc 文件，确保每次会话自动加载。5 个 .mdc（含 3 个扩写 + 2 个新建）覆盖：language-boundary、flow-integrity、outbox-retry、enterprise-policies、operational-limits、robot-device 扩充" },
     { "title": "知识迁移：skills 中参考知识→.claude/memory/", "detail": "3 个记忆文件：nodered-debug-reference（错误速查）、implementation-roadmap（版本规划）、rescue-dashboard-architecture（离线架构）" },
-    { "title": "修复：简报 Z 分区缺失 + 工具变更摘要 section", "detail": "见前两个 commit" }
+    { "title": "修复：简报 Z 分区缺失 + 工具变更摘要 section", "detail": "见前两个 commit" },
+    { "title": "根因分析 + 系统级预防：为何文件总放错位置", "detail": "4个根因：无决策树、无检查清单、脚本盲区、不验证。修复：000-global-iron-rules.mdc §13-15；记忆文件 file-placement-lessons.md 记录教训供未来参考" }
   ],
   "leftovers": [],
   "nextActions": [
