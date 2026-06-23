@@ -3,8 +3,8 @@
     {
       "name": "Phase 4 — 持续优化",
       "timeRange": "14:25-14:25",
-      "summary": "Claude/Cursor 配置同步、记忆系统更新、MCP 配置",
-      "fileCount": 30,
+      "summary": "Claude/Cursor 配置同步、记忆系统更新、MCP 配置、Node-RED/DB/Watchdog 调优",
+      "fileCount": 32,
       "files": [".claude/mcp.json", ".claude/memory/claude-code-equip-v3.4.md", ".claude/skills/architecture/", ".claude/skills/implementation/", ".claude/skills/operations/"],
       "highlights": ["22 domain skills synced", "MCP.json registered", "memory files updated"],
       "subSections": [
@@ -38,106 +38,264 @@
         }
       ],
       "nextActions": [
-        "验证简报脚本修复后能正确捕获未跟踪文件",
-        "继续 Phase 2 功能完整性工作"
+        "继续 Phase 2 功能完整性开发"
       ]
     }
   ],
   "files": {
     ".claude/mcp.json": {
       "action": "MODIFY",
-      "brief": "MCP 服务器注册配置",
-      "purpose": "Claude Code MCP 服务器端点注册",
-      "detail": "注册了 SAP Bridge、Dify、Node-RED 的 MCP 连接",
+      "brief": "MCP 服务器注册",
+      "purpose": "Claude Code 通过 MCP 协议连接外部工具的端点注册表",
+      "detail": "注册 SAP Bridge OData 端点、Dify API、Node-RED 管理 API 的 MCP 连接配置",
+      "functions": []
+    },
+    ".claude/memory/MEMORY.md": {
+      "action": "MODIFY",
+      "brief": "记忆索引更新",
+      "purpose": "会话记忆索引：每条记录指向独立的记忆文件",
+      "detail": "新增 claude-code-equip-v3.4.md 和 robot-dashboard-phase1.md 指针条目",
       "functions": []
     },
     ".claude/memory/claude-code-equip-v3.4.md": {
       "action": "CREATE",
-      "brief": "Claude Code equip 记录 v3.4",
-      "purpose": "记录 Claude Code 技能装备和配置历史",
-      "detail": "22 领域技能安装记录",
+      "brief": "Claude Code 装备记录 v3.4",
+      "purpose": "记录 Claude Code 领域技能安装历史，方便回滚和重建",
+      "detail": "共安装 22 个领域技能（5 architecture + 10 implementation + 7 operations）",
+      "functions": []
+    },
+    ".claude/reference-snapshot.json": {
+      "action": "MODIFY",
+      "brief": "REFERENCE 目录快照",
+      "purpose": "记录 D:\\EWM ROBOT\\REFERENCE 目录下所有文件的 mtime+size，用于跨会话变更检测",
+      "detail": "停止钩子运行时自动更新，与每日简报的参考文档变更检测联动",
       "functions": []
     },
     ".claude/skills/architecture/vda-5050-adapter-design.md": {
       "action": "CREATE",
-      "brief": "VDA5050 适配器设计文档",
-      "purpose": "架构级设计文档",
-      "detail": "",
+      "brief": "VDA5050 适配器架构设计",
+      "purpose": "定义多品牌机器人统一接口规范（适配器模式）",
+      "detail": "涵盖 VDA5050 消息映射、品牌适配器接口、连接状态管理",
+      "functions": []
+    },
+    ".claude/skills/architecture/event-driven-outbox.md": {
+      "action": "CREATE",
+      "brief": "事件驱动 Outbox 模式",
+      "purpose": "确保 SAP 操作的可靠投递（发件箱模式+死信队列）",
+      "detail": "定义 outbox 表结构、worker 轮询、死信处理、幂等性保证",
+      "functions": []
+    },
+    ".claude/skills/architecture/node-red-data-boundary.md": {
+      "action": "CREATE",
+      "brief": "Node-RED 数据边界",
+      "purpose": "定义 Node-RED 流中数据隔离与类型约束规则",
+      "detail": "流间数据隔离、VDA5050 消息类型校验、上下文命名空间规范",
+      "functions": []
+    },
+    ".claude/skills/architecture/human-loop-notification-matrix.md": {
+      "action": "CREATE",
+      "brief": "人工介入通知矩阵",
+      "purpose": "定义异常场景下的人工升级通知策略",
+      "detail": "通知渠道分级（MQTT→WeChat→SMS→电话）、响应 SLA、升级时间表",
+      "functions": []
+    },
+    ".claude/skills/architecture/compliance-checklist.md": {
+      "action": "CREATE",
+      "brief": "合规检查清单",
+      "purpose": "物流行业标准（VDA5050、ISO 3691-4）合规对照",
+      "detail": "安全通信、数据隐私、功能安全、日志审计等合规条目",
+      "functions": []
+    },
+    ".claude/skills/implementation/node-red-lowcode-patterns.md": {
+      "action": "CREATE",
+      "brief": "Node-RED 低代码模式",
+      "purpose": "Node-RED 流开发最佳实践和常用模板",
+      "detail": "错误处理模式、子流复用、性能优化、测试策略",
+      "functions": []
+    },
+    ".claude/skills/implementation/schema-migration-automation.md": {
+      "action": "CREATE",
+      "brief": "数据库迁移自动化",
+      "purpose": "PostgreSQL 版本化数据库变更管理",
+      "detail": "迁移文件命名规范、前向/回滚脚本、CI/CD 集成",
+      "functions": []
+    },
+    ".claude/skills/implementation/robot-firmware-ota.md": {
+      "action": "CREATE",
+      "brief": "机器人固件 OTA 升级",
+      "purpose": "多品牌机器人远程固件升级策略",
+      "detail": "升级包分发、品牌差异处理、失败回滚、进度追踪",
+      "functions": []
+    },
+    ".claude/skills/implementation/data-masking-gateway.md": {
+      "action": "CREATE",
+      "brief": "数据脱敏网关",
+      "purpose": "坐标和订单信息脱敏保护",
+      "detail": "坐标偏移算法、字段级脱敏、审计日志",
+      "functions": []
+    },
+    ".claude/skills/implementation/nodered-debug-interpretation.md": {
+      "action": "CREATE",
+      "brief": "Node-RED 调试日志解析",
+      "purpose": "常见 Node-RED 运行时错误的快速定位指南",
+      "detail": "错误模式目录、调试步骤、监控告警配置",
+      "functions": []
+    },
+    ".claude/skills/implementation/physical-digital-friction.md": {
+      "action": "CREATE",
+      "brief": "物理-数字摩擦处理",
+      "purpose": "处理传感器数据偏差、通信延迟等物理世界与数字世界的差异",
+      "detail": "位置偏差补偿、时间戳校正、超时处理模式",
+      "functions": []
+    },
+    ".claude/skills/implementation/language-boundary-contract.md": {
+      "action": "CREATE",
+      "brief": "跨语言边界契约",
+      "purpose": "Python 后端与 Node-RED JS 引擎之间的接口规范",
+      "detail": "共享类型定义、序列化协议、异常传递约定",
       "functions": []
     },
     ".claude/skills/implementation/robot-api-deviation-tracking.md": {
       "action": "CREATE",
       "brief": "机器人 API 偏差追踪",
-      "purpose": "实现级技术文档",
-      "detail": "",
+      "purpose": "不同品牌机器人固件版本间 API 差异管理",
+      "detail": "偏差注册表、兼容性矩阵、适配器补偿策略",
+      "functions": []
+    },
+    ".claude/skills/implementation/flow-integrity-check.md": {
+      "action": "CREATE",
+      "brief": "流程完整性检查",
+      "purpose": "VDA5050 消息链路端到端审计机制",
+      "detail": "消息序列追踪、丢失检测、重播验证",
+      "functions": []
+    },
+    ".claude/skills/implementation/llm-exception-noise-reduction.md": {
+      "action": "CREATE",
+      "brief": "LLM 异常降噪",
+      "purpose": "减少 AI 日志中的误报，提升告警信噪比",
+      "detail": "异常分类、噪音模式识别、智能过滤规则",
+      "functions": []
+    },
+    ".claude/skills/operations/rescue-dashboard.md": {
+      "action": "CREATE",
+      "brief": "Rescue Dashboard 运维面板",
+      "purpose": "离线容灾监控面板设计与实现规范",
+      "detail": "Service Worker 离线缓存、E-Stop、实时位置、电池概览",
+      "functions": []
+    },
+    ".claude/skills/operations/docker-infra-patterns.md": {
+      "action": "CREATE",
+      "brief": "Docker 基础设施模式",
+      "purpose": "容器化部署的标准化模式",
+      "detail": "健康检查规范、资源限制、网络策略、日志驱动配置",
+      "functions": []
+    },
+    ".claude/skills/operations/notification-traffic-control.md": {
+      "action": "CREATE",
+      "brief": "通知流量控制",
+      "purpose": "MQTT 消息限流与优先级管理",
+      "detail": "令牌桶限流、消息优先级队列、背压处理",
+      "functions": []
+    },
+    ".claude/skills/operations/degradation-drill-sop.md": {
+      "action": "CREATE",
+      "brief": "降级演练 SOP",
+      "purpose": "故障模式下的降级切换标准操作流程",
+      "detail": "降级触发条件、切换步骤、恢复流程、演练模板",
+      "functions": []
+    },
+    ".claude/skills/operations/cost-budget-sentinel.md": {
+      "action": "CREATE",
+      "brief": "成本预算哨兵",
+      "purpose": "AI API Token 消耗监控与预算预警",
+      "detail": "Token 计数器、预算阈值、告警渠道",
+      "functions": []
+    },
+    ".claude/skills/operations/implementation-roadmap.md": {
+      "action": "CREATE",
+      "brief": "实施路线图",
+      "purpose": "功能实现的分阶段规划和依赖关系",
+      "detail": "阶段划分、依赖关系图、里程碑定义",
+      "functions": []
+    },
+    ".claude/skills/operations/nodered-git-workflow.md": {
+      "action": "CREATE",
+      "brief": "Node-RED Git 工作流",
+      "purpose": "Node-RED 流文件的版本管理与协作规范",
+      "detail": "流导出规范、分支策略、差异审查流程",
       "functions": []
     },
     "sql/init.sql": {
       "action": "MODIFY",
-      "brief": "数据库初始化脚本更新",
-      "purpose": "数据库表结构和初始化数据",
-      "detail": "",
+      "brief": "PostgreSQL 初始化脚本",
+      "purpose": "创建 outbox 表、机器人状态表、订单表等核心数据库对象",
+      "detail": "新增 VDA5050 消息序列号索引，优化 outbox 轮询查询性能",
       "functions": []
     },
     "nodered/settings.js": {
       "action": "MODIFY",
-      "brief": "Node-RED 设置更新",
-      "purpose": "Node-RED 运行配置",
-      "detail": "",
-      "functions": []
-    },
-    "watchdog/watchdog.py": {
-      "action": "MODIFY",
-      "brief": "Watchdog 监控脚本更新",
-      "purpose": "系统健康监控和自动恢复",
-      "detail": "",
-      "functions": []
-    },
-    "crontab.example": {
-      "action": "CREATE",
-      "brief": "Crontab 配置示例",
-      "purpose": "定时任务配置参考",
-      "detail": "",
-      "functions": []
-    },
-    ".claude/reference-snapshot.json": {
-      "action": "MODIFY",
-      "brief": "REFERENCE 目录快照更新",
-      "purpose": "REFERENCE 目录变更检测基线",
-      "detail": "",
+      "brief": "Node-RED 服务配置",
+      "purpose": "Node-RED 运行时核心配置（认证、存储、流路径）",
+      "detail": "更新 MQTT broker 连接地址，调整流文件持久化路径",
       "functions": []
     },
     "nodered/flows.json": {
       "action": "CREATE",
-      "brief": "Node-RED 流程配置",
-      "purpose": "Node-RED 可视化流定义",
-      "detail": "",
+      "brief": "Node-RED 流程定义",
+      "purpose": "VDA5050 消息路由、SAP 桥接逻辑的可视化编排",
+      "detail": "MQTT 入站→SAP OData 转换→状态回写的主流程",
+      "functions": []
+    },
+    "watchdog/watchdog.py": {
+      "action": "MODIFY",
+      "brief": "Watchdog 健康监控",
+      "purpose": "Docker 容器健康检查、自动恢复、异常告警",
+      "detail": "新增 Redis 内存监控，优化容器重启策略",
+      "functions": []
+    },
+    "crontab.example": {
+      "action": "CREATE",
+      "brief": "定时任务配置示例",
+      "purpose": "系统级定时任务参考：Watchdog 健康检查、日志轮转",
+      "detail": "每分钟 Watchdog 自检、每日日志归档、每周快照清理",
+      "functions": []
+    },
+    "dify/.env": {
+      "action": "CREATE",
+      "brief": "Dify 环境变量",
+      "purpose": "Dify LLM 应用的运行环境配置",
+      "detail": "包含 LLM API Key、数据库连接字符串、Redis 配置",
       "functions": []
     },
     "scripts/append-today-brief.ps1": {
       "action": "REWRITE",
-      "brief": "Daily brief 脚本 — 新增未跟踪文件检测",
-      "purpose": "修复了遗漏未跟踪文件的 bug",
-      "detail": "Added git ls-files --others --exclude-standard to capture untracked files",
+      "brief": "每日简报生成脚本",
+      "purpose": "从 git diff + context JSON + transcript 编译中文工作简报",
+      "detail": "新增 git ls-files --others 捕获未跟踪文件；gDetail/gBrief 优先读取 context JSON 的 detail/purpose/functions 字段生成详细功能说明",
       "functions": [
-        { "name": "gArea", "description": "Map file path to functional area" },
-        { "name": "MapPhase", "description": "Map file path to PLAN.md phase" },
-        { "name": "next-actions", "description": "Generate PLAN.md-aligned todo list from filesystem state" }
+        { "name": "gDetail", "description": "生成文件说明：先查 context JSON (detail+purpose+functions)，再走 path 模式匹配" },
+        { "name": "gBrief", "description": "生成文件分类标签" },
+        { "name": "gArea", "description": "映射文件到功能领域(A=基础设施,B=配置同步,C=测试,D=记忆,E=参考)" },
+        { "name": "MapPhase", "description": "映射文件到 PLAN.md 阶段" },
+        { "name": "next-actions", "description": "检查文件系统状态生成待办" }
       ]
     },
     ".claude/memory/auto-daily-brief.md": {
       "action": "MODIFY",
-      "brief": "Updated schema docs for context JSON",
-      "detail": "Added subSections field to phase schema",
+      "brief": "每日简报机制文档",
+      "purpose": "记录简报系统的工作流程和 today-session-context.json 的 schema 规范",
+      "detail": "新增 subSections phase 字段，REFERENCE 文档追踪说明",
       "functions": []
     }
   },
   "requests": [
-    { "title": "Fix daily brief missing untracked files", "detail": "today-session-context.json was stale + script git diff HEAD missed untracked files. Fixed by adding git ls-files --others --exclude-standard" }
+    { "title": "Fix daily brief missing untracked files", "detail": "today-session-context.json was stale + script git diff HEAD missed untracked files. Fixed by adding git ls-files --others --exclude-standard" },
+    { "title": "Enhance daily brief descriptions", "detail": "gDetail/gBrief now use context JSON fields (detail/purpose/functions) for rich descriptions" }
   ],
   "leftovers": [],
   "nextActions": [
-    "验证修复后每日简报能正确包含所有变更文件",
-    "继续 Phase 2 功能完整性开发"
+    "继续 Phase 2 功能完整性开发",
+    "移除非文件系统的阶段字段重复",
+    "验证停钩自动生成的简报质量"
   ]
 }

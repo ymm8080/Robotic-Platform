@@ -87,31 +87,107 @@ if ($cnt -eq 0 -and $refChangedCnt -eq 0) { exit 0 }
 
 # Helpers
 function gDetail($p,$a) {
+    # Use context JSON for rich descriptions (detail + purpose + functions)
+    if ($script:HC -and $script:SC -and $script:SC.files -and $script:SC.files.$p) {
+        $fe = $script:SC.files.$p
+        $parts = @()
+        if ($fe.detail) { $parts += $fe.detail }
+        if ($fe.purpose) { $parts += "目标: $($fe.purpose)" }
+        if ($fe.functions -and $fe.functions.Count -gt 0) {
+            $fnParts = @()
+            foreach ($fn in $fe.functions) {
+                $fnDesc = if ($fn.description) { "($($fn.description))" } else { "" }
+                $fnParts += "$($fn.name)$fnDesc"
+            }
+            $parts += "fn: $($fnParts -join ', ')"
+        }
+        if ($parts.Count -gt 0) {
+            $str = $parts -join " | "
+            if ($str.Length -gt 300) { $str = $str.Substring(0,297)+"..." }
+            return $str
+        }
+    }
+    # Fallback: path-based pattern matching with functional descriptions
     $n=[System.IO.Path]::GetFileName($p); $e=[System.IO.Path]::GetExtension($p).ToLower()
-    if ($n -eq ".gitignore") { return "Git 忽略规则更新" }; if ($n -eq ".env.example") { return "环境变量模板更新" }
-    if ($n -eq "package.json") { return "新增 playwright/dotenv 依赖和测试脚本" }
-    if ($n -eq "docker-compose.yml") { return "服务编排与端口配置调整" }
-    if ($n -eq "CLAUDE.md") { return "AI 项目配置同步至 v3.4" }
-    if ($n -eq "playwright.config.js") { return "5 Project 测试框架配置" }
-    if ($p -match 'sap-bridge/main\.py') { return "新增 health/ready/live 探针和机器人 API" }
-    if ($p -match 'sap-bridge/mqtt_publisher') { return "VDA5050 MQTT 发布器（QoS 1 + LWT）" }
-    if ($p -match 'sap-bridge/heartbeat') { return "Redis TTL 心跳监控" }
-    if ($p -match 'sap-bridge/') { return "SAP Bridge 服务组件" }
-    if ($p -match '\.claude/rules/|\.claude/skills/|\.claude/agents/') { return "AI 配置同步" }
-    if ($p -match '\.cursor/rules/') { return "新增 VDA5050/SAP 专用规则" }
-    if ($p -match '\.claude/settings\.json') { return "Hook 与记忆系统配置" }
-    if ($p -match '\.claude/settings\.local') { return "本地权限豁免配置" }
-    if ($p -match '\.claude/mcp\.json') { return "MCP 服务器注册" }
-    if ($p -match '\.clinerules') { return "Claude Code 规则同步" }
-    if ($p -match 'SESSION_STATUS') { return "项目状态追踪文件" }
-    if ($p -match 'transcript-logger|load-transcript|update-session|append-today|show-session') { return "会话管理与简报脚本" }
-    if ($p -match 'auto-daily-brief|today-session-context') { return "每日简报机制配置" }
-    if ($p -match 'e2e/pages') { return "Page Object 封装" }
-    if ($p -match 'e2e/fixtures') { return "5 个自定义 Fixture" }
+    if ($n -eq ".gitignore") { return "Git 忽略规则：排除 node_modules、secrets、.env 等" }
+    if ($n -eq ".env.example") { return "环境变量模板：SAP/REDIS/MQTT 凭据占位符" }
+    if ($n -eq "package.json") { return "NPM 依赖管理：playwright、dotenv 等" }
+    if ($p -eq "docker-compose.yml") { return "Docker 编排：MQTT/Redis/Postgres/Node-RED 服务" }
+    if ($n -eq "PLAN.md") { return "项目计划：10 阶段里程碑与任务分解" }
+    if ($p -eq "CLAUDE.md") { return "AI 项目配置：v3.4 同步" }
+    if ($p -eq ".clinerules") { return "Claude Code 规则同步" }
+    if ($p -match 'sap-bridge/main\.py') { return "SAP EWM 集成：OData/RFC + 探针 health/ready/live + 机器人 API" }
+    if ($p -match 'sap-bridge/mqtt_publisher') { return "VDA5050 MQTT 发布器：QoS 1 + LWT" }
+    if ($p -match 'sap-bridge/heartbeat') { return "心跳监控：Redis TTL 过期检测" }
+    if ($p -match 'sap-bridge/') { return "SAP Bridge 组件" }
+    if ($p -match '\.claude/rules/000-global-iron-rules') { return "全局铁律：AI 行为底线" }
+    if ($p -match '\.claude/rules/karpathy-guidelines') { return "Karpathy 指南：LLM 编码最佳实践" }
+    if ($p -match '\.claude/rules/') { return "AI 规则：领域专用约束" }
+    if ($p -match '\.claude/agents/') { return "AI 代理：专用子代理配置" }
+    if ($p -match '\.claude/skills/') {
+        $sn = $n -replace '\.md$',''
+        $dn = [System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($p))
+        switch -Wildcard ($sn) {
+            "vda-5050-adapter-design" { return "VDA5050 适配器架构：多品牌机器人统一接口" }
+            "event-driven-outbox" { return "Outbox 模式：发件箱持久化+死信队列" }
+            "node-red-data-boundary" { return "Node-RED 数据边界：流隔离与类型约束" }
+            "human-loop-notification-matrix" { return "人工通知矩阵：异常升级策略" }
+            "compliance-checklist" { return "合规清单：物流行业标准" }
+            "node-red-lowcode-patterns" { return "Node-RED 低代码：流模板与最佳实践" }
+            "schema-migration-automation" { return "DB 迁移自动化：版本化管理" }
+            "robot-firmware-ota" { return "机器人 OTA：远程固件升级" }
+            "data-masking-gateway" { return "数据脱敏：坐标/订单脱敏" }
+            "nodered-debug-interpretation" { return "Node-RED 调试：日志解析速查" }
+            "physical-digital-friction" { return "物理-数字摩擦：传感器偏差补偿" }
+            "language-boundary-contract" { return "跨语言契约：Python/JS 接口规范" }
+            "robot-api-deviation-tracking" { return "API 偏差追踪：品牌固件差异" }
+            "flow-integrity-check" { return "流程完整性：VDA5050 消息链路审计" }
+            "llm-exception-noise-reduction" { return "LLM 降噪：AI 日志过滤" }
+            "rescue-dashboard" { return "运维面板：离线监控+应急操作" }
+            "docker-infra-patterns" { return "Docker 模式：容器化部署规范" }
+            "notification-traffic-control" { return "通知流控：MQTT 限流+优先级" }
+            "degradation-drill-sop" { return "降级演练 SOP：故障切换" }
+            "cost-budget-sentinel" { return "成本哨兵：Token 消耗监控" }
+            "implementation-roadmap" { return "实施路线图：阶段规划" }
+            "nodered-git-workflow" { return "Node-RED Git：流文件版本管理" }
+            default { return "$dn 技能：$sn" }
+        }
+    }
+    if ($p -eq ".claude/settings.json") { return "Claude 配置：Hook、记忆、MCP" }
+    if ($p -eq ".claude/settings.local") { return "本地权限豁免" }
+    if ($p -eq ".claude/mcp.json") { return "MCP 注册：SAP Bridge/Dify/Node-RED" }
+    if ($p -eq ".claude/reference-snapshot.json") { return "REFERENCE 快照：变更检测基线" }
+    if ($p -match '\.claude/memory/') { return "记忆文件：跨会话项目知识" }
+    if ($p -match 'scripts/append-today-brief') { return "简报脚本：git diff+context JSON → 中文工作简报" }
+    if ($p -match 'scripts/') { return "辅助脚本" }
+    if ($p -match 'sql/init\.sql') { return "PostgreSQL 初始化：outbox/状态/索引" }
+    if ($p -match 'nodered/settings\.js') { return "Node-RED 配置：认证、存储、流路径" }
+    if ($p -match 'nodered/flows\.json') { return "Node-RED 流：可视化编排逻辑" }
+    if ($p -match 'watchdog/watchdog\.py') { return "健康监控：容器检查+自动恢复+告警" }
+    if ($p -match 'dashboard/src/App\.tsx') { return "React 主应用：路由+状态管理" }
+    if ($p -match 'dashboard/src/config\.ts') { return "Dashboard 配置：MQTT/API 端点" }
+    if ($p -match 'dashboard/src/components/RobotCard') { return "机器人卡片：实时状态+位置+电池" }
+    if ($p -match 'dashboard/src/components/RobotList') { return "机器人列表：多品牌概览" }
+    if ($p -match 'dashboard/src/components/RobotDetail') { return "机器人详情：深度展示" }
+    if ($p -match 'dashboard/src/components/TaskList') { return "任务列表：订单执行追踪" }
+    if ($p -match 'dashboard/src/components/OrderForm') { return "订单表单：新任务创建" }
+    if ($p -match 'dashboard/src/hooks/useMqtt') { return "MQTT Hook：实时订阅+状态同步" }
+    if ($p -match 'dashboard/src/types/vda5050') { return "VDA5050 类型：消息接口+枚举" }
+    if ($p -match 'dashboard/src/utils/format') { return "工具函数：坐标/时间格式化" }
+    if ($p -match 'dashboard/Dockerfile') { return "Dashboard 构建：Nginx 静态托管" }
+    if ($p -match 'dashboard/nginx\.default\.conf') { return "Nginx：SPA 路由+反向代理" }
+    if ($p -match 'dashboard/') { return "Dashboard 组件" }
+    if ($p -eq "dashboard/package.json") { return "Dashboard NPM 依赖" }
+    if ($p -eq "dashboard/vite.config.ts") { return "Vite 构建配置" }
+    if ($p -eq "dashboard/index.html") { return "Dashboard HTML 入口" }
+    if ($p -eq "dashboard/tsconfig.json") { return "TypeScript 编译器配置" }
+    if ($p -match 'mqtt/mosquitto\.conf') { return "MQTT Broker：1883+认证+ACL+持久化" }
     if ($p -match 'e2e/.*\.spec') { return "E2E 测试用例" }
-    if ($p -match 'e2e/global') { return "测试全局钩子" }
-    if ($p -match 'e2e/test-data') { return "测试数据" }
-    if ($p -match 'docs/playwright') { return "测试框架文档" }
+    if ($p -match 'e2e/pages/') { return "Page Object 封装" }
+    if ($p -match 'e2e/fixtures') { return "Fixture 夹具" }
+    if ($p -match 'playwright\.config') { return "Playwright 测试框架配置" }
+    if ($p -eq "crontab.example") { return "定时任务：健康检查+日志轮转" }
+    if ($p -match 'dify/\.env') { return "Dify 环境：LLM Key+数据库连接" }
     if ($p -match '^REFERENCE:') {
         $rp = $p -replace '^REFERENCE:', ''
         if ($rp -match 'sap/') { return "SAP 参考文档" }
@@ -127,6 +203,8 @@ function gDetail($p,$a) {
     return "功能优化"
 }
 function gBrief($p) {
+    # Context JSON first
+    if ($script:HC -and $script:SC -and $script:SC.files -and $script:SC.files.$p -and $script:SC.files.$p.brief) { return $script:SC.files.$p.brief }
     if ($p -match '\.claude/rules/') { return "AI 规则" }; if ($p -match '\.claude/skills/') { return "AI 技能" }; if ($p -match '\.claude/agents/') { return "AI 代理" }
     if ($p -match '\.cursor/rules/') { return "Cursor 规则" }; if ($p -match 'e2e/pages/') { return "Page Object" }; if ($p -match 'e2e/spec') { return "E2E 测试" }
     if ($p -match 'e2e/fixtures') { return "Fixture" }; if ($p -match 'sap-bridge/') { return "SAP Bridge" }; if ($p -match 'scripts/') { return "脚本" }
