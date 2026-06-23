@@ -337,6 +337,113 @@ async def worker_metrics(request: Request):
 
 
 # ──────────────────────────────────────────────
+# SAP EWM integration endpoints
+# ──────────────────────────────────────────────
+
+from services.ewm_warehouse_service import EwmWarehouseService, WarehouseTask
+from services.inventory_service import InventoryService
+
+_ewm_service = EwmWarehouseService()
+_inventory_service = InventoryService()
+
+
+@app.get("/api/v1/sap/tasks")
+async def list_sap_tasks(warehouse: str = "WM01", status: str = "0", top: int = 100):
+    """Fetch open warehouse tasks from SAP EWM."""
+    try:
+        tasks = _ewm_service.list_tasks(warehouse=warehouse, status=status, top=top)
+        return {
+            "tasks": [
+                {
+                    "warehouse": t.warehouse,
+                    "taskId": t.task_id,
+                    "product": t.product,
+                    "sourceBin": t.source_bin,
+                    "destBin": t.dest_bin,
+                    "targetQty": t.target_qty,
+                    "status": t.status,
+                    "batch": t.batch,
+                    "processType": t.process_type,
+                }
+                for t in tasks
+            ],
+            "count": len(tasks),
+        }
+    except PermissionError as e:
+        return JSONResponse(status_code=401, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": f"SAP connection failed: {str(e)}"})
+
+
+@app.get("/api/v1/sap/tasks/{task_id}")
+async def get_sap_task(task_id: str, warehouse: str = "WM01"):
+    """Get a single warehouse task by ID."""
+    task = _ewm_service.get_task(warehouse, task_id)
+    if task is None:
+        return JSONResponse(status_code=404, content={"error": "task_not_found"})
+    return {
+        "warehouse": task.warehouse,
+        "taskId": task.task_id,
+        "taskItem": task.task_item,
+        "product": task.product,
+        "sourceBin": task.source_bin,
+        "destBin": task.dest_bin,
+        "targetQty": task.target_qty,
+        "status": task.status,
+        "batch": task.batch,
+    }
+
+
+@app.post("/api/v1/sap/tasks/{task_id}/confirm")
+async def confirm_sap_task(task_id: str, warehouse: str = "WM01"):
+    """Confirm warehouse task completion in SAP."""
+    ok = _ewm_service.confirm_task(warehouse, task_id)
+    if not ok:
+        return JSONResponse(status_code=502, content={"error": "sap_confirm_failed"})
+    return {"status": "confirmed", "taskId": task_id}
+
+
+@app.post("/api/v1/sap/tasks/{task_id}/cancel")
+async def cancel_sap_task(task_id: str, warehouse: str = "WM01"):
+    """Cancel warehouse task in SAP."""
+    ok = _ewm_service.cancel_task(warehouse, task_id)
+    if not ok:
+        return JSONResponse(status_code=502, content={"error": "sap_cancel_failed"})
+    return {"status": "cancelled", "taskId": task_id}
+
+
+@app.get("/api/v1/sap/health")
+async def sap_health():
+    """SAP EWM connectivity health check."""
+    status = _ewm_service.check_connection()
+    return status
+
+
+@app.get("/api/v1/inventory/{product}")
+async def get_inventory(product: str, warehouse: str = "WM01"):
+    """Get cached stock for a product."""
+    qty = _inventory_service.get_stock(product, warehouse)
+    if qty is None:
+        return {"product": product, "warehouse": warehouse, "quantity": None, "cached": False}
+    return {"product": product, "warehouse": warehouse, "quantity": qty, "cached": True}
+
+
+@app.get("/api/v1/inventory")
+async def list_inventory(warehouse: str = "WM01"):
+    """Get all cached inventory for a warehouse."""
+    stock = _inventory_service.get_all_stock(warehouse)
+    return {"warehouse": warehouse, "items": stock, "count": len(stock)}
+
+
+@app.post("/api/v1/inventory/sync")
+async def sync_inventory(warehouse: str = "WM01"):
+    """Trigger inventory cache refresh from SAP."""
+    _inventory_service.clear_cache(warehouse)
+    _inventory_service.mark_synced()
+    return {"status": "synced", "warehouse": warehouse}
+
+
+# ──────────────────────────────────────────────
 # Internal helpers
 # ──────────────────────────────────────────────
 
