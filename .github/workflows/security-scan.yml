@@ -1,0 +1,38 @@
+# =============================================================================
+# Dependency security scan (weekly + PR)
+# =============================================================================
+name: Security Scan
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Weekly Monday 06:00 UTC
+  pull_request:
+    paths:
+      - "sap-bridge/requirements.txt"
+      - "dashboard/package.json"
+
+jobs:
+  pip-audit:
+    name: Python dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit
+      - run: pip-audit -r sap-bridge/requirements.txt --desc
+        continue-on-error: true
+
+  npm-audit:
+    name: Node.js dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: |
+          cd dashboard
+          npm audit --audit-level=high
+        continue-on-error: true
