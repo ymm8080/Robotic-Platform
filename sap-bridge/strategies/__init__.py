@@ -6,7 +6,7 @@ action execution, battery normalization, and brand-specific quirks.
 """
 
 from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
-from .registry import StrategyRegistry
+from .registry import StrategyRegistry, get_registry
 from .kuka import KukaStrategy
 from .mir import MirStrategy
 from .otto import OttoStrategy

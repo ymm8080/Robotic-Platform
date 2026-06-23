@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from mqtt_publisher import get_publisher
 from strategies import get_registry
-from queue import QueueWorker, DeadLetterHandler, PriorityQueue
+from dispatch_queue import QueueWorker, DeadLetterHandler, PriorityQueue
 
 # ──────────────────────────────────────────────
 # Logging

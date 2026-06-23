@@ -10,7 +10,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
-from ..models.order import WarehouseOrder, OrderType, OrderStatus, _now
+from models.order import WarehouseOrder, OrderType, OrderStatus, _now
 
 logger = logging.getLogger(__name__)
 

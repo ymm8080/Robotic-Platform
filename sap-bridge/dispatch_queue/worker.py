@@ -14,9 +14,10 @@ import threading
 import time
 from typing import Optional
 
-from ..models.order import OrderService, WarehouseOrder, OrderStatus
-from ..strategies import get_registry
-from ..mqtt_publisher import get_publisher
+from models.order import WarehouseOrder, OrderStatus
+from services.order_service import OrderService
+from strategies import get_registry
+from mqtt_publisher import get_publisher
 from .priority_queue import PriorityQueue
 from .deadletter import DeadLetterHandler
 

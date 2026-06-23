@@ -49,7 +49,7 @@ Thumbs.db
 
 # 测试
 test/
-tests/
+/tests/     # Only root-level, not subproject tests (e.g. sap-bridge/tests/)
 __pycache__/
 *.pyc
 .pytest_cache/
