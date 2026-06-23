@@ -1,0 +1,31 @@
+# MQTT ACL Rules v3.4
+# Format: topic [read|write|readwrite] <topic>
+# Pattern: user <username>
+# First-match wins
+
+# ── Admin: full access ──────────────────────────────────────────────────────
+user admin
+topic readwrite vda5050/#
+
+# ── SAP Bridge: publish orders + connection state ──────────────────────────
+user sap-bridge
+topic write vda5050/+/+/order
+topic write vda5050/+/+/connection
+topic readwrite vda5050/+/+/state
+
+# ── Watchdog: subscribe system health ───────────────────────────────────────
+user watchdog
+topic read system/#
+
+# ── Dashboard: subscribe all robot topics (read-only) ──────────────────────
+user dashboard
+topic read vda5050/+/+/state
+topic read vda5050/+/+/connection
+
+# ── Robots: read orders, write state ────────────────────────────────────────
+pattern read vda5050/%u/order
+pattern write vda5050/%u/state
+pattern write vda5050/%u/connection
+pattern write vda5050/%u/visualization
+
+# ── Deny all else (implicit) ────────────────────────────────────────────────

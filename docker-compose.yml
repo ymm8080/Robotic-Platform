@@ -247,6 +247,9 @@ services:
       - "127.0.0.1:9001:9001" # WebSocket 仅本机
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      # 🔐 生产环境：运行 scripts/setup-mqtt-auth.sh 后取消注释
+      # - ./mqtt/passwd:/mosquitto/config/passwd:ro
+      # - ./mqtt/acl:/mosquitto/config/acl:ro
       - mqtt-data:/mosquitto/data
       - mqtt-logs:/mosquitto/log
     networks:
