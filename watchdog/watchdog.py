@@ -75,6 +75,12 @@ DEFAULT_CONFIG = {
         'memory_oom': True,
         'checkpoint_stall': True,
     },
+    'llm': {
+        'daily_limit': 1000,
+        'hourly_limit': 100,
+        'block_duration': 3600,      # 超限后阻止调用时长（秒）
+        'warning_threshold': 0.85,    # 达到 85% 预警
+    },
     'feishu_templates': {
         'safe_mode': (
             "🔴 系统熔断保护\n"
@@ -105,6 +111,17 @@ DEFAULT_CONFIG = {
             "CPU: {cpu:.1f}%，内存: {memory:.1f}%，Checkpoint: {checkpoint}ms\n"
             "暂未达到限流阈值，但建议关注。"
         ),
+        'llm_warning': (
+            "🟡 LLM 调用预警\n"
+            "当前用量：每日 {daily_count}/{daily_limit}，每小时 {hourly_count}/{hourly_limit}\n"
+            "达到 {pct:.0f}% 限额，即将触发熔断。"
+        ),
+        'llm_blocked': (
+            "🔴 LLM 调用熔断\n"
+            "原因：{reason}\n"
+            "已自动阻止 Dify 调用，降级至规则模板。\n"
+            "如需恢复：`redis-cli DEL llm:blocked`"
+        ),
     }
 }
 
@@ -134,6 +151,8 @@ def load_config() -> Dict[str, Any]:
         'CHECKPOINT_THRESHOLD': ('thresholds', 'checkpoint_critical', int),
         'THROTTLE_RATE_MIN': ('throttle', 'min_rate', int),
         'NORMAL_RATE_DEFAULT': ('throttle', 'normal_rate_default', int),
+        'LLM_DAILY_LIMIT': ('llm', 'daily_limit', int),
+        'LLM_HOURLY_LIMIT': ('llm', 'hourly_limit', int),
     }
 
     for env_key, (section, key, cast_type) in env_mappings.items():
@@ -909,6 +928,59 @@ class WatchdogEngine:
 
         return cpu_ok and checkpoint_ok and memory_ok
 
+    def _check_llm_cost(self):
+        """LLM 调用成本熔断器：日限 1000 / 时 100，超限阻断"""
+        today = datetime.now(timezone.utc).strftime('%Y%m%d')
+        hour = datetime.now(timezone.utc).strftime('%Y%m%d%H')
+        daily_limit = CONFIG['llm']['daily_limit']
+        hourly_limit = CONFIG['llm']['hourly_limit']
+
+        daily_count = redis_client.get(f'llm:daily_count:{today}')
+        hourly_count = redis_client.get(f'llm:hourly_count:{hour}')
+        daily_count = int(daily_count) if daily_count else 0
+        hourly_count = int(hourly_count) if hourly_count else 0
+
+        already_blocked = redis_client.get('llm:blocked')
+        if already_blocked:
+            logger.warning(f"LLM blocked: {already_blocked} (daily={daily_count}/{daily_limit})")
+            return
+
+        reason = None
+        if daily_count >= daily_limit:
+            reason = f'LLM_DAILY_LIMIT ({daily_count}/{daily_limit})'
+        elif hourly_count >= hourly_limit:
+            reason = f'LLM_HOURLY_LIMIT ({hourly_count}/{hourly_limit})'
+
+        if reason:
+            redis_client.set('llm:blocked', reason, ex=CONFIG['llm']['block_duration'])
+            logger.critical(f"LLM cost fuse triggered: {reason}")
+            alerter.send(
+                title="LLM 调用熔断",
+                content=CONFIG['feishu_templates'].get('llm_blocked', ''),
+                level="fatal",
+                template_key='llm_blocked',
+                reason=reason,
+            )
+            return
+
+        warning_pct = CONFIG['llm']['warning_threshold']
+        daily_pct = daily_count / daily_limit if daily_limit > 0 else 0
+        hourly_pct = hourly_count / hourly_limit if hourly_limit > 0 else 0
+
+        if daily_pct >= warning_pct or hourly_pct >= warning_pct:
+            if alerter._should_alert('llm_warning', CONFIG['alert_cooldown']['resource_warning']):
+                pct = max(daily_pct, hourly_pct) * 100
+                logger.warning(f"LLM approaching limit: {daily_count}/{daily_limit} daily, {hourly_count}/{hourly_limit} hourly")
+                alerter.send(
+                    title="LLM 调用预警",
+                    content=CONFIG['feishu_templates'].get('llm_warning', ''),
+                    level="warning",
+                    template_key='llm_warning',
+                    daily_count=daily_count, daily_limit=daily_limit,
+                    hourly_count=hourly_count, hourly_limit=hourly_limit,
+                    pct=pct,
+                )
+
     def run_cycle(self):
         """单次巡检周期 - 完整决策逻辑"""
         # 1. 采集所有指标
@@ -1040,6 +1112,9 @@ class WatchdogEngine:
                     wal=snapshot.wal_size_mb
                 )
 
+        # [LLM] 成本熔断检查（日限 1000 / 时 100）
+        self._check_llm_cost()
+
         # 7. 恢复检测（连续多次正常才解除限流，防抖动）
         if self.throttle_active:
             if self._is_normal(snapshot):
@@ -1136,6 +1211,7 @@ def main():
     logger.info(f"   内存阈值: {CONFIG['thresholds']['memory_critical']}%")
     logger.info(f"   限流下限: {CONFIG['throttle']['min_rate']} 单/秒")
     logger.info(f"   飞书告警: {'已配置' if FEISHU_WEBHOOK_URL else '未配置'}")
+    logger.info(f"   LLM 日限: {CONFIG['llm']['daily_limit']} 次, 时限: {CONFIG['llm']['hourly_limit']} 次")
     logger.info("=" * 70)
 
     # 写入 PID 文件

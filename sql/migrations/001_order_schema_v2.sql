@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
     description TEXT
 );
 
-INSERT INTO schema_version (version, description)
+INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (2, 'Extended orders table: type, priority, source, robot_brand, robot_serial, payload, completed_at');
 
 COMMIT;

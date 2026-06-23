@@ -1,3 +1,14 @@
+---
+prompt_id: 001
+title: 生成极智嘉机器人 Sub-flow
+model_tested: Kimi K2.6, Claude Sonnet 4.6
+date: 2026-06-01
+version: 1.0
+input: {api_doc, brand_name, protocol_type}
+output: {subflow_json, node_config, error_handling}
+known_limitations: "MQTT QoS 2 支持需手动验证；极智嘉 RS8 区域锁 API 版本不统一需人工适配"
+---
+
 # Prompt: 生成极智嘉机器人 Sub-flow
 
 ## 输入

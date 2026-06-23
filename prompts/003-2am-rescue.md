@@ -1,3 +1,14 @@
+---
+prompt_id: 003
+title: 凌晨2点急救 — 系统停摆应急处理
+model_tested: Claude Sonnet 4.6, Kimi K2.6
+date: 2026-06-01
+version: 1.1
+input: {incident_description, symptoms}
+output: {safe_mode_command, diagnostic_commands, escalation_path}
+known_limitations: "假设 Node-RED 和 Docker 仍在运行；若宿主机 SSH 不可达无法使用此 prompt"
+---
+
 # Prompt: 凌晨2点急救
 
 ## 输入
