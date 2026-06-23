@@ -67,6 +67,13 @@
             "timeout": 15,
             "shell": "powershell",
             "statusMessage": "📝 Updating daily brief..."
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\generate-codebase-overview.ps1\"",
+            "timeout": 30,
+            "shell": "powershell",
+            "statusMessage": "📊 Generating codebase overview..."
           }
         ]
       }

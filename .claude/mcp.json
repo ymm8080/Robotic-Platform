@@ -41,6 +41,11 @@
       "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-brave-search"],
       "disabled": true,
       "note": "Get API key at https://brave.com/search/api/"
+    },
+    "playwright": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@playwright/mcp"],
+      "disabled": false
     }
   }
 }
