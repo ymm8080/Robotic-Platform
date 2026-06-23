@@ -227,7 +227,7 @@ function gArea($p) {
     return @{K="Z";N="其他"}
 }
 
-$areaOrder = @("A","B","C","D","E")
+$areaOrder = @("A","B","C","D","E","Z")
 
 # Build functional groups
 $areaGroups = @{}
@@ -384,6 +384,19 @@ if ($trivialCnt -gt 0) {
 $O.Add("## 关键文件速查"); $O.Add(""); $O.Add("| 用途 | 路径 |"); $O.Add("|------|------|")
 $kf=@{"开发总计划"="PLAN.md";"AI 项目配置"="CLAUDE.md";"AI 规则目录"=".claude/rules/";"Claude 项目设置"=".claude/settings.json"}
 foreach ($kv2 in $kf.Keys) { $O.Add(("| {0} | ``{1}`` |" -f $kv2, $kf[$kv2])) }; $O.Add("")
+
+# Tooling changes summary (from today-session-context.json requests)
+if ($script:HC -and $script:SC -and $script:SC.requests -and $script:SC.requests.Count -gt 0) {
+    $O.Add("## 工具变更摘要"); $O.Add("")
+    $O.Add("| 变更 | 说明 |"); $O.Add("|------|------|")
+    foreach ($req in $script:SC.requests) {
+        $t = $req.title
+        $d = if ($req.detail) { $req.detail.Substring(0, [Math]::Min($req.detail.Length, 200)) } else { "" }
+        if ($d.Length -ge 200) { $d += "..." }
+        $O.Add(("| {0} | {1} |" -f $t, $d))
+    }
+    $O.Add("")
+}
 
 # Next actions - intelligent from PLAN.md + project state (always generated)
 $O.Add("## 后续行动"); $O.Add("")

@@ -289,8 +289,10 @@
     }
   },
   "requests": [
-    { "title": "Fix daily brief missing untracked files", "detail": "today-session-context.json was stale + script git diff HEAD missed untracked files. Fixed by adding git ls-files --others --exclude-standard" },
-    { "title": "Enhance daily brief descriptions", "detail": "gDetail/gBrief now use context JSON fields (detail/purpose/functions) for rich descriptions" }
+    { "title": "修复：简报遗漏未跟踪文件", "detail": "git diff HEAD 看不到 ?? 状态的新文件（22个 skill + flows.json + crontab.example）。脚本新增 git ls-files --others --exclude-standard 补全" },
+    { "title": "增强：简报文件说明改用 detail+purpose+functions", "detail": "gDetail() 优先读 today-session-context.json 的 detail/purpose/functions 字段替代泛化标签；path 回退从 15 类扩展到 50+ 类" },
+    { "title": "修复：今日工作总览缺失 其他 分区", "detail": "areaOrder 缺少 Z (其他) 导致 nodered/settings.js, flows.json, watchdog, sql/init.sql 等 7 文件不在总览表" },
+    { "title": "新增：工具变更摘要 section", "detail": "每日简报新增「工具变更摘要」表格，渲染 today-session-context.json 的 requests 条目" }
   ],
   "leftovers": [],
   "nextActions": [
