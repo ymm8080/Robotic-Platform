@@ -85,17 +85,8 @@ module.exports = {
             password: process.env.NODE_RED_ADMIN_PASS || "$2a$08$zZWtXTja0fB1pzD4sHCMyOCMYz2Z6dNbM6tlbUCJYWp6J2p/ikDqG", // 默认密码 'admin'，生产必须修改
             permissions: "*"
         }],
-        // [Gap #9 修复] 等保三级密码复杂度校验
-        authenticate: function(username, password) {
-            // 密码复杂度检查：≥8位，含大小写+数字+特殊字符
-            const complexityRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
-            if (password && !complexityRegex.test(password)) {
-                console.warn(`[AUTH] 密码复杂度不足: ${username}`);
-                return false;
-            }
-            // 这里可接入外部认证（LDAP / TOTP），当前使用默认密码校验
-            return null; // null = 使用 Node-RED 默认密码校验
-        },
+        // Removed custom authenticate function - incompatible with Node-RED 3.x
+        // Node-RED uses built-in password check with bcrypt
         default: {
             permissions: "read"  // 默认只读，防止未授权修改
         }
@@ -195,7 +186,7 @@ module.exports = {
             editable: false  // 禁止编辑 palette（防止误安装恶意节点）
         },
         projects: {
-            enabled: true  // 强制启用 Projects 功能，确保 Git 集成
+            enabled: false  // 禁用 Projects（当前未使用 Git 版本化管理 flows）
         },
         // 导入导出保留但增加确认（通过前端代码实现，此处仅后端配置）
         menu: {
@@ -331,16 +322,16 @@ module.exports = {
         memory: {
             module: "memory"
         },
-        redis: {
-            module: "redis",
-            config: {
-                host: process.env.REDIS_HOST || "redis",
-                port: process.env.REDIS_PORT || 6379,
-                db: 0,
-                password: process.env.REDIS_PASSWORD || "robot-platform-redis",
-                prefix: "nodered-context:"
-            }
-        }
+        // redis: {
+        //     module: "redis",
+        //     config: {
+        //         host: process.env.REDIS_HOST || "redis",
+        //         port: process.env.REDIS_PORT || 6379,
+        //         db: 0,
+        //         password: process.env.REDIS_PASSWORD || "robot-platform-redis",
+        //         prefix: "nodered-context:"
+        //     }
+        // }
     },
 
     // --- 日志：结构化 + 审计合规 ---

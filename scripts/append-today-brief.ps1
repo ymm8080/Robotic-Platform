@@ -87,6 +87,10 @@ if ($cnt -eq 0 -and $refChangedCnt -eq 0) { exit 0 }
 
 # Helpers
 function gDetail($p,$a) {
+    # Cache for descriptions (avoid repeated file reads across area + phase grouping)
+    if (-not $script:gDetailCache) { $script:gDetailCache = @{} }
+    if ($script:gDetailCache.ContainsKey($p)) { return $script:gDetailCache[$p] }
+
     # Use context JSON for rich descriptions (detail + purpose + functions)
     if ($script:HC -and $script:SC -and $script:SC.files -and $script:SC.files.$p) {
         $fe = $script:SC.files.$p
@@ -104,8 +108,222 @@ function gDetail($p,$a) {
         if ($parts.Count -gt 0) {
             $str = $parts -join " | "
             if ($str.Length -gt 300) { $str = $str.Substring(0,297)+"..." }
-            return $str
+            $script:gDetailCache[$p] = $str; return $str
         }
+    }
+    # Content-aware description: read file content for meaningful summaries
+    $fullPath = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $R $p }
+    try {
+        if (Test-Path $fullPath) {
+            $ext = [System.IO.Path]::GetExtension($p).ToLower()
+            $fname = [System.IO.Path]::GetFileName($p)
+            $desc = $null
+            $isDockerfile = $fname -eq 'Dockerfile' -or $fname -like 'Dockerfile.*'
+            if ($isDockerfile) {
+                $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 10 -ErrorAction SilentlyContinue
+                $cmts = @()
+                foreach ($ln in $lines) {
+                    $t = $ln.Trim()
+                    if ($t -match '^#\s+(.+)') { $cmts += $Matches[1] }
+                }
+                if ($cmts.Count -gt 0) {
+                    $cStr = (($cmts -join ' ') -replace '\s+', ' ').Trim()
+                    if ($cStr.Length -gt 0) {
+                        if ($cStr.Length -gt 200) { $cStr = $cStr.Substring(0,197) + '...' }
+                        $desc = "Docker: $cStr"
+                    }
+                }
+            } elseif ($ext) {
+                switch ($ext) {
+                    { $_ -in '.js','.jsx','.ts','.tsx' } {
+                        $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 80 -ErrorAction SilentlyContinue
+                        $inBlock = $false; $blockParts = @()
+                        foreach ($ln in $lines) {
+                            $t = $ln.Trim()
+                            if ($t -match '^/\*\*') { $inBlock = $true; continue }
+                            if ($inBlock) {
+                                $clean = $t -replace '^\s*\*\s?', '' -replace '\*/$', ''
+                                if ($clean.Length -gt 0) { $blockParts += $clean }
+                                if ($t -match '\*/') { break }
+                            }
+                        }
+                        if ($blockParts.Count -gt 0) {
+                            $bStr = (($blockParts -join ' ') -replace '\s+', ' ').Trim()
+                            if ($bStr.Length -gt 0) { $desc = "${ext}: $bStr" }
+                        }
+                        if (-not $desc) {
+                            $topCmts = @()
+                            foreach ($ln in $lines) {
+                                $t = $ln.Trim()
+                                if ($t -match '^//\s?(.+)') { $topCmts += $Matches[1] }
+                                elseif ($t -and -not ($t -match '^//')) { break }
+                            }
+                            if ($topCmts.Count -gt 0) {
+                                $cStr = (($topCmts -join ' ') -replace '\s+', ' ').Trim()
+                                if ($cStr.Length -gt 0) { $desc = "${ext}: $cStr" }
+                            }
+                        }
+                        if (-not $desc) {
+                            $members = @()
+                            foreach ($ln in $lines) {
+                                if ($ln -match '^\s*export\s+(default\s+)?(function|class|const|let|var)\s+(\w+)') { $members += "导出:$($Matches[3])" }
+                                elseif ($ln -match '^\s*(async\s+)?function\s+(\w+)') { $members += "函:$($Matches[2])()" }
+                                elseif ($ln -match '^\s*class\s+(\w+)') { $members += "类:$($Matches[1])" }
+                            }
+                            if ($members.Count -gt 0) {
+                                $mStr = ($members -join ', ')
+                                if ($mStr.Length -gt 200) { $mStr = $mStr.Substring(0,197) + '...' }
+                                $desc = "${ext}: $mStr"
+                            }
+                        }
+                    }
+                    '.py' {
+                        $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 80 -ErrorAction SilentlyContinue
+                        $inDoc = $false; $docParts = @()
+                        foreach ($ln in $lines) {
+                            $t = $ln.Trim()
+                            if ($t -match '^"""') {
+                                if (-not $inDoc) {
+                                    $inDoc = $true
+                                    $remain = $t -replace '^"""', ''
+                                    if ($remain -and $remain -notmatch '^"""' -and $remain.Length -gt 0) { $docParts += $remain }
+                                } else {
+                                    $remain = $t -replace '"""$', ''
+                                    if ($remain.Length -gt 0) { $docParts += $remain }
+                                    break
+                                }
+                            } elseif ($inDoc) {
+                                if ($t -match '"""') {
+                                    $before = $t -replace '"""', ''
+                                    if ($before.Length -gt 0) { $docParts += $before }
+                                    break
+                                }
+                                $docParts += $t
+                            }
+                        }
+                        if ($docParts.Count -gt 0) {
+                            $docStr = (($docParts -join ' ') -replace '\s+', ' ').Trim()
+                            if ($docStr.Length -gt 0) {
+                                $desc = "Python: $docStr"
+                            }
+                        }
+                        if (-not $desc) {
+                            $members = @()
+                            foreach ($ln in $lines) {
+                                if ($ln -match '^\s*(async\s+)?def\s+(\w+)\s*\(') { $members += "函:$($Matches[2])()" }
+                                if ($ln -match '^\s*class\s+(\w+)') { $members += "类:$($Matches[1])" }
+                            }
+                            if ($members.Count -gt 0) {
+                                $mStr = ($members -join ', ')
+                                if ($mStr.Length -gt 200) { $mStr = $mStr.Substring(0,197) + '...' }
+                                $desc = "Python: $mStr"
+                            }
+                        }
+                    }
+                    '.json' {
+                        $fi2 = $null; try { $fi2 = Get-Item $fullPath -ErrorAction Stop } catch {}
+                        if ($fi2 -and $fi2.Length -le 1048576) {
+                            $raw = Get-Content $fullPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+                            if ($raw) {
+                                $json = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                                $jParts = @()
+                                if ($json -is [System.Array]) {
+                                    $tabs = @(); $names = @()
+                                    foreach ($node in ($json | Select-Object -First 200)) {
+                                        if ($node.type -eq 'tab' -and $node.label) { $tabs += $node.label }
+                                        elseif ($node.name) { $names += "$($node.type):$($node.name)" }
+                                    }
+                                    if ($tabs.Count -gt 0) { $jParts += "流: $($tabs -join ', ')" }
+                                    if ($names.Count -gt 0 -and $jParts.Count -eq 0) {
+                                        $nStr = $names | Select-Object -First 5
+                                        $jParts += "节点: $($nStr -join ', ')"
+                                    }
+                                    if ($jParts.Count -eq 0) { $jParts += "数组($($json.Count)项)" }
+                                } else {
+                                    $props = @(); if ($json.PSObject.Properties) { $props = $json.PSObject.Properties.Name }
+                                    if ($json.name) { $jParts += "名称: $($json.name)" }
+                                    if ($json.description) { $jParts += "描述: $($json.description)" }
+                                    if ($jParts.Count -eq 0 -and $props) {
+                                        $pStr = $props | Select-Object -First 8
+                                        $jParts += "键: $($pStr -join ', ')"
+                                    }
+                                }
+                                if ($jParts.Count -gt 0) {
+                                    $desc = "JSON: $($jParts -join '; ')"
+                                }
+                            }
+                        }
+                    }
+                    { $_ -in '.yaml','.yml' } {
+                        $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 30 -ErrorAction SilentlyContinue
+                        $topKeys = @()
+                        foreach ($ln in $lines) {
+                            if ($ln -notmatch '^\s*#' -and $ln -match '^(\w[\w-]*)\s*:') { $topKeys += $Matches[1] }
+                        }
+                        if ($topKeys.Count -gt 0) {
+                            $kStr = ($topKeys | Select-Object -First 10) -join ', '
+                            if ($kStr.Length -gt 150) { $kStr = $kStr.Substring(0,147) + '...' }
+                            $desc = "YAML: $kStr"
+                        }
+                    }
+                    '.mdc' {
+                        $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 20 -ErrorAction SilentlyContinue
+                        $afterFm = $false
+                        foreach ($ln in $lines) {
+                            if ($ln.Trim() -eq '---' -and -not $afterFm) { $afterFm = $true; continue }
+                            if ($ln.Trim() -eq '---' -and $afterFm) { $afterFm = $false; continue }
+                            if ($ln -match '^\s*description:\s*(.+)$') {
+                                $fmDesc = $Matches[1].Trim() -replace '^["'']|["'']$', ''
+                                if ($fmDesc.Length -gt 0) { $desc = "规则: $fmDesc"; break }
+                            }
+                        }
+                        if (-not $desc) {
+                            $afterFm2 = $false
+                            foreach ($ln in $lines) {
+                                if ($ln.Trim() -eq '---' -and -not $afterFm2) { $afterFm2 = $true; continue }
+                                if ($ln.Trim() -eq '---' -and $afterFm2) { $afterFm2 = $false; continue }
+                                if ($afterFm2 -and $ln -notmatch '^\s*$') {
+                                    $h = $ln.Trim() -replace '^#+\s*', ''
+                                    if ($h.Length -gt 0) { $desc = "规则: $h"; break }
+                                }
+                            }
+                        }
+                    }
+                    '.md' {
+                        $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 20 -ErrorAction SilentlyContinue
+                        foreach ($ln in $lines) {
+                            if ($ln -match '^#\s+(.+)$') { $desc = "文档: $($Matches[1].Trim())"; break }
+                            if ($ln -match '^##\s+(.+)$') { $desc = "文档: $($Matches[1].Trim())"; break }
+                        }
+                    }
+                    { $_ -in '.ps1','.sh','.bat' } {
+                        $lines = Get-Content $fullPath -Encoding UTF8 -TotalCount 10 -ErrorAction SilentlyContinue
+                        $cmts = @()
+                        foreach ($ln in $lines) {
+                            $t = $ln.Trim()
+                            if ($t -match '^#(.+)$') {
+                                $c = $Matches[1].Trim()
+                                if ($c -and $c -notmatch '^!') { $cmts += $c }
+                            }
+                        }
+                        if ($cmts.Count -gt 0) {
+                            $cStr = (($cmts -join ' ') -replace '\s+', ' ').Trim()
+                            if ($cStr.Length -gt 0) {
+                                if ($cStr.Length -gt 200) { $cStr = $cStr.Substring(0,197) + '...' }
+                                $desc = "脚本: $cStr"
+                            }
+                        }
+                    }
+                }
+            }
+            if ($desc) {
+                if ($desc.Length -gt 300) { $desc = $desc.Substring(0,297) + '...' }
+                $script:gDetailCache[$p] = $desc
+                return $desc
+            }
+        }
+    } catch {
+        # Silently fall through to pattern matching
     }
     # Fallback: path-based pattern matching with functional descriptions
     $n=[System.IO.Path]::GetFileName($p); $e=[System.IO.Path]::GetExtension($p).ToLower()
@@ -198,9 +416,21 @@ function gDetail($p,$a) {
         if ($a -eq "DELETE") { return "删除参考文档" }
         return "参考文档更新"
     }
-    if ($a -eq "CREATE") { return "新建文件" }
-    if ($a -eq "DELETE") { return "清理废弃文件" }
-    return "功能优化"
+    # Enhanced fallback with file context (extension + directory)
+    $ctxDir = [System.IO.Path]::GetDirectoryName($p)
+    $ctxParts = @()
+    if ($ctxDir -and $ctxDir.Trim('/') -ne '') {
+        $segments = $ctxDir.Trim('/').Split('/') | Select-Object -First 2
+        if ($segments) { $ctxParts += ($segments -join '/') }
+    }
+    if ($e -and $e -ne '') { $ctxParts += $e.TrimStart('.').ToUpper() }
+    $ctxPrefix = if ($ctxParts.Count -gt 0) { "[$($ctxParts -join ' / ')] " } else { "" }
+    if ($a -eq "CREATE") { $result = "${ctxPrefix}新建: $n" }
+    elseif ($a -eq "DELETE") { $result = "${ctxPrefix}清理: $n" }
+    else { $result = "${ctxPrefix}修改: $n" }
+    if ($result.Length -gt 300) { $result = $result.Substring(0,297) + '...' }
+    $script:gDetailCache[$p] = $result
+    return $result
 }
 function gBrief($p) {
     # Context JSON first

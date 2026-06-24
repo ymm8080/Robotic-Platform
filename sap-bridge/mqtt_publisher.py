@@ -139,7 +139,7 @@ class VDA5050Publisher:
         if rc != 0:
             logger.warning(f"MQTT unexpected disconnect (rc={rc})")
 
-    def _on_publish(self, client, userdata, mid):
+    def _on_publish(self, client, userdata, mid, reason_code=None, properties=None):
         logger.debug(f"MQTT publish confirmed (mid={mid})")
 
     # ── Helpers ────────────────────────────────
