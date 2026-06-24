@@ -53,7 +53,7 @@ jobs:
       - name: Ruff lint (sap-bridge)
         run: |
           cd sap-bridge
-          ruff check .
+          ruff check . --config ruff.toml
 
       - name: Ruff lint (scripts)
         run: |

@@ -24,6 +24,8 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
+          set -x  # Debug output
+
           # Determine what to diff
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE="origin/${{ github.base_ref }}"
@@ -31,39 +33,47 @@ jobs:
           else
             BASE="${{ github.event.before }}"
             HEAD="${{ github.sha }}"
+            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE="HEAD~1"
+            fi
           fi
 
-          DIFF=$(git diff "$BASE".."$HEAD" 2>/dev/null || git diff HEAD~1 HEAD)
+          git diff "$BASE".."$HEAD" > /tmp/pr_diff.txt 2>&1 || git diff HEAD~1 HEAD > /tmp/pr_diff.txt 2>&1
 
-          LINE_COUNT=$(echo "$DIFF" | wc -l)
-          if [ "$LINE_COUNT" -gt 8000 ]; then
-            DIFF=$(echo "$DIFF" | head -8000)
-            DIFF="$DIFF\n... (truncated)"
-          fi
-
-          if [ -z "$DIFF" ]; then
-            echo "No diff, skipping"
+          if [ ! -s /tmp/pr_diff.txt ]; then
+            echo "No diff found, skipping"
             exit 0
           fi
 
-          echo "$DIFF" > /tmp/pr_diff.txt
+          LINE_COUNT=$(wc -l < /tmp/pr_diff.txt)
+          if [ "$LINE_COUNT" -gt 8000 ]; then
+            head -8000 /tmp/pr_diff.txt > /tmp/pr_diff_trunc.txt
+            mv /tmp/pr_diff_trunc.txt /tmp/pr_diff.txt
+          fi
+
+          echo "Diff size: $LINE_COUNT lines"
 
           python3 << 'PYEOF'
-import json, urllib.request, os
+import json, urllib.request, os, sys
 
 with open('/tmp/pr_diff.txt') as f:
     diff = f.read()
+
+api_key = os.environ.get('DEEPSEEK_API_KEY', '')
+if not api_key:
+    print("ERROR: DEEPSEEK_API_KEY not set")
+    sys.exit(1)
 
 payload = json.dumps({
     "model": "deepseek-chat",
     "messages": [
         {
             "role": "system",
-            "content": "You are an expert code reviewer. Analyze the diff and provide concise, actionable review in Chinese. Focus on: 1) bugs 2) security 3) performance 4) style. Be specific with line numbers. If code looks good, say so briefly."
+            "content": "You are an expert code reviewer. Analyze the diff and provide concise, actionable review in Chinese. Focus on: 1) bugs 2) security 3) performance 4) style. Be specific with line numbers."
         },
         {
             "role": "user",
-            "content": f"Review this diff:\n\n{diff}"
+            "content": "Review this diff:\n\n" + diff
         }
     ],
     "max_tokens": 4096,
@@ -75,18 +85,24 @@ req = urllib.request.Request(
     data=payload,
     headers={
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"
+        "Authorization": f"Bearer {api_key}"
     }
 )
 try:
-    resp = json.loads(urllib.request.urlopen(req, timeout=60).read().decode("utf-8"))
-    review = resp["choices"][0]["message"]["content"]
+    resp = urllib.request.urlopen(req, timeout=120)
+    result = json.loads(resp.read().decode("utf-8"))
+    review = result["choices"][0]["message"]["content"]
     with open("review_output.md", "w") as f:
         f.write(review)
     print("Review generated successfully")
+except urllib.error.HTTPError as e:
+    print(f"HTTP Error: {e.code} {e.reason}")
+    body = e.read().decode("utf-8")
+    print(f"Response: {body[:500]}")
+    sys.exit(1)
 except Exception as e:
-    print(f"API call failed: {e}")
-    print("Check DEEPSEEK_API_KEY secret is set in GitHub repo settings")
+    print(f"Error: {e}")
+    sys.exit(1)
 PYEOF
 
       - name: Post review comment
@@ -95,17 +111,16 @@ PYEOF
           GH_TOKEN: ${{ github.token }}
         run: |
           REVIEW=$(cat review_output.md)
-          COMMENT="## 🤖 DeepSeek AI Review
+          COMMENT="## AI Code Review
 
 ${REVIEW}
 
 ---
-*Powered by DeepSeek API | [Config](/.github/workflows/deepseek-pr-review.yml)*"
+*Powered by DeepSeek API*"
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT"
-            echo "Posted as PR comment #${{ github.event.pull_request.number }}"
           else
             gh commit comment "${{ github.sha }}" --body "$COMMENT"
-            echo "Posted as commit comment on ${{ github.sha }}"
           fi
+          echo "Review posted successfully"
