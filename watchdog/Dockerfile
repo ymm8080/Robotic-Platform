@@ -1,31 +1,40 @@
-# SAP-EWM Watchdog v3.4 Dockerfile
-# 使用官方 Python 3.11 slim（禁止 Alpine，兼容 pyrfc 风格）
+# =============================================================================
+# SAP-EWM Watchdog v3.4 — Dockerfile
+# =============================================================================
+# Stage 1: docker CLI binary
+FROM docker:27-cli AS docker-cli
+
+# Stage 2: runtime
 FROM python:3.11-slim
 
 LABEL maintainer="robot-platform-team"
 LABEL version="v3.4"
-LABEL description="独立 Watchdog 进程：动态限流 + 致命熔断 + 安全模式"
+LABEL description="Watchdog: health monitoring + circuit breaker + safe mode"
 
-# 安装系统依赖（docker stats 需要 docker CLI）
-RUN apt-get update && apt-get install -y --no-install-recommends     docker.io     curl     && rm -rf /var/lib/apt/lists/*
+# Copy docker CLI binary from official image
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
-# 安装 Python 依赖
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# System deps: only curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# 应用代码（只读挂载，运行时从 docker-compose 卷映射）
+# Python deps
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# App
 WORKDIR /app
+COPY watchdog.py .
+COPY config.yaml .
 
-# 创建日志目录
 RUN mkdir -p /app/logs && chmod 755 /app/logs
 
-# 非 root 运行（安全加固）
+# Non-root
 RUN groupadd -r watchdog && useradd -r -g watchdog watchdog
-RUN usermod -aG docker watchdog  # 加入 docker 组，用于 docker stats
 USER watchdog
 
-# 健康检查：检查 PID 文件存在
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3     CMD python -c "import os, sys; sys.exit(0 if os.path.exists('/app/.watchdog.pid') else 1)"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import os,sys; sys.exit(0 if os.path.exists('/app/.watchdog.pid') else 1)"
 
-# 默认命令
 CMD ["python", "-u", "watchdog.py"]

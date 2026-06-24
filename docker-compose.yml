@@ -1,10 +1,10 @@
 # =============================================================================
-# SAP-EWM 机器人调度平台 Docker Compose (v3.4 封版 FINAL)
-# 包含：Node-RED + Redis + SAP-Bridge + Dify + MQTT + Nginx-Rescue + Watchdog + SQLite-Init + Docker-Socket-Proxy
+# SAP-EWM 机器人调度平台 Docker Compose (v3.4)
+# 包含：Node-RED + Redis + SAP-Bridge + Dify + MQTT + Nginx-Rescue + Watchdog
+#       + SQLite-Init + Docker-Socket-Proxy + Dashboard + Prometheus + Alertmanager + Grafana
 # 修复：日志爆盘防护 / SAP端口隔离 / Docker Socket权限降级 / Watchdog API绑定本机
 # 评审修正：锁定镜像版本 / named volume / Docker Secrets / 安全模式动态控制 / 健康检查对齐
 # =============================================================================
-version: "3.8"
 
 services:
   # ===========================================================================
@@ -72,9 +72,6 @@ services:
           memory: 256M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     # 🔴 修复1：Docker 日志爆盘防护
     logging:
       driver: json-file
@@ -113,9 +110,6 @@ services:
           memory: 64M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -126,18 +120,22 @@ services:
   # 3. SAP 桥接层（Python FastAPI + pyrfc）
   # ===========================================================================
   sap-bridge:
-    # 🟡 修正：生产环境使用预构建镜像（开发环境可取消注释 build 段）
-    # build:
-    #   context: ./sap-bridge
-    #   dockerfile: Dockerfile
-    image: python:3.11-slim
+    # 生产环境：使用 Dockerfile 构建可复现镜像
+    # 开发环境：volume mount 覆盖容器内 /app，重启即可生效
+    build:
+      context: ./sap-bridge
+      dockerfile: Dockerfile
+    image: robot-platform-sap-bridge:v3.4
     container_name: robot-platform-sap-bridge
     restart: unless-stopped
-    # 🔴 修复2：删除 ports 配置，仅依赖 Docker internal 网络
-    # Node-RED 通过 http://sap-bridge:8000 访问
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
+      # 🟡 开发环境启用 volume mount（覆盖 Dockerfile COPY）
+      # 生产环境注释掉以下 volume 行，使用纯镜像
       - ./sap-bridge:/app:ro
-      - sap-bridge-logs:/app/logs
+      # 🔧 WSL2 overlay2 只读 bug 临时绕过：日志写入容器内 /tmp/logs
+      # - sap-bridge-logs:/app/logs
       - ./sap-bridge/sapnwrfc.ini:/app/sapnwrfc.ini:ro
     environment:
       - TZ=UTC
@@ -179,9 +177,6 @@ services:
           memory: 128M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -192,7 +187,7 @@ services:
   # 4. Dify LLM 翻译层
   # ===========================================================================
   dify:
-    image: langgenius/dify-api:latest
+    image: langgenius/dify-api:1.12.0
     container_name: robot-platform-dify
     restart: unless-stopped
     ports:
@@ -225,9 +220,6 @@ services:
           memory: 512M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -241,10 +233,11 @@ services:
     image: eclipse-mosquitto:2
     container_name: robot-platform-mqtt
     restart: unless-stopped
-    ports:
-      # 🟡 修正：MQTT 端口仅绑定本机，禁止公网直接访问
-      - "127.0.0.1:1883:1883"
-      - "127.0.0.1:9001:9001" # WebSocket 仅本机
+    # 🟡 端口映射：宿主机已运行 Mosquitto 服务，Docker 内部使用容器网络通信
+    # 宿主机 MQTT 转发到 Docker 内部需手动配置 bridge
+    # ports:
+    #   - "127.0.0.1:1883:1883"
+    #   - "127.0.0.1:9001:9001" # WebSocket 仅本机
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       # 🔐 生产环境：运行 scripts/setup-mqtt-auth.sh 后取消注释
@@ -267,9 +260,6 @@ services:
           memory: 256M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -307,9 +297,6 @@ services:
           memory: 64M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -324,6 +311,7 @@ services:
     image: nodered/node-red:3.1.9
     container_name: robot-platform-sqlite-init
     restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
     volumes:
       - nodered-data:/data
       - ./sql/init.sql:/init.sql:ro
@@ -365,23 +353,23 @@ services:
     restart: unless-stopped
     environment:
       - TZ=UTC
-      CONTAINERS: 1    # 允许列出容器
-      STATS: 1         # 允许 docker stats
-      POST: 0          # 禁止创建容器
-      BUILD: 0         # 禁止构建镜像
-      EXEC: 0          # 禁止 exec 进入容器
-      IMAGES: 0        # 禁止操作镜像
-      NETWORKS: 0      # 禁止操作网络
-      VOLUMES: 0       # 禁止操作卷
-      SYSTEM: 0        # 禁止系统信息
-      TASKS: 0         # 禁止 Swarm 任务
-      SERVICES: 0      # 禁止 Swarm 服务
-      NODES: 0         # 禁止 Swarm 节点
-      SECRETS: 0       # 禁止管理 Secrets
-      CONFIGS: 0       # 禁止管理 Configs
-      DISTRIBUTION: 0  # 禁止 Registry 操作
-      PING: 1          # 允许 ping（健康检查）
-      VERSION: 1       # 允许版本查询
+      - CONTAINERS=1    # 允许列出容器
+      - STATS=1         # 允许 docker stats
+      - POST=0          # 禁止创建容器
+      - BUILD=0         # 禁止构建镜像
+      - EXEC=0          # 禁止 exec 进入容器
+      - IMAGES=0        # 禁止操作镜像
+      - NETWORKS=0      # 禁止操作网络
+      - VOLUMES=0       # 禁止操作卷
+      - SYSTEM=0        # 禁止系统信息
+      - TASKS=0         # 禁止 Swarm 任务
+      - SERVICES=0      # 禁止 Swarm 服务
+      - NODES=0         # 禁止 Swarm 节点
+      - SECRETS=0       # 禁止管理 Secrets
+      - CONFIGS=0       # 禁止管理 Configs
+      - DISTRIBUTION=0  # 禁止 Registry 操作
+      - PING=1          # 允许 ping（健康检查）
+      - VERSION=1       # 允许版本查询
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -398,9 +386,6 @@ services:
           memory: 32M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -471,9 +456,6 @@ services:
           memory: 64M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
     logging:
       driver: json-file
       options:
@@ -512,9 +494,116 @@ services:
           memory: 16M
       restart_policy:
         condition: unless-stopped
-        delay: 5s
-        max_attempts: 5
-        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 11. Prometheus — 指标采集 (scrapes SAP Bridge + Watchdog)
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: robot-platform-prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    depends_on:
+      sap-bridge:
+        condition: service_healthy
+      watchdog:
+        condition: service_started
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 12. Alertmanager — 告警路由 (Feishu/WeCom via Watchdog webhook)
+  # ===========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: robot-platform-alertmanager
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://localhost:9093"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 13. Grafana — 可视化仪表板 (provisioned dashboard + datasource)
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: robot-platform-grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - TZ=UTC
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml:ro
+      - ./monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/robot-platform.json:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
     logging:
       driver: json-file
       options:
@@ -538,6 +627,11 @@ volumes:
   sap-bridge-logs:
     driver: local
   watchdog-logs:
+    driver: local
+  # v3.4: 监控栈持久化
+  prometheus-data:
+    driver: local
+  grafana-data:
     driver: local
   # [v4.0] 迁移到 PostgreSQL 后取消注释
   # pg-data:

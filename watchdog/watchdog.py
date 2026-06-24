@@ -201,6 +201,7 @@ logger = logging.getLogger('watchdog')
 
 # PID 文件
 PID_FILE = '/app/.watchdog.pid'
+_start_time = time.time()
 
 # ==========================================
 # 数据类：健康快照
@@ -1150,7 +1151,15 @@ class WatchdogHTTPHandler(BaseHTTPRequestHandler):
         elif self.path == '/metrics':
             engine = self.server.engine
             snapshot = engine.last_snapshot
-            if snapshot:
+            if not snapshot:
+                self._send_json({'error': 'no snapshot yet'}, 503)
+                return
+
+            # Support both Prometheus text format and JSON
+            accept = self.headers.get('Accept', '')
+            if 'text/plain' in accept:
+                self._send_prometheus(snapshot, engine)
+            else:
                 self._send_json({
                     'watchdog_version': 'v3.4',
                     'safe_mode': engine.safe_mode_active,
@@ -1159,8 +1168,6 @@ class WatchdogHTTPHandler(BaseHTTPRequestHandler):
                     'throttle_rate': engine.throttle_rate,
                     'snapshot': snapshot.to_dict()
                 })
-            else:
-                self._send_json({'error': 'no snapshot yet'}, 503)
         elif self.path == '/snapshots':
             # 返回最近 10 条趋势
             try:
@@ -1171,6 +1178,77 @@ class WatchdogHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': str(e)}, 500)
         else:
             self._send_json({'error': 'not found'}, 404)
+
+    def _send_prometheus(self, snapshot: HealthSnapshot, engine):
+        """Send Prometheus text-format metrics."""
+        ts = int(time.time())
+        lines = [
+            "# HELP watchdog_info Watchdog version info",
+            "# TYPE watchdog_info gauge",
+            f'watchdog_info{{version="v3.4"}} 1 {ts}',
+            "",
+            "# HELP watchdog_safe_mode Safe mode active (1=active, 0=inactive)",
+            "# TYPE watchdog_safe_mode gauge",
+            f"watchdog_safe_mode {1 if engine.safe_mode_active else 0} {ts}",
+            "",
+            "# HELP watchdog_throttle_active Throttle active (1=active, 0=inactive)",
+            "# TYPE watchdog_throttle_active gauge",
+            f"watchdog_throttle_active {1 if engine.throttle_active else 0} {ts}",
+            "",
+            "# HELP watchdog_throttle_rate Current throttle rate (msg/s)",
+            "# TYPE watchdog_throttle_rate gauge",
+            f"watchdog_throttle_rate {engine.throttle_rate} {ts}",
+            "",
+            "# HELP watchdog_cpu_percent Node-RED CPU usage percent",
+            "# TYPE watchdog_cpu_percent gauge",
+            f"watchdog_cpu_percent {snapshot.cpu_percent} {ts}",
+            "",
+            "# HELP watchdog_memory_percent Node-RED memory usage percent",
+            "# TYPE watchdog_memory_percent gauge",
+            f"watchdog_memory_percent {snapshot.memory_percent} {ts}",
+            "",
+            "# HELP watchdog_checkpoint_ms Node-RED checkpoint latency ms",
+            "# TYPE watchdog_checkpoint_ms gauge",
+            f"watchdog_checkpoint_ms {snapshot.checkpoint_ms} {ts}",
+            "",
+            "# HELP watchdog_wal_size_mb SQLite WAL file size MB",
+            "# TYPE watchdog_wal_size_mb gauge",
+            f"watchdog_wal_size_mb {snapshot.wal_size_mb} {ts}",
+            "",
+            "# HELP watchdog_redis_memory_ratio Redis memory usage ratio",
+            "# TYPE watchdog_redis_memory_ratio gauge",
+            f"watchdog_redis_memory_ratio {snapshot.redis_memory_used / snapshot.redis_memory_max:.4f} {ts}" if snapshot.redis_memory_max > 0 else f"watchdog_redis_memory_ratio 0 {ts}",
+            "",
+            "# HELP watchdog_redis_evicted_keys Redis total evicted keys",
+            "# TYPE watchdog_redis_evicted_keys counter",
+            f"watchdog_redis_evicted_keys {snapshot.redis_evicted_keys} {ts}",
+            "",
+            "# HELP watchdog_nodered_status Node-RED health status (1=healthy, 0=unhealthy)",
+            "# TYPE watchdog_nodered_status gauge",
+            f"watchdog_nodered_status {1 if snapshot.nodered_status == 'healthy' else 0} {ts}",
+            "",
+            "# HELP watchdog_nodered_response_ms Node-RED health endpoint response ms",
+            "# TYPE watchdog_nodered_response_ms gauge",
+            f"watchdog_nodered_response_ms {snapshot.nodered_response_ms} {ts}",
+            "",
+            "# HELP watchdog_sap_bridge_status SAP Bridge health status (1=healthy, 0=unhealthy)",
+            "# TYPE watchdog_sap_bridge_status gauge",
+            f"watchdog_sap_bridge_status {1 if snapshot.sap_bridge_status == 'healthy' else 0} {ts}",
+            "",
+            "# HELP watchdog_mqtt_status MQTT broker health status (1=healthy, 0=unhealthy)",
+            "# TYPE watchdog_mqtt_status gauge",
+            f"watchdog_mqtt_status {1 if snapshot.mqtt_status == 'healthy' else 0} {ts}",
+            "",
+            "# HELP watchdog_uptime_seconds Watchdog process uptime",
+            "# TYPE watchdog_uptime_seconds counter",
+            f"watchdog_uptime_seconds {int(time.time() - _start_time)} {ts}",
+        ]
+        body = "\n".join([l for l in lines if l]) + "\n"
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
 
     def _send_json(self, data, status=200):
         self.send_response(status)
