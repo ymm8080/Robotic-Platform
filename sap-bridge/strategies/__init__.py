@@ -10,6 +10,9 @@ from .registry import StrategyRegistry, get_registry
 from .kuka import KukaStrategy
 from .mir import MirStrategy
 from .otto import OttoStrategy
+from .geekplus import GeekPlusStrategy
+from .hairobotics import HaiRoboticsStrategy
+from .quicktron import QuicktronStrategy
 
 __all__ = [
     "BaseStrategy",
@@ -20,4 +23,7 @@ __all__ = [
     "KukaStrategy",
     "MirStrategy",
     "OttoStrategy",
+    "GeekPlusStrategy",
+    "HaiRoboticsStrategy",
+    "QuicktronStrategy",
 ]

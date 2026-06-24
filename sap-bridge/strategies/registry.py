@@ -9,6 +9,9 @@ from .base import BaseStrategy
 from .kuka import KukaStrategy
 from .mir import MirStrategy
 from .otto import OttoStrategy
+from .geekplus import GeekPlusStrategy
+from .hairobotics import HaiRoboticsStrategy
+from .quicktron import QuicktronStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,7 @@ class StrategyRegistry:
 
     def _register_builtin(self):
         """Register all built-in brand strategies."""
-        for strategy in [KukaStrategy(), MirStrategy(), OttoStrategy()]:
+        for strategy in [KukaStrategy(), MirStrategy(), OttoStrategy(), GeekPlusStrategy(), HaiRoboticsStrategy(), QuicktronStrategy()]:
             self._strategies[strategy.brand.upper()] = strategy
             logger.info(f"Registered strategy: {strategy}")
 
