@@ -187,13 +187,13 @@ class BaseRobotSimulator:
             batt = self._state["batteryState"]
             batt["batteryCharge"] = max(0, batt["batteryCharge"] - random.uniform(0.1, 0.5))
 
-    def _on_connect(self, client, userdata, flags, rc):
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
         if rc == 0:
             logger.info(f"[{self.serial_number}] MQTT connected")
             self._client.subscribe(self._topic("order"), qos=0)
             self._client.subscribe(self._topic("instantActions"), qos=0)
 
-    def _on_disconnect(self, client, userdata, rc):
+    def _on_disconnect(self, client, userdata, rc, properties=None):
         logger.warning(f"[{self.serial_number}] MQTT disconnected (rc={rc})")
 
     def _on_message(self, client, userdata, msg):
