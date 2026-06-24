@@ -9,12 +9,13 @@ References:
   REFERENCE/05_reference/sap/error-code-matrix.md
 """
 
+import contextlib
 import logging
 import os
 import time
-from typing import Any, Optional
 
 from models.warehouse_task import WarehouseTask
+
 from .base import WarehouseBackend
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ TRANSFER_TYPE_MAP = {
 class WmBackend(WarehouseBackend):
     """SAP Classic WM (LE-WM) backend using RFC/BAPI via pyrfc."""
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: dict | None = None):
         self._cfg = config or {}
         self._conn_params = self._build_conn_params()
         self._last_conn = None
@@ -122,10 +123,8 @@ class WmBackend(WarehouseBackend):
 
     def _close_connection(self):
         if self._last_conn is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._last_conn.close()
-            except Exception:
-                pass
             self._last_conn = None
 
     def _call_rfc(self, func_name: str, **params) -> dict:
@@ -198,7 +197,7 @@ class WmBackend(WarehouseBackend):
 
         return tasks[skip:skip + top]
 
-    def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> Optional[WarehouseTask]:
+    def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
         """Get a single transfer order by number."""
         try:
             result = self._call_rfc(
@@ -218,7 +217,7 @@ class WmBackend(WarehouseBackend):
             logger.error(f"Failed to get WM task {task_id}: {e}")
             return None
 
-    def create_task(self, task: WarehouseTask) -> Optional[WarehouseTask]:
+    def create_task(self, task: WarehouseTask) -> WarehouseTask | None:
         """Create a new transfer order via L_TO_CREATE_SINGLE."""
         bwlvs = task.movement_type or "999"
         trart = task.transfer_type or self._derive_transfer_type(task.task_type)
@@ -383,7 +382,7 @@ class WmBackend(WarehouseBackend):
         return default
 
     @staticmethod
-    def _get_source_type_prefix(bin_id: Optional[str]) -> str:
+    def _get_source_type_prefix(bin_id: str | None) -> str:
         """Extract storage type prefix from bin ID (first 3 chars)."""
         if not bin_id or len(bin_id) < 3:
             return "001"

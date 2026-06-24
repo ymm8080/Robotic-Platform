@@ -8,7 +8,6 @@ Usage:
 
 import logging
 import os
-from typing import Optional
 
 import yaml
 
@@ -59,7 +58,7 @@ class WarehouseBackendFactory:
             logger.error(f"Failed to load config: {e}")
             self._config = {}
 
-    def get_backend(self, warehouse_id: str) -> Optional[WarehouseBackend]:
+    def get_backend(self, warehouse_id: str) -> WarehouseBackend | None:
         """Get (or create) backend for a warehouse.
 
         Caches backend instances per warehouse — the same warehouse always
@@ -98,7 +97,7 @@ class WarehouseBackendFactory:
         warehouses = self._config.get("sap", {}).get("warehouses", {})
         return list(warehouses.keys())
 
-    def get_warehouse_config(self, warehouse_id: str) -> Optional[dict]:
+    def get_warehouse_config(self, warehouse_id: str) -> dict | None:
         """Get raw config dict for a warehouse."""
         warehouses = self._config.get("sap", {}).get("warehouses", {})
         return warehouses.get(warehouse_id)
@@ -122,7 +121,7 @@ class WarehouseBackendFactory:
 
 # ── Module-level singleton ─────────────────────────────────
 
-_factory: Optional[WarehouseBackendFactory] = None
+_factory: WarehouseBackendFactory | None = None
 
 
 def get_factory(config_path: str = DEFAULT_CONFIG_PATH) -> WarehouseBackendFactory:
@@ -133,6 +132,6 @@ def get_factory(config_path: str = DEFAULT_CONFIG_PATH) -> WarehouseBackendFacto
     return _factory
 
 
-def get_backend_for(warehouse_id: str) -> Optional[WarehouseBackend]:
+def get_backend_for(warehouse_id: str) -> WarehouseBackend | None:
     """Convenience: get backend for a warehouse from the singleton factory."""
     return get_factory().get_backend(warehouse_id)

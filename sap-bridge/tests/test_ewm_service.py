@@ -1,7 +1,7 @@
 """Tests for EWM backend — SAP OData integration."""
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ── Fixture for EWM backend with Redis mocked ─────────────────────────
 

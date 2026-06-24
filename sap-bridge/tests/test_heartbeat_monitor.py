@@ -1,7 +1,8 @@
 """Tests for HeartbeatMonitor — MQTT message parsing, Redis storage."""
 import json
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestHeartbeatMonitor:
@@ -69,11 +70,13 @@ class TestHeartbeatMonitor:
 
         monitor._on_message(None, None, msg)
 
-        # Verify Redis was called
-        assert monitor.redis_client.hset.called
-        call_kwargs = monitor.redis_client.hset.call_args[1] if len(
-            monitor.redis_client.hset.call_args) > 1 else monitor.redis_client.hset.call_args[0]
-        # Either way, hset was called
+        # Verify Redis stored the state message fields
+        monitor.redis_client.hset.assert_called_once()
+        call_kwargs = monitor.redis_client.hset.call_args[1]
+        assert "mapping" in call_kwargs, "hset should have been called with mapping= kwarg"
+        mapping = call_kwargs["mapping"]
+        assert mapping["state"] == "MOVING"
+        assert mapping["battery"] == "85"
         assert monitor.redis_client.expire.called
 
     def test_on_message_invalid_json(self, monitor):

@@ -1,7 +1,7 @@
 """Tests for robot brand strategies."""
-import json
 import pytest
-from strategies.base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
+
+from strategies.base import BaseStrategy, BatteryInfo, RobotState
 from strategies.kuka import KukaStrategy
 from strategies.mir import MirStrategy
 from strategies.otto import OttoStrategy
@@ -270,14 +270,15 @@ class TestStrategyRegistry:
 
     def test_register_custom(self, registry):
         """Can register custom strategies."""
-        from strategies.base import BaseStrategy, RobotState, BatteryInfo
+        from strategies.base import BaseStrategy
 
         class CustomStrategy(BaseStrategy):
             @property
             def brand(self): return "CUSTOM"
             @property
             def supported_versions(self): return ["2.0.0"]
-            def handle_state(self, state): return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
+            def handle_state(self, state):
+                return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
             def normalize_battery(self, raw): return BatteryInfo(percent=100)
 
         registry.register(CustomStrategy())
@@ -293,13 +294,14 @@ class TestStrategyRegistry:
 
     def test_double_register_same_brand(self, registry):
         count = registry.count()
-        from strategies.base import BaseStrategy, RobotState, BatteryInfo
+        from strategies.base import BaseStrategy
         class DupStrategy(BaseStrategy):
             @property
             def brand(self): return "KUKA"
             @property
             def supported_versions(self): return ["2.0.0"]
-            def handle_state(self, state): return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
+            def handle_state(self, state):
+                return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
             def normalize_battery(self, raw): return BatteryInfo(percent=100)
         registry.register(DupStrategy())
         assert registry.count() == count
@@ -344,7 +346,12 @@ class TestBaseStrategyUtils:
         assert kuka.validate_state_transition("INIT", "MOVING") is False
 
     def test_extract_position_normal(self, kuka):
-        pos = kuka.extract_position({"agvPosition": {"x": 1.0, "y": 2.0, "theta": 3.0, "lastNodeId": "N1", "positionInitialized": True}})
+        pos = kuka.extract_position({
+            "agvPosition": {
+                "x": 1.0, "y": 2.0, "theta": 3.0,
+                "lastNodeId": "N1", "positionInitialized": True,
+            },
+        })
         assert pos["x"] == 1.0
 
     def test_extract_position_empty(self, kuka):

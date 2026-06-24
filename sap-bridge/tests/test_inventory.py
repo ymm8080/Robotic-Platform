@@ -1,6 +1,7 @@
 """Tests for Inventory Service — SAP stock cache with Redis."""
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestInventoryService:

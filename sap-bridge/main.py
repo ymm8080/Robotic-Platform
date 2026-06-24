@@ -3,23 +3,29 @@ SAP EWM / WM Robot Dispatch Platform — SAP Bridge Main Application
 Python FastAPI + pyrfc service for multi-warehouse SAP integration.
 Supports both SAP EWM (OData) and SAP Classic WM (RFC) via backend abstraction.
 """
-import os
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
+from metrics import (
+    MetricsMiddleware,
+    deadletter_unresolved,
+    metrics_response,
+    mqtt_connected,
+    orders_completed,
+    orders_created,
+    orders_failed,
+    queue_depth,
+    redis_connected,
+    sap_connected,
+)
 from mqtt_publisher import get_publisher
 from strategies import get_registry
-from dispatch_queue import QueueWorker, DeadLetterHandler, PriorityQueue
-from metrics import (
-    MetricsMiddleware, metrics_response,
-    mqtt_connected, redis_connected, sap_connected,
-    orders_created, orders_completed, orders_failed,
-    queue_depth, deadletter_unresolved,
-)
 
 # ──────────────────────────────────────────────
 # Logging
@@ -119,8 +125,9 @@ async def metrics():
 @app.get("/api/v1/robots/status")
 async def robot_status():
     """Return all connected robots' status from Redis, normalized by brand strategy."""
-    import redis
     import json as json_mod
+
+    import redis
     r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/1"), decode_responses=True)
     keys = r.keys("robot:connection:*")
     registry = get_registry()
@@ -177,8 +184,8 @@ async def list_strategies():
 # Order API (via OrderService + MQTT publish)
 # ──────────────────────────────────────────────
 
+from models.order import OrderStatus, OrderType, WarehouseOrder
 from services import OrderService
-from models.order import WarehouseOrder, OrderType, OrderStatus
 
 _order_service = OrderService()
 
@@ -400,8 +407,6 @@ async def batch_metrics():
 
 
 from backends.factory import get_backend_for, get_factory
-from backends.ewm_backend import EwmBackend
-from models.warehouse_task import WarehouseTask
 from services.inventory_service import InventoryService
 
 _inventory_service = InventoryService()

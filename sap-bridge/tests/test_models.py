@@ -1,6 +1,5 @@
 """Tests for order data models."""
-import pytest
-from models.order import WarehouseOrder, OrderType, OrderStatus
+from models.order import OrderStatus, OrderType, WarehouseOrder
 
 
 class TestWarehouseOrder:

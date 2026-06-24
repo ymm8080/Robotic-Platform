@@ -1,5 +1,6 @@
 """Tests for Metrics module — metric registration, labels, response."""
 import importlib
+
 import pytest
 
 # Check if prometheus_client is available
@@ -13,10 +14,18 @@ class TestMetricsRegistry:
     """Metrics are registered as module-level objects with correct names."""
 
     def test_metrics_module_imports(self):
-        from metrics import (orders_created, orders_completed, orders_failed,
-                             mqtt_connected, redis_connected, sap_connected,
-                             queue_depth, deadletter_unresolved,
-                             http_requests, uptime)
+        from metrics import (
+            deadletter_unresolved,
+            http_requests,
+            mqtt_connected,
+            orders_completed,
+            orders_created,
+            orders_failed,
+            queue_depth,
+            redis_connected,
+            sap_connected,
+            uptime,
+        )
         assert "sap_bridge_orders_created" in str(orders_created._name)
         assert "sap_bridge_orders_completed" in str(orders_completed._name)
         assert "sap_bridge_orders_failed" in str(orders_failed._name)
@@ -54,7 +63,7 @@ class TestMetricsMiddleware:
         http_requests.labels(method="GET", path="/health", status="200").inc(5)
 
     def test_gauges_set_values(self):
-        from metrics import mqtt_connected, redis_connected, queue_depth, deadletter_unresolved, sap_connected
+        from metrics import deadletter_unresolved, mqtt_connected, queue_depth, redis_connected, sap_connected
         mqtt_connected.set(1)
         redis_connected.set(0)
         sap_connected.set(1)

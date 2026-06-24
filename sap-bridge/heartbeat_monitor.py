@@ -6,8 +6,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 import redis
@@ -78,7 +77,7 @@ class HeartbeatMonitor:
             logger.warning(f"Invalid JSON from {msg.topic}")
             return
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         if topic_type == "connection":
             state = payload.get("state", "UNKNOWN")

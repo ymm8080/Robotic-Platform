@@ -1,9 +1,11 @@
 """Tests for OrderService with SQLite persistence."""
 import os
-import pytest
 import sqlite3
 import tempfile
-from models.order import WarehouseOrder, OrderType, OrderStatus
+
+import pytest
+
+from models.order import OrderStatus, OrderType, WarehouseOrder
 from services.order_service import OrderService
 
 

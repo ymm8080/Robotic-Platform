@@ -7,19 +7,17 @@ Features:
 - Max 5 retries, then deadletter
 - Crash recovery via processing set
 """
-import json
 import logging
-import os
 import threading
 import time
-from typing import Optional
 
-from models.order import WarehouseOrder, OrderStatus
+from models.order import OrderStatus, WarehouseOrder
+from mqtt_publisher import get_publisher
 from services.order_service import OrderService
 from strategies import get_registry
-from mqtt_publisher import get_publisher
-from .priority_queue import PriorityQueue
+
 from .deadletter import DeadLetterHandler
+from .priority_queue import PriorityQueue
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +40,7 @@ class QueueWorker:
         self._publisher = get_publisher()
         self._registry = get_registry()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._retry_count: dict[str, int] = {}  # order_no → retry count
         self._backoff_until: dict[str, float] = {}  # order_no → timestamp
         self._dispatch_callback = None  # For middleware/hooks

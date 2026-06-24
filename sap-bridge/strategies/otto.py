@@ -4,7 +4,8 @@ VDA5050 v2.0.0 — battery in millivolts, custom charging state.
 Reference: REFERENCE/05_reference/protocols/vda5050/vda5050-state-machine.md
 """
 import math
-from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
+
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
 
 # OTTO 1500 battery curve: millivolts → approximate percentage (LiFePO4)
 # Typical ranges: 48.0V (empty) → 54.6V (full) for a 48V nominal pack
@@ -51,10 +52,7 @@ class OttoStrategy(BaseStrategy):
             status = "MOVING"
         elif state.get("actionStates"):
             running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
-            if running:
-                status = "EXECUTING"
-            else:
-                status = "IDLE"
+            status = "EXECUTING" if running else "IDLE"
         else:
             status = "IDLE"
 

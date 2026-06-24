@@ -1,11 +1,10 @@
 """Tests for QueueWorker — dispatch logic, retry, backoff, deadletter."""
-import json
 import os
-import time
-import tempfile
-import pytest
 import sqlite3
+import tempfile
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _create_tables(db_path):
@@ -114,8 +113,8 @@ class TestQueueWorkerDispatch:
     """Dispatch logic with mocked MQTT."""
 
     def _make_order(self, db, order_no, brand="KUKA", serial="KMR-001"):
-        from services.order_service import OrderService
         from models.order import WarehouseOrder
+        from services.order_service import OrderService
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no=order_no, robot_brand=brand, robot_serial=serial))
         return svc.get_order(order_no)
@@ -157,7 +156,7 @@ class TestQueueWorkerDispatch:
             callback.assert_called_once()
 
     def test_handle_failure_deadletters_at_max(self, db):
-        from dispatch_queue.worker import QueueWorker, MAX_RETRIES
+        from dispatch_queue.worker import MAX_RETRIES, QueueWorker
         order = self._make_order(db, "DL-001")
 
         with patch("dispatch_queue.worker.get_publisher"):
@@ -167,7 +166,7 @@ class TestQueueWorkerDispatch:
             assert worker._metrics["deadlettered"] >= 1
 
     def test_handle_failure_retries_before_max(self, db):
-        from dispatch_queue.worker import QueueWorker, MAX_RETRIES
+        from dispatch_queue.worker import QueueWorker
         order = self._make_order(db, "RETRY-001")
 
         with patch("dispatch_queue.worker.get_publisher"):

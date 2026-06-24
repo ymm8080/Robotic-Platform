@@ -7,12 +7,13 @@ Tests the full flow:
 Requires: pytest, pytest-asyncio, httpx
 Optional: Redis (tests skip if unavailable)
 """
-import os
 import json
-import tempfile
-import pytest
+import os
 import sqlite3
-from unittest.mock import patch, MagicMock, PropertyMock
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Set DB_PATH before any module imports so order_service reads it at load time
 _db_path = tempfile.mktemp(suffix=".db")
@@ -33,7 +34,7 @@ def setup_db():
 
     conn = sqlite3.connect(_db_path)
     for sql_file in [init_sql, mig_001, mig_002]:
-        with open(sql_file, "r", encoding="utf-8") as f:
+        with open(sql_file, encoding="utf-8") as f:
             conn.executescript(f.read())
     conn.commit()
     conn.close()
@@ -54,8 +55,8 @@ class TestOrderLifecycleE2E:
 
     def test_full_lifecycle(self, setup_db):
         """CRÉATED → ASSIGNED → IN_PROGRESS → COMPLETED with all fields."""
+        from models.order import OrderStatus, OrderType, WarehouseOrder
         from services.order_service import OrderService
-        from models.order import WarehouseOrder, OrderType, OrderStatus
 
         svc = OrderService()
 
@@ -100,8 +101,8 @@ class TestOrderLifecycleE2E:
 
     def test_idempotent_create_duplicate(self, setup_db):
         """Creating duplicate order_no should not raise — VDA5050 idempotency."""
-        from services.order_service import OrderService
         from models.order import WarehouseOrder
+        from services.order_service import OrderService
 
         svc = OrderService()
         order1 = svc.create_order(WarehouseOrder(order_no="E2E-IDEMP-001"))
@@ -112,8 +113,8 @@ class TestOrderLifecycleE2E:
 
     def test_cancel_created_order(self, setup_db):
         """CREATED → CANCELLED."""
+        from models.order import OrderStatus, WarehouseOrder
         from services.order_service import OrderService
-        from models.order import WarehouseOrder, OrderStatus
 
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no="E2E-CANCEL-001"))
@@ -122,8 +123,8 @@ class TestOrderLifecycleE2E:
 
     def test_cannot_cancel_in_progress(self, setup_db):
         """IN_PROGRESS → cancel returns None (must fail or suspend first)."""
-        from services.order_service import OrderService
         from models.order import WarehouseOrder
+        from services.order_service import OrderService
 
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no="E2E-NOCANCEL-001"))
@@ -134,8 +135,8 @@ class TestOrderLifecycleE2E:
 
     def test_fail_with_reason(self, setup_db):
         """IN_PROGRESS → FAILED with error message."""
-        from services.order_service import OrderService, OrderStatus
         from models.order import WarehouseOrder
+        from services.order_service import OrderService, OrderStatus
 
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no="E2E-FAIL-001"))
@@ -147,8 +148,8 @@ class TestOrderLifecycleE2E:
 
     def test_suspend_and_retry(self, setup_db):
         """IN_PROGRESS → SUSPENDED → re-assign → IN_PROGRESS."""
-        from services.order_service import OrderService, OrderStatus
         from models.order import WarehouseOrder
+        from services.order_service import OrderService, OrderStatus
 
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no="E2E-SUSPEND-001"))
@@ -162,8 +163,8 @@ class TestOrderLifecycleE2E:
 
     def test_version_optimistic_locking(self, setup_db):
         """Concurrent updates: second write with stale version skips ahead."""
+        from models.order import OrderStatus, WarehouseOrder
         from services.order_service import OrderService
-        from models.order import WarehouseOrder, OrderStatus
 
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no="E2E-LOCK-001"))
@@ -188,8 +189,8 @@ class TestOrderLifecycleE2E:
 
     def test_list_orders_pagination(self, setup_db):
         """List with limit/offset."""
-        from services.order_service import OrderService
         from models.order import WarehouseOrder
+        from services.order_service import OrderService
 
         svc = OrderService()
         for i in range(5):
@@ -203,8 +204,8 @@ class TestOrderLifecycleE2E:
 
     def test_list_orders_filter_by_brand(self, setup_db):
         """Filter by robot brand."""
-        from services.order_service import OrderService
         from models.order import WarehouseOrder
+        from services.order_service import OrderService
 
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no="E2E-BRAND-001", robot_brand="BRANDA"))

@@ -5,7 +5,6 @@ name and instantiated per warehouse via the factory.
 """
 
 import logging
-from typing import Optional
 
 from .base import WarehouseBackend
 from .ewm_backend import EwmBackend
@@ -41,11 +40,11 @@ class BackendRegistry:
         self._backends[key] = backend_cls
         logger.info(f"Registered custom backend: {key} ({backend_cls.__name__})")
 
-    def get_class(self, backend_type: str) -> Optional[type[WarehouseBackend]]:
+    def get_class(self, backend_type: str) -> type[WarehouseBackend] | None:
         """Get backend class by type name. Case-insensitive."""
         return self._backends.get(backend_type.lower())
 
-    def instantiate(self, backend_type: str, config: dict) -> Optional[WarehouseBackend]:
+    def instantiate(self, backend_type: str, config: dict) -> WarehouseBackend | None:
         """Create a backend instance for the given type with config."""
         cls = self.get_class(backend_type)
         if cls is None:
@@ -70,7 +69,7 @@ class BackendRegistry:
 
 # ── Singleton ──────────────────────────────────────────────
 
-_registry: Optional[BackendRegistry] = None
+_registry: BackendRegistry | None = None
 
 
 def get_registry() -> BackendRegistry:

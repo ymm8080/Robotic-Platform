@@ -3,7 +3,7 @@ MiR250 strategy.
 VDA5050 v1.1.0 — older spec with known state mapping quirks.
 Reference: REFERENCE/05_reference/protocols/vda5050/vda5050-state-machine.md
 """
-from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
 
 
 class MirStrategy(BaseStrategy):
@@ -63,10 +63,7 @@ class MirStrategy(BaseStrategy):
                 status = "IDLE"  # Treat as IDLE since action is done
         elif state.get("actionStates"):
             running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
-            if running:
-                status = "EXECUTING"
-            else:
-                status = "IDLE"
+            status = "EXECUTING" if running else "IDLE"
             self._waiting_counter = 0
         else:
             status = "IDLE"
@@ -89,10 +86,7 @@ class MirStrategy(BaseStrategy):
         """MiR reports percentage + voltage (v1.1 format)."""
         charge = raw.get("batteryCharge")
         # MiR v1.1 may report charge as 0-100 integer
-        if charge is not None:
-            percent = float(charge)
-        else:
-            percent = 0.0
+        percent = float(charge) if charge is not None else 0.0
 
         return BatteryInfo(
             percent=percent,

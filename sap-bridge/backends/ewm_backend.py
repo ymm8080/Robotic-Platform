@@ -10,16 +10,15 @@ References:
   REFERENCE/05_reference/sap/error-code-matrix.md
 """
 
-import json
 import logging
 import os
 import time
-from typing import Any, Optional
 
 import httpx
 import redis as rd
 
 from models.warehouse_task import WarehouseTask
+
 from .base import WarehouseBackend
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,7 @@ class CsrfTokenManager:
     def __init__(self, redis_client: rd.Redis):
         self._redis = redis_client
 
-    def get_token(self) -> Optional[tuple[str, str]]:
+    def get_token(self) -> tuple[str, str] | None:
         token = self._redis.get("sap:csrf_token")
         cookies = self._redis.get("sap:csrf_cookies")
         if token and cookies:
@@ -93,7 +92,7 @@ class CsrfTokenManager:
 class EwmBackend(WarehouseBackend):
     """SAP EWM OData warehouse task operations."""
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: dict | None = None):
         self._cfg = config or {}
         self._base_url = self._cfg.get("base_url", DEFAULT_BASE_URL)
         self._client = self._cfg.get("client", DEFAULT_CLIENT)
@@ -133,7 +132,7 @@ class EwmBackend(WarehouseBackend):
     def _get_client(self) -> httpx.Client:
         return httpx.Client(timeout=30.0, verify=False)
 
-    def _get_headers(self, csrf_token: Optional[str] = None) -> dict:
+    def _get_headers(self, csrf_token: str | None = None) -> dict:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -179,7 +178,7 @@ class EwmBackend(WarehouseBackend):
             resp.raise_for_status()
             return []
 
-    def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> Optional[WarehouseTask]:
+    def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
         self._throttle()
         key = f"EWMWarehouse='{warehouse}',WarehouseTask='{task_id}',WarehouseTaskItem='{item_no}'"
         url = f"{self._base_url}{self._odata_service}/WarehouseTask({key})"
@@ -193,7 +192,7 @@ class EwmBackend(WarehouseBackend):
             resp.raise_for_status()
             return None
 
-    def create_task(self, task: WarehouseTask) -> Optional[WarehouseTask]:
+    def create_task(self, task: WarehouseTask) -> WarehouseTask | None:
         self._throttle()
         payload = {
             "EWMWarehouse": task.warehouse,
@@ -316,7 +315,7 @@ class EwmBackend(WarehouseBackend):
         )
 
     @staticmethod
-    def _map_process_type(pt: Optional[str]) -> str:
+    def _map_process_type(pt: str | None) -> str:
         if not pt:
             return "MOVE"
         pt_upper = pt.upper()

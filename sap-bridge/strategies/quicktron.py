@@ -10,9 +10,8 @@ References:
   REFERENCE/05_reference/robots/quicktron-strategy.md
 """
 
-from typing import Optional
 
-from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
 
 
 class QuicktronStrategy(BaseStrategy):
@@ -179,17 +178,11 @@ class QuicktronStrategy(BaseStrategy):
             else:
                 # [GUESS] Might report in mV — convert if > 100
                 mv = float(raw.get("batteryVoltage", raw.get("voltage", 0)))
-                if mv > 100:
-                    percent = self._millivolts_to_percent(mv)
-                else:
-                    percent = float(raw.get("percentage", 0))
+                percent = self._millivolts_to_percent(mv) if mv > 100 else float(raw.get("percentage", 0))
         else:
             val = float(raw or 0)
             # [GUESS] If value > 100, assume millivolts
-            if val > 100:
-                percent = self._millivolts_to_percent(val)
-            else:
-                percent = val
+            percent = self._millivolts_to_percent(val) if val > 100 else val
 
         return BatteryInfo(
             percent=min(100.0, max(0.0, percent)),

@@ -4,15 +4,15 @@ All brand-specific strategies inherit from this class.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
 class BatteryInfo:
     """Normalized battery state."""
     percent: float
-    voltage: Optional[float] = None
-    health: Optional[float] = None
+    voltage: float | None = None
+    health: float | None = None
     charging: bool = False
 
 
@@ -23,12 +23,12 @@ class RobotState:
     battery: BatteryInfo
     position: dict       # {x, y, theta, lastNodeId}
     errors: list = field(default_factory=list)
-    order_id: Optional[str] = None
+    order_id: str | None = None
     operating_mode: str = "AUTOMATIC"
     driving: bool = False
     paused: bool = False
-    load: Optional[Any] = None
-    raw: Optional[dict] = None  # Original payload for debugging
+    load: Any | None = None
+    raw: dict | None = None  # Original payload for debugging
 
 
 @dataclass

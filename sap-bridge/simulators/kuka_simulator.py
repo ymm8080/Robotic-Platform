@@ -3,6 +3,7 @@ KUKA KMR iiwa simulator.
 VDA5050 v2.0.0 — standard behavior with lift action simulation.
 """
 import random
+
 from .base_simulator import BaseRobotSimulator
 
 

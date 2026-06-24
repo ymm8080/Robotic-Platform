@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import time
-from typing import Optional
 
 import redis as rd
 
@@ -29,7 +28,7 @@ class InventoryService:
         self._last_sync = 0.0
 
     def get_stock(self, product: str, warehouse: str = "WM01",
-                  batch: Optional[str] = None) -> Optional[float]:
+                  batch: str | None = None) -> float | None:
         """Get cached stock quantity for a product.
 
         Returns cached value, or None if not in cache (triggers sync).
@@ -56,7 +55,7 @@ class InventoryService:
         return result
 
     def update_stock(self, product: str, quantity: float,
-                     warehouse: str = "WM01", batch: Optional[str] = None):
+                     warehouse: str = "WM01", batch: str | None = None):
         """Update cached stock for a product."""
         key = f"inventory:{warehouse}:{product}"
         if batch:

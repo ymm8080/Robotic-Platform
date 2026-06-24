@@ -9,8 +9,7 @@ Provides VDA5050-compliant MQTT publishing with:
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 import redis
@@ -75,7 +74,7 @@ class VDA5050Publisher:
         payload: dict,
         qos: int = 1,
         retain: bool = False,
-    ) -> Optional[int]:
+    ) -> int | None:
         """
         Publish a VDA5050 message with auto-incrementing sequence number.
 
@@ -146,11 +145,11 @@ class VDA5050Publisher:
 
     @staticmethod
     def _iso_now() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
 
 # ── Singleton ──────────────────────────────────
-_publisher: Optional[VDA5050Publisher] = None
+_publisher: VDA5050Publisher | None = None
 
 
 def get_publisher() -> VDA5050Publisher:

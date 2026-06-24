@@ -5,7 +5,6 @@ implements this ABC and is selected per warehouse via config.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from models.warehouse_task import WarehouseTask  # noqa: F401 — re-export for convenience
 
@@ -42,12 +41,12 @@ class WarehouseBackend(ABC):
     @abstractmethod
     def get_task(
         self, warehouse: str, task_id: str, item_no: str = "0001",
-    ) -> Optional[WarehouseTask]:
+    ) -> WarehouseTask | None:
         """Get a single warehouse task by ID."""
         ...
 
     @abstractmethod
-    def create_task(self, task: WarehouseTask) -> Optional[WarehouseTask]:
+    def create_task(self, task: WarehouseTask) -> WarehouseTask | None:
         """Create a new warehouse task in the backend system."""
         ...
 
