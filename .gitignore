@@ -24,6 +24,10 @@ backup/
 *.zip
 *.tmp
 
+# Node-RED 流程备份（自动导出，不纳入版本管理）
+nodered/flows/backups/
+nodered/flows/tab_*.json
+
 # Docker 数据卷（named volume 数据由 Docker 管理）
 nodered-data/
 

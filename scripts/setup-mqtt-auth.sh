@@ -1,65 +1,59 @@
 #!/bin/bash
-# =============================================================================
-# MQTT Auth Setup v1.0 — one-time production hardening
-# Usage: sudo bash scripts/setup-mqtt-auth.sh
-#
-# Generates:
-#   - mqtt/passwd    (mosquitto_passwd hashed credential file)
-#   - mqtt/acl       (topic-level access control)
-#
-# After running:
-#   1. Edit mqtt/mosquitto.conf → allow_anonymous false
-#   2. Uncomment password_file and acl_file lines
-#   3. docker-compose restart mqtt
-# =============================================================================
+# MQTT Authentication Setup — enable password + ACL for production
+# Usage: bash scripts/setup-mqtt-auth.sh [password]
+# Requires: mosquitto_passwd (part of mosquitto-clients)
+
 set -euo pipefail
 
-PASSWD_FILE="$(dirname "$0")/../mqtt/passwd"
-ACL_FILE="$(dirname "$0")/../mqtt/acl"
+MQTT_DIR="./mqtt"
+PASSWD_FILE="${MQTT_DIR}/passwd"
+ACL_FILE="${MQTT_DIR}/acl"
+PASSWORD="${1:-$(openssl rand -base64 16)}"
 
 echo "=== MQTT Auth Setup ==="
 
-# Check for mosquitto_passwd
-if ! command -v mosquitto_passwd &>/dev/null; then
-    echo "[ERROR] mosquitto_passwd not found. Install mosquitto-tools:"
-    echo "  Ubuntu: sudo apt install -y mosquitto-tools"
-    echo "  macOS:  brew install mosquitto"
-    echo "  Docker: docker run --rm eclipse-mosquitto mosquitto_passwd ..."
-    exit 1
+# 1. Create password file
+mkdir -p "$MQTT_DIR"
+touch "$PASSWD_FILE" "$ACL_FILE"
+
+# 2. Add robot-platform user
+mosquitto_passwd -b "$PASSWD_FILE" robot-platform "$PASSWORD"
+echo "User 'robot-platform' created"
+
+# 3. Create ACL file
+cat > "$ACL_FILE" << 'ACLEOF'
+# MQTT ACL — VDA5050 Topic Authorization
+user robot-platform
+topic read vda5050/+/+/+
+topic write vda5050/+/+/+
+
+user monitor
+topic read vda5050/+/+/state
+topic read vda5050/+/+/connection
+
+user admin
+topic read #
+topic write #
+
+topic read $SYS/broker/#
+ACLEOF
+echo "ACL file created"
+
+# 4. Update mosquitto.conf to enable auth
+if grep -q "^allow_anonymous true" "${MQTT_DIR}/mosquitto.conf"; then
+  sed -i 's/^allow_anonymous true/allow_anonymous false/' "${MQTT_DIR}/mosquitto.conf"
+  sed -i 's|^#password_file /mosquitto/config/passwd|password_file /mosquitto/config/passwd|' "${MQTT_DIR}/mosquitto.conf"
+  sed -i 's|^#acl_file /mosquitto/config/acl|acl_file /mosquitto/config/acl|' "${MQTT_DIR}/mosquitto.conf"
+  echo "mosquitto.conf updated (auth enabled)"
+else
+  echo "mosquitto.conf already has auth configured"
 fi
 
-# Create empty passwd file
-touch "$PASSWD_FILE"
-
-# ── Users ───────────────────────────────────────────────────────────────────
-declare -A USERS=(
-    ["admin"]      "changeme_admin_password"
-    ["sap-bridge"] "changeme_sap_bridge_secret"
-    ["watchdog"]   "changeme_watchdog_secret"
-    ["dashboard"]  "changeme_dashboard_secret"
-)
-
-echo "Creating users (change default passwords immediately)..."
-for user in "${!USERS[@]}"; do
-    pass="${USERS[$user]}"
-    echo "[CREATE] $user"
-    mosquitto_passwd -b "$PASSWD_FILE" "$user" "$pass"
-done
-
 echo ""
-echo "=== Done ==="
+echo "=== MQTT Auth Setup Complete ==="
+echo "Password: $PASSWORD"
 echo ""
 echo "Next steps:"
-echo "  1. Set strong passwords:"
-echo "     mosquitto_passwd -b $PASSWD_FILE <user> <new-password>"
-echo "  2. Edit mqtt/mosquitto.conf:"
-echo "     - Set 'allow_anonymous false'"
-echo "     - Uncomment: password_file /mosquitto/config/passwd"
-echo "     - Uncomment: acl_file /mosquitto/config/acl"
-echo "  3. Restart: docker-compose restart mqtt"
-echo ""
-echo "Verification:"
-echo "  # Without password (should fail):"
-echo "  mosquitto_sub -t 'vda5050/#' -h localhost"
-echo "  # With password (should succeed):"
-echo "  mosquitto_sub -t 'vda5050/#' -h localhost -u admin -P 'changeme_admin_password'"
+echo "  1. docker compose restart mqtt"
+echo "  2. Test: mosquitto_pub -t 'healthcheck' -m 'test' -u robot-platform -P '$PASSWORD'"
+echo "  3. Save password in password manager"

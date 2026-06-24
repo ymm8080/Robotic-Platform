@@ -1,62 +1,69 @@
 #!/bin/bash
 # =============================================================================
 # Volume Restore Script — SAP-EWM Robot Dispatch Platform
-# Restore Docker volumes from a timestamped backup directory.
-# Usage: ./scripts/restore-volumes.sh <backup_dir>
-# Example: ./scripts/restore-volumes.sh "D:/EWM ROBOT/backups/20260621_143000"
+# Restore all named Docker volumes from a timestamped backup directory.
+# Usage: bash scripts/restore-volumes.sh <backup-timestamp-or-path>
+# Example: bash scripts/restore-volumes.sh 20260624_135945
 # =============================================================================
 set -euo pipefail
 
-RESTORE_FROM="${1:-}"
+BACKUP_BASE="${BACKUP_DIR:-D:/EWM ROBOT/backups}"
+TIMESTAMP="${1:-}"
 COMPOSE_FILE="D:/EWM ROBOT/ROBOTIC PLATFORM CODES/docker-compose.yml"
 
-if [ -z "${RESTORE_FROM}" ]; then
-  echo "ERROR: Usage: $0 <backup_dir>"
-  echo "  Available backups:"
-  ls -d "${BACKUP_DIR:-D:/EWM ROBOT/backups}"/*/ 2>/dev/null | head -10 || echo "  (none found)"
-  exit 1
+if [ -z "${TIMESTAMP}" ]; then
+    echo "Usage: bash scripts/restore-volumes.sh <timestamp>"
+    echo ""
+    echo "Available backups:"
+    ls -1 "${BACKUP_BASE}" 2>/dev/null || echo "  (none in ${BACKUP_BASE})"
+    exit 1
 fi
 
-if [ ! -d "${RESTORE_FROM}" ]; then
-  echo "ERROR: Backup directory not found: ${RESTORE_FROM}"
-  exit 1
+if [ -d "${TIMESTAMP}" ]; then
+    RESTORE_DIR="${TIMESTAMP}"
+else
+    RESTORE_DIR="${BACKUP_BASE}/${TIMESTAMP}"
 fi
 
-echo "=== Restore from: ${RESTORE_FROM} ==="
-cat "${RESTORE_FROM}/MANIFEST.txt" 2>/dev/null || echo "  (no manifest)"
+if [ ! -d "${RESTORE_DIR}" ]; then
+    echo "Backup not found: ${RESTORE_DIR}"
+    ls -1 "${BACKUP_BASE}" 2>/dev/null
+    exit 1
+fi
+
+VOLUMES="nodered-data redis-data dify-data mqtt-data mqtt-logs sap-bridge-logs watchdog-logs prometheus-data grafana-data"
+
+echo "=== Volume Restore ==="
+echo "  Source: ${RESTORE_DIR}"
 echo ""
 
-# Confirm
-read -p "This will OVERWRITE all current volume data. Continue? (y/N) " CONFIRM
+echo "WARNING: This will OVERWRITE all named volumes and stop services."
+read -rp "Continue? (y/N) " CONFIRM
 if [ "${CONFIRM}" != "y" ] && [ "${CONFIRM}" != "Y" ]; then
-  echo "Aborted."
-  exit 0
+    echo "Cancelled."; exit 0
 fi
 
-# Find all tar.gz files
-for archive in "${RESTORE_FROM}"/*.tar.gz; do
-  vol_name=$(basename "${archive}" .tar.gz)
+echo "Stopping services..."
+docker compose -f "${COMPOSE_FILE}" stop
 
-  echo "[$(date +%H:%M:%S)] Restoring ${vol_name}..."
+FAILED=0
+for vol in ${VOLUMES}; do
+    ARCHIVE="${RESTORE_DIR}/${vol}.tar.gz"
+    [ ! -f "${ARCHIVE}" ] && echo "  Skipping ${vol} (not found)" && continue
 
-  # Stop any container using this volume
-  docker compose -f "${COMPOSE_FILE}" stop 2>/dev/null || true
-
-  # Remove existing volume data (but keep the volume itself)
-  docker run --rm -v "${vol_name}:/target" alpine:3.19 sh -c "rm -rf /target/* /target/.* 2>/dev/null || true"
-
-  # Extract backup into volume
-  docker run --rm \
-    -v "${vol_name}:/target" \
-    -v "${RESTORE_FROM}:/backup:ro" \
-    alpine:3.19 \
-    tar xzf "/backup/${vol_name}.tar.gz" -C /target
-
-  echo "  → ${vol_name} restored"
+    echo "  Restoring ${vol}..."
+    docker volume inspect "${vol}" >/dev/null 2>&1 || docker volume create "${vol}" >/dev/null
+    if docker run --rm -v "${vol}:/dest" -v "${RESTORE_DIR}:/backup:ro" alpine:3.19 tar xzf "/backup/${vol}.tar.gz" -C /dest; then
+        echo "    OK: ${vol}"
+    else
+        echo "    FAILED: ${vol}"
+        FAILED=$((FAILED + 1))
+    fi
 done
 
-# Restart all services
-echo "[$(date +%H:%M:%S)] Restarting services..."
+echo "Restarting services..."
 docker compose -f "${COMPOSE_FILE}" up -d
 
-echo "[$(date +%H:%M:%S)] Restore complete. Run 'docker compose ps' to verify."
+echo ""
+echo "=== Restore Complete ==="
+if [ "${FAILED}" -eq 0 ]; then echo "  All volumes restored OK"; else echo "  ${FAILED} volume(s) failed"; fi

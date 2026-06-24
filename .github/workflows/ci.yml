@@ -1,7 +1,7 @@
 # =============================================================================
 # SAP-EWM 机器人调度平台 CI/CD 流水线 v3.4
 # 触发：push/PR 到 master + 每日定时扫描
-# 阶段：lint → test → build → docker (仅 master)
+# 阶段：lint → adr → test → build → trivy scan → docker build (no push)
 # =============================================================================
 name: CI
 
@@ -19,7 +19,7 @@ on:
       - "docs/**"
       - ".claude/**"
   schedule:
-    - cron: "0 6 * * 1"  # 每周一早6点 UTC 依赖安全扫描
+    - cron: "0 6 * * 1"  # Weekly Mon 06:00 UTC — dependency & security scan
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,6 +28,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
+  RUNTIME_VERSION: "v3.4"
 
 jobs:
   # ===========================================================================
@@ -48,32 +49,63 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ruff
-          pip list | grep ruff
 
       - name: Ruff lint (sap-bridge)
         run: |
           cd sap-bridge
-          ruff check . --output-format github || true  # non-blocking initially
+          ruff check .
+
+      - name: Ruff lint (scripts)
+        run: |
+          ruff check scripts/ --ignore E501
 
       - name: Setup Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: dashboard/package-lock.json
 
       - name: TypeScript type check (dashboard)
         run: |
           cd dashboard
           npm ci
-          npx tsc --noEmit || true  # non-blocking initially
+          npx tsc --noEmit || echo "TS checks pending — non-blocking"
 
   # ===========================================================================
-  # Phase 2: Test
+  # Phase 2: ADR Validation
+  # ===========================================================================
+  adr-validate:
+    name: ADR Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate ADR format
+        run: |
+          errors=0
+          for f in 10_adr/ADR-*.md; do
+            [ -f "$f" ] || continue
+            if ! grep -q "^# ADR-" "$f"; then
+              echo "::error file=$f::Missing '# ADR-NNN' title"
+              errors=$((errors+1))
+            fi
+            if ! grep -q "^\*\*Status\*\*:" "$f"; then
+              echo "::error file=$f::Missing '**Status:**' line"
+              errors=$((errors+1))
+            fi
+            if ! grep -q "^\*\*Date\*\*:" "$f"; then
+              echo "::error file=$f::Missing '**Date:**' line"
+              errors=$((errors+1))
+            fi
+          done
+          if [ $errors -gt 0 ]; then exit 1; fi
+          echo "✅ All ADRs valid"
+
+  # ===========================================================================
+  # Phase 3: Test
   # ===========================================================================
   test:
     name: Test
-    needs: lint
+    needs: [lint, adr-validate]
     runs-on: ubuntu-latest
     services:
       redis:
@@ -119,8 +151,21 @@ jobs:
           flags: sap-bridge
           fail_ci_if_error: false
 
+      - name: Check coverage threshold (80%)
+        run: |
+          python -c "
+            import xml.etree.ElementTree as ET
+            tree = ET.parse('coverage.xml')
+            root = tree.getroot()
+            line_rate = float(root.attrib.get('line-rate', 0))
+            pct = line_rate * 100
+            print(f'Coverage: {pct:.1f}%')
+            assert line_rate >= 0.80, f'Coverage {pct:.1f}% < 80%'
+            print('✅ Coverage above 80%')
+          "
+
   # ===========================================================================
-  # Phase 3: Build
+  # Phase 4: Build
   # ===========================================================================
   build:
     name: Build
@@ -145,36 +190,82 @@ jobs:
       - name: Verify Docker Compose config
         run: |
           docker compose config 2>&1 | head -5
-          echo "Docker Compose config valid ✓"
+          echo "✅ Docker Compose config valid"
+
+      - name: Syntax check all Python files
+        run: |
+          python -c "
+            import ast, glob
+            errors = 0
+            for f in glob.glob('sap-bridge/**/*.py', recursive=True):
+              with open(f) as fh:
+                try:
+                  ast.parse(fh.read())
+                except SyntaxError as e:
+                  print(f'❌ {f}: {e}')
+                  errors += 1
+            for f in glob.glob('scripts/*.py', recursive=True):
+              with open(f) as fh:
+                try:
+                  ast.parse(fh.read())
+                except SyntaxError as e:
+                  print(f'❌ {f}: {e}')
+                  errors += 1
+            if errors:
+              exit(1)
+            print('✅ All Python files syntactically valid')
+          "
+
+      - name: Build sap-bridge Docker image (no push)
+        run: |
+          docker build -t sap-bridge:ci \
+            --build-arg RUNTIME_VERSION=${{ env.RUNTIME_VERSION }} \
+            --build-arg INCLUDE_RFC=false \
+            ./sap-bridge
+
+      - name: Build watchdog Docker image (no push)
+        run: |
+          docker build -t watchdog:ci ./watchdog
 
   # ===========================================================================
-  # Phase 4: Docker Build & Push (master only)
+  # Phase 5: Trivy Security Scan (master only)
   # ===========================================================================
-  docker:
-    name: Docker
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+  trivy-scan:
+    name: Trivy
+    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build watchdog image
-        uses: docker/build-push-action@v5
+      - name: Run Trivy on sap-bridge source
+        uses: aquasecurity/trivy-action@master
         with:
-          context: ./watchdog
-          push: false
-          tags: robot-platform-watchdog:ci-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          scan-type: fs
+          scan-ref: ./sap-bridge
+          format: sarif
+          output: trivy-sap-bridge.sarif
+          severity: HIGH,CRITICAL
 
-      - name: Build dashboard image
-        uses: docker/build-push-action@v5
+      - name: Run Trivy on watchdog source
+        uses: aquasecurity/trivy-action@master
         with:
-          context: ./dashboard
-          push: false
-          tags: robot-platform-dashboard:ci-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          scan-type: fs
+          scan-ref: ./watchdog
+          format: sarif
+          output: trivy-watchdog.sarif
+          severity: HIGH,CRITICAL
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-sap-bridge.sarif
+          category: sap-bridge
+
+      - name: Check for criticals
+        run: |
+          if grep -q '"severity": "CRITICAL"' trivy-sap-bridge.sarif 2>/dev/null; then
+            echo "⚠️  CRITICAL vulnerabilities found — review at Security tab"
+          else
+            echo "✅ No CRITICAL vulnerabilities"
+          fi
