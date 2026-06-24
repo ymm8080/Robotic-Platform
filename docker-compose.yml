@@ -41,7 +41,7 @@ services:
       - RESCUE_DASHBOARD_ALLOWED_IPS=${RESCUE_DASHBOARD_ALLOWED_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       - RESCUE_OPS_PHONE=${RESCUE_OPS_PHONE:-13800000000}
       # Redis 连接
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/0
       # SAP 桥接层地址（内部网络）
       - SAP_BRIDGE_URL=http://sap-bridge:8000
       # 版本校验
@@ -140,7 +140,7 @@ services:
     environment:
       - TZ=UTC
       - PYTHONUNBUFFERED=1
-      - REDIS_URL=redis://redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/1
       - SAP_ASHOST=${SAP_ASHOST}
       - SAP_SYSNR=${SAP_SYSNR}
       - SAP_CLIENT=${SAP_CLIENT}
@@ -412,7 +412,7 @@ services:
     environment:
       - TZ=UTC
       - PYTHONUNBUFFERED=1
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/0
       # 🔴 修复3：通过代理连接 Docker，不再直接挂载 docker.sock
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
       - NODE_RED_CONTAINER=robot-platform-nodered

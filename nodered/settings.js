@@ -337,6 +337,7 @@ module.exports = {
                 host: process.env.REDIS_HOST || "redis",
                 port: process.env.REDIS_PORT || 6379,
                 db: 0,
+                password: process.env.REDIS_PASSWORD || "robot-platform-redis",
                 prefix: "nodered-context:"
             }
         }

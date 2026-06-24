@@ -23,8 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (cached layer)
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# pyrfc is excluded — requires SAP NW RFC SDK (optional, installed in runtime stage)
+COPY requirements-base.txt .
+RUN pip install --no-cache-dir --user -r requirements-base.txt
 
 # =============================================================================
 FROM python:3.11-slim AS runtime
