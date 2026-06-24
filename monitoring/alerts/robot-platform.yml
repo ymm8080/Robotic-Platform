@@ -1,0 +1,146 @@
+# =============================================================================
+# Prometheus Alert Rules — SAP-EWM Robot Dispatch Platform v3.4
+# =============================================================================
+groups:
+  - name: robot-platform
+    interval: 30s
+    rules:
+      # ── SAP Bridge ───────────────────────────────────────────────────────
+      - alert: SAPBridgeDown
+        expr: up{job="sap-bridge"} == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "SAP Bridge is down"
+          description: "SAP Bridge has been unreachable for >30s"
+
+      - alert: SAPBridgeHighErrorRate
+        expr: rate(sap_bridge_orders_failed_total[5m]) > 3
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "High order failure rate"
+          description: "Orders failing at >3/min for >1m"
+
+      - alert: SAPBridgeSAPDisconnected
+        expr: sap_bridge_sap_connected == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "SAP EWM disconnected"
+          description: "SAP Bridge lost connection to SAP EWM for >1m"
+
+      - alert: SAPBridgeMQTTDisconnected
+        expr: sap_bridge_mqtt_connected == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "MQTT broker disconnected"
+          description: "SAP Bridge cannot reach MQTT broker for >30s"
+
+      - alert: DeadLetterQueueGrowing
+        expr: sap_bridge_deadletter_unresolved > 10
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Dead letter queue growing"
+          description: "{{ $value }} unresolved items in dead letter queue"
+
+      # ── Watchdog ─────────────────────────────────────────────────────────
+      - alert: SafeModeActivated
+        expr: watchdog_safe_mode == 1
+        for: 10s
+        labels: { severity: critical }
+        annotations:
+          summary: "Safe mode activated"
+          description: "Watchdog has triggered safe mode — dispatch stopped"
+
+      - alert: NodeREDHighCPU
+        expr: watchdog_cpu_percent > 80
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Node-RED CPU > 80%"
+          description: "Node-RED at {{ $value }}% CPU for >2m"
+
+      - alert: NodeREDCheckpointHigh
+        expr: watchdog_checkpoint_ms > 5000
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Node-RED checkpoint high"
+          description: "Checkpoint latency at {{ $value }}ms for >2m"
+
+      - alert: RedisMemoryCritical
+        expr: watchdog_redis_memory_ratio > 0.95
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Redis memory critical"
+          description: "Redis at {{ $value | humanizePercentage }} for >1m"
+
+      - alert: RedisMemoryWarning
+        expr: watchdog_redis_memory_ratio > 0.8
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Redis memory warning"
+          description: "Redis at {{ $value | humanizePercentage }} for >5m"
+
+      - alert: WALFileTooLarge
+        expr: watchdog_wal_size_mb > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "SQLite WAL file too large"
+          description: "WAL at {{ $value }}MB — checkpoint may be stuck"
+
+      # ── Robot Health ─────────────────────────────────────────────────────────
+      - alert: RobotOffline
+        expr: time() - sap_bridge_robot_last_seen > 30
+        for: 10s
+        labels: { severity: warning }
+        annotations:
+          summary: "Robot offline >30s"
+          description: "Robot {{ $labels.robot }} has not reported for >30s"
+
+      - alert: RobotBatteryCritical
+        expr: sap_bridge_battery_percent < 20
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "Robot battery critical"
+          description: "Robot {{ $labels.robot }} battery at {{ $value }}%"
+
+      - alert: MultipleRobotsOffline
+        expr: count(time() - sap_bridge_robot_last_seen > 30) > 3
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Multiple robots offline"
+          description: "{{ $value }} robots offline for >30s — investigate network"
+
+      # ── Order / SAP Performance ──────────────────────────────────────────────
+      - alert: SAPErrorRateHigh
+        expr: rate(sap_bridge_orders_failed_total[5m]) / rate(sap_bridge_orders_created_total[5m]) > 0.05
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "SAP error rate > 5%"
+          description: "Order failure rate at {{ $value | humanizePercentage }} over 5m"
+
+      - alert: QueueBacklog
+        expr: sap_bridge_queue_depth > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Queue backlog > 100"
+          description: "{{ $value }} orders pending in queue for >5m"
+
+      - alert: NoOrdersCompleted
+        expr: rate(sap_bridge_orders_completed_total[10m]) == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "No orders completed in 10m"
+          description: "No order completions detected in last 10 minutes"

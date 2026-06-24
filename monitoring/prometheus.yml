@@ -1,0 +1,62 @@
+# =============================================================================
+# Prometheus Configuration — SAP-EWM Robot Dispatch Platform v3.4
+# Scrapes: SAP Bridge (:8000/metrics), Watchdog (:9090/metrics)
+# =============================================================================
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Alerting
+rule_files:
+  - "alerts/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ── SAP Bridge (order metrics, MQTT/Redis/SAP health) ────────────────────
+  - job_name: "sap-bridge"
+    static_configs:
+      - targets: ["sap-bridge:8000"]
+        labels:
+          service: "sap-bridge"
+          component: "api"
+
+  # ── Watchdog (system health, circuit-breaker state) ─────────────────────
+  - job_name: "watchdog"
+    scrape_interval: 10s  # Match watchdog polling interval
+    static_configs:
+      - targets: ["watchdog:9090"]
+        labels:
+          service: "watchdog"
+          component: "monitoring"
+    # Watchdog returns JSON by default, Prometheus format with Accept header
+    scrape_protocols: ["PrometheusText0.0.4"]
+    params:
+      # Force text/plain via scrape config workaround
+      _: []
+
+  # ── Node-RED (metrics endpoint via settings.js) ─────────────────────────
+  - job_name: "nodered"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["nodered:1880"]
+        labels:
+          service: "nodered"
+          component: "orchestration"
+    metrics_path: "/metrics"
+
+  # ── Docker daemon (container resource metrics) ──────────────────────────
+  - job_name: "docker"
+    static_configs:
+      - targets: ["docker-socket-proxy:2375"]
+        labels:
+          service: "docker"
+          component: "infra"
+    metrics_path: "/v1.41/containers/json"
+    params:
+      filters: ['{"status":["running"]}']
+    # cAdvisor would be better — use this as fallback

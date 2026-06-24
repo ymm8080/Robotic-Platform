@@ -1,0 +1,298 @@
+{
+  "title": "SAP-EWM Robot Dispatch Platform",
+  "version": 3,
+  "uid": "robot-platform",
+  "description": "Production monitoring dashboard v3.4 — robot health, order throughput, SAP latency, system resources",
+  "tags": ["sap-ewm", "vda5050", "robots", "production"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Robot Online Count",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 3, "h": 4},
+      "targets": [{
+        "expr": "count(sap_bridge_robots_status{state=~\"IDLE|MOVING|EXECUTING|CHARGING\"})",
+        "legendFormat": "online"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "red"}, {"value": 1, "color": "yellow"}, {"value": 3, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "Orders Created / sec",
+      "type": "stat",
+      "gridPos": {"x": 3, "y": 0, "w": 3, "h": 4},
+      "targets": [{
+        "expr": "rate(sap_bridge_orders_created_total[5m])",
+        "legendFormat": "created"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 5, "color": "yellow"}, {"value": 10, "color": "red"}]},
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Orders Completed / sec",
+      "type": "stat",
+      "gridPos": {"x": 6, "y": 0, "w": 3, "h": 4},
+      "targets": [{
+        "expr": "rate(sap_bridge_orders_completed_total[5m])",
+        "legendFormat": "completed"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 5, "color": "yellow"}, {"value": 10, "color": "red"}]},
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Orders Failed / sec",
+      "type": "stat",
+      "gridPos": {"x": 9, "y": 0, "w": 3, "h": 4},
+      "targets": [{
+        "expr": "rate(sap_bridge_orders_failed_total[5m])",
+        "legendFormat": "failed"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 1, "color": "yellow"}, {"value": 3, "color": "red"}]},
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Queue Depth",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 4, "w": 4, "h": 4},
+      "targets": [{
+        "expr": "sap_bridge_queue_depth",
+        "legendFormat": "pending"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 20, "color": "yellow"}, {"value": 50, "color": "red"}]}
+        }
+      }
+    },
+    {
+      "title": "MQTT Connected",
+      "type": "stat",
+      "gridPos": {"x": 4, "y": 4, "w": 4, "h": 4},
+      "targets": [{
+        "expr": "sap_bridge_mqtt_connected",
+        "legendFormat": "mqtt"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "red"}, {"value": 1, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "SAP Connected",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 4, "w": 4, "h": 4},
+      "targets": [{
+        "expr": "sap_bridge_sap_connected",
+        "legendFormat": "sap"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "red"}, {"value": 1, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "Order Throughput (5m rate)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(sap_bridge_orders_created_total[5m])", "legendFormat": "created"},
+        {"expr": "rate(sap_bridge_orders_completed_total[5m])", "legendFormat": "completed"},
+        {"expr": "rate(sap_bridge_orders_failed_total[5m])", "legendFormat": "failed"}
+      ],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {"showPoints": "never"}
+        }
+      }
+    },
+    {
+      "title": "Robot Status Distribution",
+      "type": "bargauge",
+      "gridPos": {"x": 0, "y": 16, "w": 6, "h": 8},
+      "targets": [{
+        "expr": "count by(state) (sap_bridge_robots_status)",
+        "legendFormat": "{{state}}"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Battery Distribution",
+      "type": "bargauge",
+      "gridPos": {"x": 6, "y": 16, "w": 6, "h": 8},
+      "targets": [{
+        "expr": "sap_bridge_battery_percent",
+        "legendFormat": "{{robot}}"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "red"}, {"value": 20, "color": "yellow"}, {"value": 50, "color": "green"}]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "title": "Dead Letter Queue",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 24, "w": 6, "h": 6},
+      "targets": [{
+        "expr": "sap_bridge_deadletter_unresolved",
+        "legendFormat": "unresolved"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 5, "color": "yellow"}, {"value": 10, "color": "red"}]},
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Worker Metrics (Queue / Batch)",
+      "type": "timeseries",
+      "gridPos": {"x": 6, "y": 24, "w": 6, "h": 6},
+      "targets": [
+        {"expr": "rate(sap_bridge_worker_processed_total[5m])", "legendFormat": "processed"},
+        {"expr": "rate(sap_bridge_batch_orders_total[5m])", "legendFormat": "batched"}
+      ],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {"showPoints": "never"}
+        }
+      }
+    },
+    {
+      "title": "SAP Connection Health (All Warehouses)",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 30, "w": 12, "h": 6},
+      "targets": [{
+        "expr": "sap_bridge_backend_health",
+        "legendFormat": "{{warehouse}}"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "red"}, {"value": 1, "color": "green"}]}
+        }
+      }
+    },
+    {
+      "title": "Redis Memory Usage",
+      "type": "gauge",
+      "gridPos": {"x": 0, "y": 36, "w": 4, "h": 6},
+      "targets": [{
+        "expr": "watchdog_redis_memory_ratio * 100",
+        "legendFormat": "redis"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 80, "color": "yellow"}, {"value": 95, "color": "red"}]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "title": "Node-RED CPU",
+      "type": "gauge",
+      "gridPos": {"x": 4, "y": 36, "w": 4, "h": 6},
+      "targets": [{
+        "expr": "watchdog_cpu_percent",
+        "legendFormat": "cpu"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 70, "color": "yellow"}, {"value": 85, "color": "red"}]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "title": "Checkpoint Latency",
+      "type": "gauge",
+      "gridPos": {"x": 8, "y": 36, "w": 4, "h": 6},
+      "targets": [{
+        "expr": "watchdog_checkpoint_ms",
+        "legendFormat": "checkpoint"
+      }],
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"color": "green"}, {"value": 2000, "color": "yellow"}, {"value": 5000, "color": "red"}]},
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    }
+  ]
+}
