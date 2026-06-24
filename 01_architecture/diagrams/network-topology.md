@@ -1,74 +1,78 @@
-# Network Topology
+# Network Topology v3.4
 
-**Date**: 2026-06-21
+> Internal Docker bridge network with loopback-only port exposure.
 
-## Architecture
+## Diagram
 
 ```
-                            Host Machine (Windows)
-  ╔═══════════════════════════════════════════════════════════╗
-  ║                    Docker Bridge Network                   ║
-  ║                   172.x.x.x (internal)                    ║
-  ║                                                           ║
-  ║  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ║
-  ║  │  Redis   │  │ SAP Br.  │  │Docker P. │  │ SQL Init │  ║
-  ║  │  :6379   │  │  :8000   │  │  :2375   │  │(once)    │  ║
-  ║  │ loopback │  │ (no port)│  │ (int.)   │  │ (no port)│  ║
-  ║  └────┬─────┘  └──────────┘  └────┬─────┘  └──────────┘  ║
-  ║       │              │            │                       ║
-  ║  ┌────┴──────────────┴────────────┴──────────────────┐    ║
-  ║  │               Docker internal network              │    ║
-  ║  └───────────────────────────────────────────────────┘    ║
-  ║       │              │            │                       ║
-  ║  ┌────┴─────┐  ┌────┴─────┐  ┌───┴────────┐             ║
-  ║  │ Node-RED │  │  MQTT    │  │  Watchdog  │             ║
-  ║  │  :1880   │  │  :1883   │  │  :9090     │             ║
-  ║  │ ALL net  │  │ loopback │  │  loopback  │             ║
-  ║  └──────────┘  └──────────┘  └────────────┘             ║
-  ║       │                                                 ║
-  ║  ┌────┴──────────┐                                      ║
-  ║  │ Nginx Rescue  │                                      ║
-  ║  │  :8080        │                                      ║
-  ║  │  ALL net      │                                      ║
-  ║  └───────────────┘                                      ║
-  ╚═══════════════════════════════════════════════════════════╝
+┌─────────────────────────────────────────────────────────────┐
+│                     Docker Internal Network                    │
+│                     172.x.x.x (bridge)                        │
+│                                                               │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐         │
+│  │ Node-RED│  │  Redis  │  │SAP Bridge│  │  MQTT   │         │
+│  │  :1880  │  │  :6379  │  │  :8000   │  │ :1883   │         │
+│  └────┬────┘  └─────────┘  └────┬─────┘  └────┬────┘         │
+│       │                         │             │              │
+│       └─────────────────────────┼─────────────┘              │
+│                                 │                            │
+│  ┌─────────┐  ┌─────────┐  ┌───┴──────┐  ┌─────────┐       │
+│  │ Watchdog│  │Rescue   │  │ Dashboard│  │  Dify   │       │
+│  │  :9090  │  │:80(:8080)│  │  :80(:4000)│  │:5001    │       │
+│  └────┬────┘  └─────────┘  └──────────┘  └─────────┘       │
+│       │                                                      │
+│  ┌────┴────────┐  ┌─────────┐  ┌─────────┐                   │
+│  │Docker Socket│  │Prometheus│  │Grafana  │                   │
+│  │   Proxy     │  │  :9090   │  │  :3000  │                   │
+│  │   :2375     │  └────┬─────┘  └────┬────┘                   │
+│  └─────┬───────┘       │             │                        │
+│        │               └─────────────┘                        │
+│        ▼                                                      │
+│  ┌──────────┐                                                  │
+│  │ Alertmanager│                                              │
+│  │   :9093   │                                                │
+│  └──────────┘                                                  │
+└─────────────────────────────────────────────────────────────┘
+         │                          │
+         ▼                          ▼
+   ┌──────────┐              ┌──────────────┐
+   │ Host OS  │              │ External SAP │
+   │localhost │              │    EWM       │
+   │ ports    │              │  (firewall)  │
+   └──────────┘              └──────────────┘
 ```
 
-## Port Exposure Audit
+## Port Mapping (Host → Container)
 
-| Service | Port | Binding | Exposed To | Risk |
-|---------|------|---------|------------|------|
-| Node-RED | 1880 | **0.0.0.0** | All interfaces | ⚠️ Should be `127.0.0.1` or restricted |
-| Redis | 6379 | `127.0.0.1` | Localhost only | ✅ Secure |
-| SAP Bridge | 8000 | No port map | Docker internal only | ✅ Secure |
-| Dify | 5001 | `127.0.0.1` | Localhost only | ✅ Secure |
-| MQTT | 1883 | `127.0.0.1` | Localhost only | ✅ Secure |
-| MQTT WS | 9001 | `127.0.0.1` | Localhost only | ✅ Secure |
-| Nginx Rescue | 8080 | **0.0.0.0** | All interfaces | ⚠️ Should be `127.0.0.1` or restricted |
-| Watchdog | 9090 | `127.0.0.1` | Localhost only | ✅ Secure |
+| Host Port | Service | Binding | Purpose |
+|-----------|---------|---------|---------|
+| 1880 | Node-RED | 127.0.0.1 | Flow editor + API |
+| 1883 | MQTT | 127.0.0.1 | VDA5050 protocol |
+| 9001 | MQTT WS | 127.0.0.1 | Dashboard WebSocket |
+| 3000 | Grafana | 127.0.0.1 | Monitoring dashboard |
+| 4000 | Dashboard | 127.0.0.1 | Operations SPA |
+| 5001 | Dify | 127.0.0.1 | LLM translation |
+| 6379 | Redis | 127.0.0.1 | Cache (debug only) |
+| 8000 | SAP Bridge | 127.0.0.1 | API (debug only) |
+| 8080 | Nginx Rescue | 127.0.0.1 | Offline dashboard |
+| 9090 | Watchdog | 127.0.0.1 | Health API |
+| 9091 | Prometheus | 127.0.0.1 | Metrics (mapped) |
+| 9093 | Alertmanager | 127.0.0.1 | Alert management |
 
-## ⚠️ Findings
+## Security Rules
 
-### Issue 1: Node-RED binds all interfaces
-`docker-compose.yml` line 18: `- "${NODE_RED_EXTERNAL_PORT:-1880}:1880"`
-- No `127.0.0.1` prefix → accessible from any device on the network
-- **Fix**: Change to `"127.0.0.1:${NODE_RED_EXTERNAL_PORT:-1880}:1880"` if ops team accesses via localhost only
-- **If ops need remote access**: Add firewall rule restricting to ops IP range
+- All ports bound to `127.0.0.1` (localhost) — no external access
+- Internal services (no host port): Docker Socket Proxy, SQLite Init
+- SAP Bridge communicates to SAP EWM via outbound HTTPS only
+- MQTT WebSocket (9001) same localhost restriction
 
-### Issue 2: Nginx Rescue binds all interfaces  
-`docker-compose.yml` line 285: `- "8080:80"`
-- Same issue — dashboard accessible from any network device
-- **Fix**: Change to `"127.0.0.1:8080:80"` or restrict with firewall
+## Firewall Rules
 
-### Issue 3: Network `internal: false`
-`docker-compose.yml` line 509: `internal: false`
-- This is intentional (allows port mapping to host), but worth documenting why
-- The `internal: false` means containers can reach each other AND the host
-- With `internal: true`, port mapping still works but inter-container traffic is isolated
-
-## Recommendations
-
-1. Add `127.0.0.1:` prefix to Node-RED and Nginx port mappings
-2. If remote access needed, add explicit `iptables`/Windows Firewall rules
-3. Document whitelist IP ranges in `05_reference/network/firewall-rules.md`
-4. Consider setting `internal: true` if inter-container isolation needed
+```powershell
+# Allow inbound from trusted networks only
+New-NetFirewallRule -DisplayName "SAP-EWM-NodeRED" -LocalPort 1880 -Action Allow
+New-NetFirewallRule -DisplayName "SAP-EWM-MQTT" -LocalPort 1883 -Action Allow
+New-NetFirewallRule -DisplayName "SAP-EWM-Grafana" -LocalPort 3000 -Action Allow
+New-NetFirewallRule -DisplayName "SAP-EWM-Rescue" -LocalPort 8080 -Action Allow
+# Deny all other inbound
+```

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMqtt } from './hooks/useMqtt'
 import { RobotList } from './components/RobotList'
 import { RobotDetail } from './components/RobotDetail'
@@ -7,28 +7,64 @@ import { TaskList } from './components/TaskList'
 import { EmergencyStop } from './components/EmergencyStop'
 import { WarehouseMap } from './components/WarehouseMap'
 import { BatteryPanel } from './components/BatteryPanel'
+import { CONFIG } from './config'
 
 type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks'
+
+interface RobotApiStatus {
+  id: string
+  brand: string
+  state: string
+  battery: string
+  lastSeen: string
+}
 
 export default function App() {
   const mqtt = useMqtt()
   const [tab, setTab] = useState<Tab>('robots')
   const [selectedRobotId, setSelectedRobotId] = useState<string | null>(null)
   const [showEStop, setShowEStop] = useState(false)
+  const [apiRobots, setApiRobots] = useState<RobotApiStatus[]>([])
+  const [apiConnected, setApiConnected] = useState(false)
+
+  // Poll REST API as fallback when MQTT unavailable
+  useEffect(() => {
+    let active = true
+    async function poll() {
+      try {
+        const res = await fetch(`${CONFIG.apiBase}/v1/robots/status`, { cache: 'no-store' })
+        if (!res.ok) throw new Error('API unavailable')
+        const data = await res.json()
+        if (!active) return
+        if (data.robots) {
+          setApiRobots(data.robots)
+          setApiConnected(true)
+        }
+      } catch {
+        if (active) setApiConnected(false)
+      }
+    }
+    poll()
+    const id = setInterval(poll, 15000)
+    return () => { active = false; clearInterval(id) }
+  }, [])
+
+  const mqttRobotCount = mqtt.robots.size
+  const apiRobotCount = apiRobots.length
+  const hasData = mqttRobotCount > 0 || apiRobotCount > 0
+  const isConnected = mqtt.connected || apiConnected
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'robots', label: '🤖 机器人' },
-    { key: 'map', label: '🗺️ 地图' },
-    { key: 'battery', label: '🔋 电量' },
-    { key: 'orders', label: '📦 下单' },
-    { key: 'tasks', label: '📋 任务' },
+    { key: 'robots', label: `🤖 Robots (${mqttRobotCount || apiRobotCount})` },
+    { key: 'map', label: '🗺️ Map' },
+    { key: 'battery', label: '🔋 Battery' },
+    { key: 'orders', label: '📦 Order' },
+    { key: 'tasks', label: '📋 Tasks' },
   ]
 
   return (
     <div style={{
-      maxWidth: 1024,
-      margin: '0 auto',
-      padding: '16px',
+      maxWidth: 1024, margin: '0 auto', padding: '16px',
       fontFamily: 'system-ui, -apple-system, sans-serif',
     }}>
       {/* Header */}
@@ -38,14 +74,13 @@ export default function App() {
       }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
-            🤖 机器人调度看板
+            🤖 Robot Dispatch Dashboard
           </h1>
           <p style={{ fontSize: 11, color: '#9ca3af', margin: '2px 0 0 0' }}>
-            SAP-EWM · VDA5050 · {mqtt.robots.size} 台机器人
+            SAP-EWM · VDA5050 · {mqttRobotCount || apiRobotCount} robots
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* E-Stop button (compact) */}
           {!showEStop && (
             <button onClick={() => setShowEStop(true)}
               style={{
@@ -53,19 +88,19 @@ export default function App() {
                 background: '#dc2626', color: '#fff', border: 'none',
                 borderRadius: 8, cursor: 'pointer',
               }}>
-              🚨 急停
+              🚨 E-STOP
             </button>
           )}
           {/* Connection indicator */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 4,
-            fontSize: 12, color: mqtt.connected ? '#22c55e' : '#ef4444',
+            fontSize: 12, color: isConnected ? '#22c55e' : '#ef4444',
           }}>
             <span style={{
               width: 8, height: 8, borderRadius: '50%',
-              background: mqtt.connected ? '#22c55e' : '#ef4444', display: 'inline-block',
+              background: isConnected ? '#22c55e' : '#ef4444', display: 'inline-block',
             }} />
-            {mqtt.connected ? '已连接' : '断开'}
+            {mqtt.connected ? 'MQTT' : apiConnected ? 'API' : 'Disconnected'}
           </div>
         </div>
       </div>
@@ -80,8 +115,18 @@ export default function App() {
               border: 'none', background: 'none', color: '#6b7280',
               cursor: 'pointer', textDecoration: 'underline',
             }}>
-            收起急停面板
+            Close E-Stop
           </button>
+        </div>
+      )}
+
+      {/* API disconnected warning */}
+      {!isConnected && (
+        <div style={{
+          background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c',
+          padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 13,
+        }}>
+          Cannot reach backend — check if services are running
         </div>
       )}
 
@@ -101,10 +146,15 @@ export default function App() {
       </div>
 
       {/* Content */}
-      {tab === 'robots' && (
+      {tab === 'robots' && hasData && (
         selectedRobotId
           ? <RobotDetail robotId={selectedRobotId} onBack={() => setSelectedRobotId(null)} mqtt={mqtt} />
-          : <RobotList mqtt={mqtt} onRobotClick={id => setSelectedRobotId(id)} />
+          : <RobotList mqtt={mqtt} apiRobots={apiRobots} onRobotClick={id => setSelectedRobotId(id)} />
+      )}
+      {tab === 'robots' && !hasData && (
+        <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af', fontSize: 14 }}>
+          {mqtt.connected ? 'Waiting for robot data…' : 'Connecting to backend…'}
+        </div>
       )}
       {tab === 'map' && <WarehouseMap mqtt={mqtt} />}
       {tab === 'battery' && <BatteryPanel mqtt={mqtt} />}
