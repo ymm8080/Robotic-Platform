@@ -1,0 +1,150 @@
+# =============================================================================
+# SAP Bridge Configuration v3.4
+# Loaded at startup by sap-bridge. Overrides env vars where specified.
+# =============================================================================
+
+# ── Brand Strategy Configuration ─────────────────────────────────────────────
+# Each brand can have custom dispatch rules, VDA5050 quirks, and defaults.
+brands:
+  KUKA:
+    enabled: true
+    supported_versions: ["2.0.0"]
+    default_priority: 2
+    max_concurrent_orders: 10
+    quirks:
+      lift_action_requires_pre_navigate: true
+      lift_height_unit: "mm"
+    state_mapping:
+      DRIVING: "MOVING"
+      LOADING: "EXECUTING"
+
+  MIR:
+    enabled: true
+    supported_versions: ["1.1.0", "2.0.0"]
+    default_priority: 2
+    max_concurrent_orders: 5
+    quirks:
+      reports_waiting_before_idle: true
+      waiting_grace_period_ms: 500
+    state_mapping:
+      DRIVING: "MOVING"
+      WAITING: "IDLE"
+
+  OTTO:
+    enabled: true
+    supported_versions: ["2.0.0"]
+    default_priority: 2
+    max_concurrent_orders: 8
+    quirks:
+      battery_in_millivolts: true
+      charging_state_format: "custom"
+      battery_empty_millivolts: 21000
+      battery_full_millivolts: 29000
+    state_mapping:
+      CHARGING: "CHARGING"
+      MOVING: "MOVING"
+
+  GeekPlus:
+    enabled: true
+    supported_versions: ["1.1.0", "2.0.0"]
+    default_priority: 2
+    max_concurrent_orders: 15
+    quirks:
+      dual_protocol: true  # P/S→IOP REST, M/R→VDA5050
+      battery_percentage_only: true
+      mission_polling_required: true
+    state_mapping:
+      EXECUTING: "EXECUTING"
+
+  HaiRobotics:
+    enabled: true
+    supported_versions: ["2.0.0"]
+    default_priority: 2
+    max_concurrent_orders: 20
+    quirks:
+      dual_protocol: true  # ACR→HAIQ, HaiPort/Flex→VDA5050
+      tote_level_tracking: true
+      callback_completion: true
+    state_mapping:
+      EXECUTING: "EXECUTING"
+
+  Quicktron:
+    enabled: true
+    supported_versions: ["1.1.0", "2.0.0"]
+    default_priority: 2
+    max_concurrent_orders: 10
+    quirks:
+      vda5050_unconfirmed: true
+      battery_format_unknown: true
+    state_mapping:
+      EXECUTING: "EXECUTING"
+
+# ── Dispatch Rules ──────────────────────────────────────────────────────────
+dispatch:
+  default_retry_max: 5
+  default_retry_backoff_base: 1  # seconds (exponential)
+  default_retry_backoff_max: 60  # seconds
+  queue_poll_interval_ms: 500
+  batch_size: 10
+  batch_interval_seconds: 60
+  deadletter_retention_days: 30
+
+  # Zone locking prevents multiple robots entering the same zone
+  zone_lock_enabled: true
+  zone_lock_ttl_seconds: 300
+  zone_lock_max_retries: 3
+
+  # Battery thresholds
+  auto_charge_threshold_percent: 20
+  low_battery_warning_percent: 50
+
+# ── SAP Integration (Multi-Warehouse with Backend Abstraction) ──────────────
+sap:
+  # Backend type per warehouse. Supports "ewm" (OData) and "wm" (RFC).
+  # New backends can be added via the plugin registry in backends/.
+  warehouses:
+    WM01:
+      backend: ewm
+      base_url: "${SAP_EWM_BASE_URL:-http://sap-ewm:8000}"
+      client: "${SAP_CLIENT:-100}"
+      user: "${SAP_USER:-}"
+      password_file: "${SAP_PASSWORD_FILE:-/run/secrets/sap_password}"
+      rate_limit: 80
+      connection_timeout: 30
+      odata_service: "/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001"
+
+    # WM warehouse — uncomment when SAP WM is available
+    # WM02:
+    #   backend: wm
+    #   rfc_ashost: "${SAP_WM_ASHOST:-}"
+    #   rfc_sysnr: "${SAP_WM_SYSNR:-00}"
+    #   rfc_client: "${SAP_WM_CLIENT:-800}"
+    #   rfc_user: "${SAP_WM_USER:-}"
+    #   password_file: "${SAP_WM_PASSWORD_FILE:-/run/secrets/sap_wm_password}"
+    #   rfc_lang: "${SAP_LANG:-ZH}"
+    #   rate_limit: 60
+    #   plant: ""
+    #   storage_location: ""
+
+  default_warehouse: "WM01"
+  rate_limit_per_minute: 80
+  connection_timeout_seconds: 30
+  max_connections: 5
+  csrf_token_ttl_seconds: 1500  # 25 min (refresh before SAP's 30 min expiry)
+  odata_pagination_size: 100
+
+# ── Order Lifecycle ─────────────────────────────────────────────────────────
+order:
+  allowed_transitions:
+    - ["CREATED", "ASSIGNED"]
+    - ["CREATED", "CANCELLED"]
+    - ["ASSIGNED", "IN_PROGRESS"]
+    - ["ASSIGNED", "FAILED"]
+    - ["IN_PROGRESS", "COMPLETED"]
+    - ["IN_PROGRESS", "FAILED"]
+    - ["IN_PROGRESS", "SUSPENDED"]
+    - ["SUSPENDED", "IN_PROGRESS"]
+    - ["SUSPENDED", "CANCELLED"]
+    - ["COMPLETED", "SAP_CONFIRMED"]
+    - ["COMPLETED", "SAP_PENDING"]
+    - ["SAP_PENDING", "SAP_CONFIRMED"]

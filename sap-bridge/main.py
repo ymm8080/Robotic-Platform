@@ -1,6 +1,7 @@
 """
-SAP EWM Robot Dispatch Platform — SAP Bridge Main Application
-Python FastAPI + pyrfc service for SAP EWM integration.
+SAP EWM / WM Robot Dispatch Platform — SAP Bridge Main Application
+Python FastAPI + pyrfc service for multi-warehouse SAP integration.
+Supports both SAP EWM (OData) and SAP Classic WM (RFC) via backend abstraction.
 """
 import os
 import logging
@@ -13,6 +14,12 @@ from pydantic import BaseModel
 from mqtt_publisher import get_publisher
 from strategies import get_registry
 from dispatch_queue import QueueWorker, DeadLetterHandler, PriorityQueue
+from metrics import (
+    MetricsMiddleware, metrics_response,
+    mqtt_connected, redis_connected, sap_connected,
+    orders_created, orders_completed, orders_failed,
+    queue_depth, deadletter_unresolved,
+)
 
 # ──────────────────────────────────────────────
 # Logging
@@ -43,10 +50,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="SAP EWM Robot Bridge",
+    title="SAP EWM/WM Robot Bridge",
     version=os.getenv("RUNTIME_VERSION", "v3.4"),
     lifespan=lifespan,
 )
+
+# Register Prometheus metrics middleware
+app.add_middleware(MetricsMiddleware)
 
 
 @app.exception_handler(Exception)
@@ -69,11 +79,15 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def health():
     """Health check — used by Docker healthcheck and Watchdog."""
     publisher = get_publisher()
+    _mq_conn = publisher.is_connected
+    _rd_conn = _check_redis()
+    mqtt_connected.set(1 if _mq_conn else 0)
+    redis_connected.set(1 if _rd_conn else 0)
     return {
         "status": "healthy",
         "version": os.getenv("RUNTIME_VERSION", "v3.4"),
-        "mqtt_connected": publisher.is_connected,
-        "redis_connected": _check_redis(),
+        "mqtt_connected": _mq_conn,
+        "redis_connected": _rd_conn,
         "uptime_seconds": _uptime(),
     }
 
@@ -90,6 +104,12 @@ async def ready():
 async def live():
     """Liveness check — always returns 200. Process is alive."""
     return {"status": "alive"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint — for Watchdog / Grafana scraping."""
+    return metrics_response()
 
 
 # ──────────────────────────────────────────────
@@ -215,6 +235,8 @@ async def create_order(req: CreateOrderRequest):
     _order_service.create_order(order)
     _order_service.assign_order(order.order_no, req.manufacturer, req.serialNumber)
 
+    orders_created.labels(type=req.orderType).inc()
+
     logger.info(f"Order {req.orderId} → {req.manufacturer}/{req.serialNumber} (mid={mid})")
     return {"status": "accepted", "orderId": req.orderId, "mqttMid": mid, "record": order.to_dict()}
 
@@ -256,6 +278,7 @@ async def complete_order(order_no: str):
     order = _order_service.complete_order(order_no)
     if order is None:
         return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
+    orders_completed.inc()
     return order.to_dict()
 
 
@@ -265,6 +288,7 @@ async def fail_order(order_no: str, req: UpdateOrderStatusRequest):
     order = _order_service.fail_order(order_no, req.errorMessage or "Unknown error")
     if order is None:
         return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
+    orders_failed.labels(reason=req.errorMessage[:32] if req.errorMessage else "unknown").inc()
     return order.to_dict()
 
 
@@ -303,10 +327,12 @@ async def queue_peek(n: int = 10):
 
 
 @app.get("/api/v1/admin/queue/depth")
-async def queue_depth():
+async def get_queue_depth():
     """Queue depth and health status."""
+    depth = _priority_queue.depth()
+    queue_depth.labels(priority="all").set(depth)
     return {
-        "depth": _priority_queue.depth(),
+        "depth": depth,
         "healthy": _priority_queue.is_healthy,
     }
 
@@ -315,7 +341,9 @@ async def queue_depth():
 async def list_deadletter(limit: int = 50, offset: int = 0):
     """List deadletter items."""
     items = _deadletter_handler.list_all(limit=limit, offset=offset)
-    return {"items": items, "count": len(items), "unresolved": _deadletter_handler.count_unresolved()}
+    unresolved = _deadletter_handler.count_unresolved()
+    deadletter_unresolved.set(unresolved)
+    return {"items": items, "count": len(items), "unresolved": unresolved}
 
 
 @app.post("/api/v1/admin/deadletter/{dl_id}/resolve")
@@ -337,26 +365,61 @@ async def worker_metrics(request: Request):
 
 
 # ──────────────────────────────────────────────
-# SAP EWM integration endpoints
+# Batch submission endpoints
 # ──────────────────────────────────────────────
 
-from services.ewm_warehouse_service import EwmWarehouseService, WarehouseTask
+from services.batch_service import BatchService
+
+_batch_service = BatchService()
+
+
+@app.post("/api/v1/orders/batch")
+async def trigger_batch(warehouse: str = "WM01"):
+    """Trigger batch collection from SAP EWM."""
+    count = _batch_service.collect_and_submit(warehouse=warehouse)
+    return {
+        "status": "ok" if count > 0 else "no_tasks",
+        "orders_created": count,
+        "warehouse": warehouse,
+    }
+
+
+@app.get("/api/v1/orders/batch/metrics")
+async def batch_metrics():
+    """Batch service metrics."""
+    return {
+        "status": "running" if _batch_service.is_running else "idle",
+        "metrics": _batch_service.metrics,
+    }
+
+
+# ──────────────────────────────────────────────
+# SAP EWM integration endpoints
+# SAP integration endpoints (multi-warehouse via backend abstraction)
+
+
+
+from backends.factory import get_backend_for, get_factory
+from backends.ewm_backend import EwmBackend
+from models.warehouse_task import WarehouseTask
 from services.inventory_service import InventoryService
 
-_ewm_service = EwmWarehouseService()
 _inventory_service = InventoryService()
 
 
 @app.get("/api/v1/sap/tasks")
 async def list_sap_tasks(warehouse: str = "WM01", status: str = "0", top: int = 100):
-    """Fetch open warehouse tasks from SAP EWM."""
+    """Fetch open warehouse tasks from SAP (EWM or WM)."""
+    backend = get_backend_for(warehouse)
+    if backend is None:
+        return JSONResponse(status_code=502, content={"error": f"no_backend_for_{warehouse}"})
     try:
-        tasks = _ewm_service.list_tasks(warehouse=warehouse, status=status, top=top)
+        tasks = backend.list_tasks(warehouse=warehouse, status=status, top=top)
         return {
             "tasks": [
                 {
                     "warehouse": t.warehouse,
-                    "taskId": t.task_id,
+                    "taskId": t.external_id,
                     "product": t.product,
                     "sourceBin": t.source_bin,
                     "destBin": t.dest_bin,
@@ -377,14 +440,17 @@ async def list_sap_tasks(warehouse: str = "WM01", status: str = "0", top: int = 
 
 @app.get("/api/v1/sap/tasks/{task_id}")
 async def get_sap_task(task_id: str, warehouse: str = "WM01"):
-    """Get a single warehouse task by ID."""
-    task = _ewm_service.get_task(warehouse, task_id)
+    """Get a single warehouse task by ID (EWM or WM)."""
+    backend = get_backend_for(warehouse)
+    if backend is None:
+        return JSONResponse(status_code=502, content={"error": f"no_backend_for_{warehouse}"})
+    task = backend.get_task(warehouse, task_id)
     if task is None:
         return JSONResponse(status_code=404, content={"error": "task_not_found"})
     return {
         "warehouse": task.warehouse,
-        "taskId": task.task_id,
-        "taskItem": task.task_item,
+        "taskId": task.external_id,
+        "taskItem": task.item_no,
         "product": task.product,
         "sourceBin": task.source_bin,
         "destBin": task.dest_bin,
@@ -397,7 +463,10 @@ async def get_sap_task(task_id: str, warehouse: str = "WM01"):
 @app.post("/api/v1/sap/tasks/{task_id}/confirm")
 async def confirm_sap_task(task_id: str, warehouse: str = "WM01"):
     """Confirm warehouse task completion in SAP."""
-    ok = _ewm_service.confirm_task(warehouse, task_id)
+    backend = get_backend_for(warehouse)
+    if backend is None:
+        return JSONResponse(status_code=502, content={"error": f"no_backend_for_{warehouse}"})
+    ok = backend.confirm_task(warehouse, task_id)
     if not ok:
         return JSONResponse(status_code=502, content={"error": "sap_confirm_failed"})
     return {"status": "confirmed", "taskId": task_id}
@@ -406,7 +475,10 @@ async def confirm_sap_task(task_id: str, warehouse: str = "WM01"):
 @app.post("/api/v1/sap/tasks/{task_id}/cancel")
 async def cancel_sap_task(task_id: str, warehouse: str = "WM01"):
     """Cancel warehouse task in SAP."""
-    ok = _ewm_service.cancel_task(warehouse, task_id)
+    backend = get_backend_for(warehouse)
+    if backend is None:
+        return JSONResponse(status_code=502, content={"error": f"no_backend_for_{warehouse}"})
+    ok = backend.cancel_task(warehouse, task_id)
     if not ok:
         return JSONResponse(status_code=502, content={"error": "sap_cancel_failed"})
     return {"status": "cancelled", "taskId": task_id}
@@ -414,9 +486,11 @@ async def cancel_sap_task(task_id: str, warehouse: str = "WM01"):
 
 @app.get("/api/v1/sap/health")
 async def sap_health():
-    """SAP EWM connectivity health check."""
-    status = _ewm_service.check_connection()
-    return status
+    """SAP connectivity health check for all configured warehouses."""
+    health = get_factory().health_check_all()
+    any_connected = any(s.get("connected") for s in health.values())
+    sap_connected.set(1 if any_connected else 0)
+    return health
 
 
 @app.get("/api/v1/inventory/{product}")

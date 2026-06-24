@@ -1,0 +1,9 @@
+# .dockerignore — exclude unnecessary files from Docker build context
+git/
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.md
+.gitignore
+Dockerfile
