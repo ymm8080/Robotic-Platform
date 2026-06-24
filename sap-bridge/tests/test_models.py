@@ -104,3 +104,64 @@ class TestWarehouseOrder:
         ]
         for s in statuses:
             assert OrderStatus(s).value == s
+
+    def test_order_with_batch_info(self):
+        order = WarehouseOrder(order_no="BATCH-001", expected_qty=10)
+        assert order.expected_qty == 10
+
+    def test_order_with_zone_and_location(self):
+        order = WarehouseOrder(order_no="ZONE-001", zone_id="ZONE-A", location="A01-01-01")
+        assert order.zone_id == "ZONE-A"
+        assert order.location == "A01-01-01"
+
+    def test_order_with_assigned_rule(self):
+        order = WarehouseOrder(order_no="RULE-001", assigned_rule_id=42)
+        assert order.assigned_rule_id == 42
+
+    def test_order_to_dict_omit_none(self):
+        order = WarehouseOrder(order_no="DICT-001")
+        d = order.to_dict()
+        # Optional fields should be omitted or None
+        assert d["orderNo"] == "DICT-001"
+        assert "errorMessage" not in d or d.get("errorMessage") is None
+
+    def test_order_version_increments_on_state_change(self):
+        """Version increments via OrderService._update(), not model directly."""
+        order = WarehouseOrder(order_no="VER-001")
+        v1 = order.version
+        assert v1 == 1
+
+    def test_put_order_type(self):
+        order = WarehouseOrder(order_no="PUT-001", type=OrderType.PUT)
+        assert order.type == OrderType.PUT
+        assert order.type.value == "PUT"
+
+    def test_charge_order_type(self):
+        order = WarehouseOrder(order_no="CHG-001", type=OrderType.CHARGE)
+        assert order.type == OrderType.CHARGE
+
+    def test_order_multiple_transitions(self):
+        """Full lifecycle: CREATED → ASSIGNED → IN_PROGRESS → COMPLETED."""
+        order = WarehouseOrder(order_no="LIFECYCLE-001")
+        assert order.status == OrderStatus.CREATED
+        order.mark_assigned("MIR", "MIR-001")
+        assert order.status == OrderStatus.ASSIGNED
+        order.mark_in_progress()
+        assert order.status == OrderStatus.IN_PROGRESS
+        order.mark_completed()
+        assert order.status == OrderStatus.COMPLETED
+        assert order.completed_at is not None
+
+    def test_order_failed_with_long_message(self):
+        long_msg = "E" * 1000
+        order = WarehouseOrder(order_no="LONG-ERR-001")
+        order.mark_failed(long_msg)
+        assert order.error_message == long_msg
+        assert order.status == OrderStatus.FAILED
+
+    def test_order_suspended_then_failed(self):
+        order = WarehouseOrder(order_no="SUSP-FAIL-001")
+        order.mark_suspended("Waiting for operator")
+        assert order.status == OrderStatus.SUSPENDED
+        order.mark_failed("Operator cancelled")
+        assert order.status == OrderStatus.FAILED

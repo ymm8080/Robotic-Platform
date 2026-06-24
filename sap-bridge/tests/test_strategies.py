@@ -284,4 +284,83 @@ class TestStrategyRegistry:
         assert registry.get("CUSTOM") is not None
 
     def test_count(self, registry):
-        assert registry.count() == 3
+        assert registry.count() == 6
+
+    def test_get_or_fallback_returns_strategy(self, registry):
+        fallback = registry.get_or_fallback("UNKNOWN_999")
+        assert fallback is not None
+        assert fallback.brand in ("KUKA", "CUSTOM")
+
+    def test_double_register_same_brand(self, registry):
+        count = registry.count()
+        from strategies.base import BaseStrategy, RobotState, BatteryInfo
+        class DupStrategy(BaseStrategy):
+            @property
+            def brand(self): return "KUKA"
+            @property
+            def supported_versions(self): return ["2.0.0"]
+            def handle_state(self, state): return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
+            def normalize_battery(self, raw): return BatteryInfo(percent=100)
+        registry.register(DupStrategy())
+        assert registry.count() == count
+
+
+class TestBaseStrategyUtils:
+    """BaseStrategy utility methods."""
+
+    @pytest.fixture
+    def kuka(self):
+        from strategies.kuka import KukaStrategy
+        return KukaStrategy()
+
+    def test_connection_state_online(self, kuka):
+        assert kuka.map_connection_state({"connectionState": "ONLINE"}) == "ONLINE"
+
+    def test_connection_state_offline(self, kuka):
+        assert kuka.map_connection_state({"connectionState": "OFFLINE"}) == "OFFLINE"
+
+    def test_connection_state_broken(self, kuka):
+        assert kuka.map_connection_state({"connectionState": "CONNECTIONBROKEN"}) == "OFFLINE"
+
+    def test_connection_state_empty(self, kuka):
+        assert kuka.map_connection_state({}) == "UNKNOWN"
+
+    def test_operating_mode_automatic(self, kuka):
+        assert kuka.map_operating_mode("AUTOMATIC") == "AUTOMATIC"
+
+    def test_operating_mode_manual(self, kuka):
+        assert kuka.map_operating_mode("MANUAL") == "MANUAL"
+
+    def test_operating_mode_fallback(self, kuka):
+        assert kuka.map_operating_mode("UNKNOWN") == "MANUAL"
+
+    def test_validate_idle_to_moving(self, kuka):
+        assert kuka.validate_state_transition("IDLE", "MOVING") is True
+
+    def test_validate_init_to_idle(self, kuka):
+        assert kuka.validate_state_transition("INIT", "IDLE") is True
+
+    def test_validate_invalid(self, kuka):
+        assert kuka.validate_state_transition("INIT", "MOVING") is False
+
+    def test_extract_position_normal(self, kuka):
+        pos = kuka.extract_position({"agvPosition": {"x": 1.0, "y": 2.0, "theta": 3.0, "lastNodeId": "N1", "positionInitialized": True}})
+        assert pos["x"] == 1.0
+
+    def test_extract_position_empty(self, kuka):
+        pos = kuka.extract_position({})
+        assert pos["x"] == 0.0
+
+    def test_extract_position_fallback(self, kuka):
+        pos = kuka.extract_position({"position": {"x": 5.0}})
+        assert pos["x"] == 5.0
+
+    def test_extract_errors_empty(self, kuka):
+        assert kuka.extract_errors({}) == []
+
+    def test_extract_errors_with_data(self, kuka):
+        errs = kuka.extract_errors({"errors": [{"errorType": "E1", "errorLevel": "FATAL", "errorDescription": "Bad"}]})
+        assert len(errs) == 1
+
+    def test_extract_errors_malformed(self, kuka):
+        assert kuka.extract_errors({"errors": "bad"}) == []

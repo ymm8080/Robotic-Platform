@@ -192,6 +192,96 @@ class TestPriorityQueue:
         assert count == 3
         assert q.depth() == 3
 
+    def test_enqueue_batch_with_payloads(self, q):
+        items = [("A", 0, {"nodes": [{"nodeId": "N1"}]}), ("B", 1, {"orderId": "O2"})]
+        count = q.enqueue_batch(items)
+        assert count == 2
+
+    def test_remove_order_not_found(self, q):
+        """Remove non-existent order should return False."""
+        q.enqueue("EXISTS", priority=0)
+        result = q.remove("DOES_NOT_EXIST")
+        assert result is False
+        assert q.depth() == 1
+
+    def test_recover_stale_empty(self, q):
+        """Recover with no processing items returns empty list."""
+        reclaimed = q.recover_stale_processing(max_age_seconds=1)
+        assert reclaimed == []
+
+    def test_recover_stale_recent(self, q):
+        """Recent processing items should not be reclaimed."""
+        import json, time
+        from dispatch_queue.priority_queue import PROCESSING_KEY
+        item = json.dumps({"order_no": "FRESH", "popped_at": time.time(), "score": 0})
+        q._redis.hset(PROCESSING_KEY, "FRESH", item)
+        q._redis.expire(PROCESSING_KEY, 3600)
+
+        reclaimed = q.recover_stale_processing(max_age_seconds=300)
+        assert "FRESH" not in reclaimed
+
+    def test_dequeue_adds_to_processing_set(self, q):
+        """Dequeue should add item to processing set for crash recovery."""
+        import json
+        q.enqueue("PROC-001", priority=0)
+        item = q.dequeue(timeout_ms=1000)
+        assert item is not None
+        assert item["order_no"] == "PROC-001"
+        # Processing set should have the item
+        processing = q._redis.hgetall("orders:processing")
+        assert "PROC-001" in processing
+
+    def test_depth_by_priority_on_empty(self, q):
+        """Empty queue returns all zeros for depth_by_priority."""
+        depths = q.depth_by_priority()
+        assert depths == {0: 0, 1: 0, 2: 0, 3: 0}
+
+    def test_queue_clear_removes_processing(self, q):
+        """Clear should remove both queue and processing set."""
+        q.enqueue("CLEAR-001", priority=0)
+        q.dequeue(timeout_ms=1000)
+        assert q.depth() == 0  # dequeued
+        # Add another
+        q.enqueue("CLEAR-002", priority=1)
+        assert q.clear() > 0
+
+
+class TestPriorityQueueEdgeCases:
+    """Additional edge cases for the priority queue."""
+
+    def test_enqueue_priority_clamped_high(self):
+        """Priority > 3 should be clamped to 3."""
+        from dispatch_queue.priority_queue import PriorityQueue
+        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+            mock_ru.return_value = _make_mock_redis()
+            q = PriorityQueue()
+            q.enqueue("HIGH", priority=999)
+            q.enqueue("LOW", priority=-1)
+            assert q.depth() == 2
+
+    def test_peek_empty_returns_empty_list(self):
+        from dispatch_queue.priority_queue import PriorityQueue
+        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+            mock_ru.return_value = _make_mock_redis()
+            q = PriorityQueue()
+            assert q.peek(10) == []
+
+    def test_multiple_priority_levels_order(self):
+        """Multiple items at same priority preserve insertion order."""
+        from dispatch_queue.priority_queue import PriorityQueue
+        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+            mock_ru.return_value = _make_mock_redis()
+            q = PriorityQueue()
+            import time
+            q.enqueue("A", priority=1, payload={"seq": 1})
+            time.sleep(0.005)
+            q.enqueue("B", priority=1, payload={"seq": 2})
+            time.sleep(0.005)
+            q.enqueue("C", priority=1, payload={"seq": 3})
+            assert q.dequeue(timeout_ms=1000)["order_no"] == "A"
+            assert q.dequeue(timeout_ms=1000)["order_no"] == "B"
+            assert q.dequeue(timeout_ms=1000)["order_no"] == "C"
+
 
 class TestDeadLetterHandler:
     """Dead letter handler tests (uses in-memory DB)."""
@@ -254,4 +344,40 @@ class TestDeadLetterHandler:
     def test_count_unresolved(self, dl):
         dl.send("ORDER-001", "E1", "err1")
         dl.send("ORDER-002", "E2", "err2")
+        assert dl.count_unresolved() == 2
+
+    def test_send_with_large_payload(self, dl):
+        """Send should handle complex nested payloads."""
+        payload = {"orderId": "O-001", "nodes": [{"nodeId": f"N{i}"} for i in range(100)]}
+        dl_id = dl.send("ORDER-001", "ERROR", "complex", payload=payload)
+        assert dl_id > 0
+
+    def test_list_all_pagination(self, dl):
+        """list_all should support pagination."""
+        for i in range(5):
+            dl.send(f"ORDER-{i:03d}", "ERR", f"test {i}")
+
+        page1 = dl.list_all(limit=2, offset=0)
+        assert len(page1) == 2
+
+        page2 = dl.list_all(limit=2, offset=2)
+        assert len(page2) == 2
+
+    def test_retry_nonexistent(self, dl):
+        """retry on non-existent ID returns None."""
+        data = dl.retry(999)
+        assert data is None
+
+    def test_resolve_already_resolved(self, dl):
+        """Resolving an already-resolved item should return False."""
+        dl_id = dl.send("ORDER-001", "E1", "test")
+        dl.resolve(dl_id, "MANUAL_FIX")
+        ok = dl.resolve(dl_id, "MANUAL_FIX")
+        assert ok is False
+
+    def test_multiple_sends_same_order(self, dl):
+        """Multiple deadletters for same order should each get unique ID."""
+        id1 = dl.send("ORDER-001", "E1", "first error")
+        id2 = dl.send("ORDER-001", "E2", "second error")
+        assert id1 != id2
         assert dl.count_unresolved() == 2

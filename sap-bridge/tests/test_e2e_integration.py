@@ -577,21 +577,21 @@ class TestInventoryServiceE2E:
 # Test 7: EWM Warehouse Service (mocked SAP)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestEWMWarehouseServiceE2E:
-    """SAP EWM OData service with mocked HTTP."""
+class TestEwmBackendE2E:
+    """SAP EWM OData backend with mocked HTTP."""
 
     def test_check_connection(self):
         """Connection check should return a status dict."""
-        from services.ewm_warehouse_service import EwmWarehouseService
-        svc = EwmWarehouseService()
+        from backends.ewm_backend import EwmBackend
+        svc = EwmBackend(config={"user": "test", "password": "test"})
         # When SAP is unreachable, returns error dict
         status = svc.check_connection()
         assert isinstance(status, dict)
 
     def test_list_tasks_without_sap_returns_empty(self):
         """With mocked SAP returning empty, list_tasks returns empty list."""
-        from services.ewm_warehouse_service import EwmWarehouseService
-        svc = EwmWarehouseService()
+        from backends.ewm_backend import EwmBackend
+        svc = EwmBackend(config={"user": "test", "password": "test"})
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"d": {"results": []}}
@@ -603,8 +603,8 @@ class TestEWMWarehouseServiceE2E:
 
     def test_check_connection_with_mocked_sap(self):
         """With mocked SAP, connection check succeeds."""
-        from services.ewm_warehouse_service import EwmWarehouseService
-        svc = EwmWarehouseService()
+        from backends.ewm_backend import EwmBackend
+        svc = EwmBackend(config={"user": "test", "password": "test"})
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_client = MagicMock()
