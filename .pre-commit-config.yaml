@@ -1,0 +1,73 @@
+# Pre-commit hooks for SAP-EWM Robot Dispatch Platform
+# Install: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^sap-bridge/.*\.py$
+      - id: ruff-format
+        files: ^sap-bridge/.*\.py$
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        types_or: [yaml, json, markdown]
+        args: [--prose-wrap=always, --print-width=120]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^sap-bridge/
+      - id: end-of-file-fixer
+        files: ^sap-bridge/
+      - id: check-yaml
+        files: ^(sap-bridge/|docker-compose\.yml)
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+      - id: detect-private-key
+        exclude: ^secrets/
+
+  - repo: local
+    hooks:
+      - id: adr-format
+        name: Check ADR format
+        entry: >
+          bash -c '
+          for f in 10_adr/ADR-*.md; do
+            [ -f "$f" ] || continue
+            errors=0
+            grep -q "^# ADR-" "$f" || { echo "Missing title in $f"; errors=1; }
+            grep -q "^\*\*Status\*\*:" "$f" || { echo "Missing Status in $f"; errors=1; }
+            grep -q "^\*\*Date\*\*:" "$f" || { echo "Missing Date in $f"; errors=1; }
+            [ "$errors" -gt 0 ] && exit 1
+          done
+          '
+        language: system
+        files: ^10_adr/
+
+      - id: pytest
+        name: Run pytest (sap-bridge)
+        entry: bash -c 'cd sap-bridge && python -m pytest tests/ -q --tb=short 2>&1 | tail -5'
+        language: system
+        files: ^sap-bridge/
+        pass_filenames: false
+        always_run: false
+        stages: [pre-push]
+
+      - id: verify-before-done
+        name: Verify-before-done marker check
+        entry: >
+          bash -c '
+          if git diff --cached --name-only | grep -q "^"; then
+            echo "✅ Changes staged — run \`python -m pytest sap-bridge/tests/\` before pushing"
+          fi
+          '
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]

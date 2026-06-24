@@ -1,0 +1,53 @@
+#!/bin/bash
+# Pre-commit hook for SAP-EWM Robot Dispatch Platform
+# Lightweight checks before every commit. For full suite, use pre-commit framework.
+# Install: ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
+
+echo "=== Pre-commit checks ==="
+
+# 1. Check for large files (>500KB)
+for file in $(git diff --cached --name-only); do
+    if [ -f "$file" ]; then
+        size=$(wc -c < "$file")
+        if [ "$size" -gt 512000 ]; then
+            echo "❌ $file: ${size}B exceeds 500KB limit"
+            exit 1
+        fi
+    fi
+done
+
+# 2. Check for merge conflicts
+if git diff --cached | grep -q "^<<<<<<< "; then
+    echo "❌ Merge conflict markers detected"
+    exit 1
+fi
+
+# 3. Check for private keys
+if git diff --cached | grep -q "BEGIN \(RSA\|DSA\|EC\|OPENSSH\|PRIVATE\) KEY"; then
+    echo "❌ Private key detected in staged changes"
+    exit 1
+fi
+
+# 4. Check .py syntax if any Python files changed
+for file in $(git diff --cached --name-only | grep '\.py$'); do
+    if [ -f "$file" ]; then
+        python -m py_compile "$file" 2>/dev/null
+        if [ $? -ne 0 ]; then
+            echo "❌ Syntax error in $file"
+            python -m py_compile "$file"
+            exit 1
+        fi
+    fi
+done
+
+# 5. Check trailing whitespace (sap-bridge only)
+for file in $(git diff --cached --name-only | grep '^sap-bridge/'); do
+    if [ -f "$file" ]; then
+        if grep -q '[[:space:]]$' "$file"; then
+            echo "⚠️  Trailing whitespace in $file"
+        fi
+    fi
+done
+
+echo "✅ Pre-commit checks passed"
+exit 0

@@ -3,51 +3,709 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SAP-EWM 机器人调度平台 · 急救页</title>
+  <title>SAP-EWM 机器人调度平台 · 急救控制台</title>
+  <link rel="manifest" href="manifest.json" />
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-    h1 { color: #b91c1c; }
-    .status { padding: 1rem; border-radius: 8px; margin: 1rem 0; }
-    .offline { background: #fef2f2; border: 1px solid #fecaca; }
-    .online { background: #f0fdf4; border: 1px solid #bbf7d0; }
-    code, pre { background: #f3f4f6; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9rem; }
-    pre { padding: 1rem; overflow-x: auto; }
-    .warn { color: #92400e; font-size: 0.9rem; }
+    /* ═══════════════════════════════════════════════════════
+       Rescue Dashboard — Offline-first Ops Console
+       ═══════════════════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+      --text: #f1f5f9; --muted: #94a3b8;
+      --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
+      --radius: 8px; --gap: 1rem;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); padding: var(--gap);
+      display: grid; gap: var(--gap);
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto 1fr auto;
+      min-height: 100vh;
+    }
+    @media (max-width: 768px) { body { grid-template-columns: 1fr; } }
+
+    /* ── Header ── */
+    header {
+      grid-column: 1 / -1;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.75rem 1rem; background: var(--surface); border-radius: var(--radius);
+    }
+    header h1 { font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; }
+    header h1 span { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+    .badge { padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+    .badge.online { background: var(--green); color: #000; }
+    .badge.offline { background: var(--red); }
+    .badge.warning { background: var(--yellow); color: #000; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface); border-radius: var(--radius); padding: 1rem;
+      border: 1px solid var(--surface2);
+    }
+    .card h2 { font-size: 0.9rem; color: var(--muted); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ── Robot Table ── */
+    .robot-grid { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+    .robot-row {
+      display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+      padding: 0.4rem 0.5rem; border-radius: 4px; align-items: center;
+    }
+    .robot-row.header { color: var(--muted); font-weight: 600; font-size: 0.75rem; }
+    .robot-row:not(.header):hover { background: var(--surface2); }
+    .robot-row .status-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem;
+    }
+    .robot-row .status-dot.idle { background: var(--green); }
+    .robot-row .status-dot.moving { background: var(--blue); }
+    .robot-row .status-dot.executing { background: var(--yellow); }
+    .robot-row .status-dot.error { background: var(--red); }
+    .robot-row .status-dot.charging { background: #a855f7; }
+    .robot-row .status-dot.offline { background: var(--muted); }
+
+    .battery-bar {
+      display: inline-block; width: 40px; height: 6px; background: var(--surface2);
+      border-radius: 3px; overflow: hidden; vertical-align: middle; margin-right: 0.3rem;
+    }
+    .battery-bar .fill { height: 100%; transition: width 0.5s; }
+    .battery-bar .fill.good { background: var(--green); }
+    .battery-bar .fill.warn { background: var(--yellow); }
+    .battery-bar .fill.critical { background: var(--red); }
+
+    /* ── E-Stop Button ── */
+    .estop {
+      display: block; width: 100%; padding: 1.5rem;
+      background: var(--red); color: #fff; border: none; border-radius: var(--radius);
+      font-size: 1.3rem; font-weight: 800; cursor: pointer;
+      text-transform: uppercase; letter-spacing: 0.1em; transition: transform 0.1s;
+    }
+    .estop:active { transform: scale(0.97); }
+    .estop:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Map Canvas ── */
+    #mapCanvas {
+      width: 100%; height: 300px; background: var(--surface2);
+      border-radius: var(--radius); cursor: crosshair;
+    }
+    .map-legend { display: flex; gap: 1rem; font-size: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+
+    /* ── Order Form ── */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .form-row.full { grid-template-columns: 1fr; }
+    label { font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 0.2rem; }
+    select, input, button:not(.estop) {
+      width: 100%; padding: 0.4rem 0.6rem; border-radius: 4px;
+      border: 1px solid var(--surface2); background: var(--bg); color: var(--text);
+      font-size: 0.85rem;
+    }
+    .btn { cursor: pointer; font-weight: 600; }
+    .btn.primary { background: var(--blue); border-color: var(--blue); }
+    .btn.primary:hover { opacity: 0.9; }
+
+    /* ── Log / Alerts ── */
+    .alert-log { max-height: 150px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
+    .alert-log .entry { padding: 0.15rem 0; border-bottom: 1px solid var(--surface2); }
+    .alert-log .entry .ts { color: var(--muted); margin-right: 0.5rem; }
+
+    /* ── Offline Banner ── */
+    .offline-banner {
+      display: none; grid-column: 1 / -1;
+      background: var(--yellow); color: #000; text-align: center;
+      padding: 0.3rem; border-radius: var(--radius); font-size: 0.8rem; font-weight: 600;
+    }
+    .offline-banner.show { display: block; }
+
+    /* ── Stats ── */
+    .stat-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .stat { flex: 1; min-width: 80px; text-align: center; }
+    .stat .val { font-size: 1.5rem; font-weight: 700; }
+    .stat .label { font-size: 0.7rem; color: var(--muted); }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      justify-content: center; align-items: center; z-index: 100;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal { background: var(--surface); padding: 2rem; border-radius: var(--radius); max-width: 400px; width: 90%; }
+    .modal h3 { margin-bottom: 1rem; }
+    .modal .btn-row { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .modal .btn-row .btn { flex: 1; }
   </style>
 </head>
 <body>
-  <h1>🚑 急救控制台（离线兜底）</h1>
-  <p>Node-RED 主服务不可用时，本页仍可打开。请先止血，再联系运维。</p>
 
-  <div id="status" class="status offline">
-    <strong>Node-RED 状态：</strong><span id="status-text">检测中…</span>
+  <!-- ═══ Offline Banner ═══ -->
+  <div id="offlineBanner" class="offline-banner">⚠ 离线模式 — 显示缓存数据，操作将在恢复连接后同步</div>
+
+  <!-- ═══ Header ═══ -->
+  <header>
+    <h1>🚑 <span>急救控制台</span> <span id="version" style="font-size:0.75rem;color:var(--muted)">v3.4</span></h1>
+    <div style="display:flex;gap:0.5rem;align-items:center">
+      <span id="robotCount" style="font-size:0.85rem">0 台机器人</span>
+      <span id="connBadge" class="badge offline">离线</span>
+    </div>
+  </header>
+
+  <!-- ═══ Stats Row ═══ -->
+  <div class="card" style="grid-column:1/-1">
+    <div class="stat-row" id="statsRow">
+      <div class="stat"><div class="val" id="statOnline">0</div><div class="label">在线</div></div>
+      <div class="stat"><div class="val" id="statIdle">0</div><div class="label">空闲</div></div>
+      <div class="stat"><div class="val" id="statMoving">0</div><div class="label">运行中</div></div>
+      <div class="stat"><div class="val" id="statError">0</div><div class="label">故障</div></div>
+      <div class="stat"><div class="val" id="statBatteryLow">0</div><div class="label">低电量</div></div>
+    </div>
   </div>
 
-  <h2>Step 1：一键止血（安全模式）</h2>
-  <pre>curl -X POST http://&lt;服务器IP&gt;:1880/api/safe-mode</pre>
-  <p class="warn">禁止：docker-compose down · rm -rf · 拔急停 · 未备份改 SQLite</p>
+  <!-- ═══ Robot Status Table ═══ -->
+  <div class="card" style="grid-row:span 2">
+    <h2>🤖 机器人状态</h2>
+    <div class="robot-grid" id="robotTable">
+      <div class="robot-row header">
+        <span>ID</span><span>品牌</span><span>状态</span><span>电量</span><span>最后更新</span>
+      </div>
+      <div id="robotRows"><p style="color:var(--muted);font-size:0.85rem">等待数据…</p></div>
+    </div>
+  </div>
 
-  <h2>Step 2：重启 Node-RED 容器</h2>
-  <pre>docker compose restart nodered</pre>
+  <!-- ═══ Map ═══ -->
+  <div class="card" style="grid-row:span 2">
+    <h2>🗺 实时位置</h2>
+    <canvas id="mapCanvas"></canvas>
+    <div class="map-legend">
+      <span><span class="status-dot idle"></span> 空闲</span>
+      <span><span class="status-dot moving"></span> 运行</span>
+      <span><span class="status-dot error"></span> 故障</span>
+      <span><span class="status-dot charging"></span> 充电</span>
+    </div>
+  </div>
 
-  <h2>Step 3：仍异常 → 访问独立 Nginx 急救入口</h2>
-  <p>本页由 <code>nginx-rescue</code> 容器提供（端口 8080），与 Node-RED 进程隔离。</p>
+  <!-- ═══ E-Stop + Quick Actions ═══ -->
+  <div class="card">
+    <h2>🛑 紧急操作</h2>
+    <button class="estop" id="estopBtn" onclick="confirmEStop()">🛑 紧急停止</button>
+    <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+      <button class="btn primary" onclick="recoverAll()" style="flex:1">恢复运行</button>
+      <button class="btn" onclick="safeMode()" style="flex:1;background:var(--yellow);border-color:var(--yellow);color:#000">安全模式</button>
+    </div>
+    <p style="font-size:0.7rem;color:var(--muted);margin-top:0.5rem">
+      E-Stop 发送停止指令至所有品牌 · 恢复运行需确认
+    </p>
+  </div>
+
+  <!-- ═══ Manual Order Form ═══ -->
+  <div class="card">
+    <h2>📋 手动创建订单</h2>
+    <div class="form-row">
+      <div><label>机器人</label><select id="orderRobot"><option value="">— 选择 —</option></select></div>
+      <div><label>类型</label><select id="orderType"><option>PICK</option><option>PUT</option><option>MOVE</option><option>CHARGE</option><option>EMERGENCY_STOP</option></select></div>
+    </div>
+    <div class="form-row">
+      <div><label>起点</label><input id="orderSource" placeholder="BIN-SOURCE-01" /></div>
+      <div><label>终点</label><input id="orderDest" placeholder="BIN-DEST-01" /></div>
+    </div>
+    <div class="form-row full">
+      <div><label>优先级</label><select id="orderPriority"><option value="0">0 — 紧急</option><option value="1">1 — 高</option><option value="2" selected>2 — 正常</option><option value="3">3 — 低</option></select></div>
+    </div>
+    <button class="btn primary" onclick="submitOrder()">提交订单</button>
+    <p id="orderFeedback" style="font-size:0.75rem;margin-top:0.3rem;color:var(--muted)"></p>
+  </div>
+
+  <!-- ═══ Alert Log ═══ -->
+  <div class="card" style="grid-column:1/-1">
+    <h2>📜 事件日志</h2>
+    <div class="alert-log" id="alertLog"></div>
+  </div>
+
+  <!-- ═══ E-Stop Confirm Modal ═══ -->
+  <div class="modal-overlay" id="estopModal">
+    <div class="modal">
+      <h3>🛑 确认紧急停止</h3>
+      <p style="color:var(--muted);margin-bottom:1rem">此操作将停止所有品牌的所有机器人。确定继续？</p>
+      <div class="btn-row">
+        <button class="btn estop" onclick="executeEStop()" style="font-size:1rem">确认停止</button>
+        <button class="btn" onclick="closeModal('estopModal')" style="background:var(--surface2);border-color:var(--surface2)">取消</button>
+      </div>
+    </div>
+  </div>
 
   <script>
-    (function () {
-      var el = document.getElementById('status');
-      var text = document.getElementById('status-text');
-      fetch('/api/system-health', { cache: 'no-store' })
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
-        .then(function () {
-          el.className = 'status online';
-          text.textContent = '在线 — 如业务仍异常，请执行安全模式';
-        })
-        .catch(function () {
-          el.className = 'status offline';
-          text.textContent = '离线 — 请按上方步骤止血，并切换纸质单';
-        });
-    })();
+  /* ═══════════════════════════════════════════════════════════
+     Rescue Dashboard — Offline-first Ops Console
+     ═══════════════════════════════════════════════════════════ */
+
+  (function() {
+    'use strict';
+
+    // ── Constants ──
+    const POLL_INTERVAL = 5000;           // 5s poll
+    const STALE_THRESHOLD = 30000;        // 30s = offline
+    const BATTERY_WARN = 50;              // yellow
+    const BATTERY_CRITICAL = 20;          // red
+    const DB_NAME = 'rescue-dashboard';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'robotCache';
+
+    // ── State ──
+    let robots = [];
+    let ws = null;
+    let wsReconnectTimer = null;
+    let intervals = [];
+
+    // ── IndexedDB (offline cache) ──
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME))
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('orders'))
+            db.createObjectStore('orders', { keyPath: 'id', autoIncrement: true });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function cacheRobot(robot) {
+      const db = await openDB();
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put({ ...robot, _cachedAt: Date.now() });
+    }
+
+    async function getCachedRobots() {
+      const db = await openDB();
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      return new Promise((resolve) => {
+        const req = tx.objectStore(STORE_NAME).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+    }
+
+    async function savePendingOrder(order) {
+      const db = await openDB();
+      const tx = db.transaction('orders', 'readwrite');
+      tx.objectStore('orders').add({ ...order, _pending: true, _createdAt: Date.now() });
+    }
+
+    async function flushPendingOrders() {
+      const db = await openDB();
+      const orders = await new Promise((resolve) => {
+        const tx = db.transaction('orders', 'readonly');
+        const req = tx.objectStore('orders').getAll();
+        req.onsuccess = () => resolve(req.result.filter(o => o._pending));
+        req.onerror = () => resolve([]);
+      });
+      for (const order of orders) {
+        try {
+          const res = await fetch('/api/v1/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              manufacturer: order.manufacturer || 'MANUAL',
+              serialNumber: order.serialNumber || 'MANUAL-001',
+              orderId: order.orderId || 'MANUAL-' + Date.now(),
+              orderType: order.orderType || 'MOVE',
+              priority: order.priority || 3,
+              source: order.source || '',
+            }),
+          });
+          if (res.ok) {
+            const tx = db.transaction('orders', 'readwrite');
+            tx.objectStore('orders').delete(order.id);
+            log(`已同步离线订单 ${order.orderId}`);
+          }
+        } catch(e) {
+          log(`同步离线订单失败: ${order.orderId}`, 'warn');
+        }
+      }
+    }
+
+    // ── MQTT WebSocket ──
+    function connectMQTT() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = location.hostname;
+      // Try direct MQTT WebSocket, fallback to polling
+      try {
+        ws = new WebSocket(`${protocol}//${host}:9001`);
+        ws.onopen = () => { log('MQTT 实时连接已建立'); setBadge('online'); };
+        ws.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.topic && msg.topic.startsWith('vda5050/')) {
+              handleRobotState(msg.topic, msg.payload || msg);
+            }
+          } catch(_) {}
+        };
+        ws.onclose = () => {
+          log('MQTT 连接断开，切换轮询', 'warn');
+          setBadge('offline');
+          wsReconnectTimer = setTimeout(connectMQTT, 10000);
+        };
+        ws.onerror = () => { ws.close(); };
+      } catch(e) {
+        log('MQTT 不可用，使用轮询', 'warn');
+        setBadge('offline');
+      }
+    }
+
+    // ── API Polling (fallback) ──
+    async function pollRobots() {
+      try {
+        const res = await fetch('/api/v1/robots/status', { cache: 'no-store' });
+        if (!res.ok) throw new Error('API unavailable');
+        const data = await res.json();
+        if (data.robots) {
+          robots = data.robots;
+          robots.forEach(r => cacheRobot(r));
+          render();
+          setBadge('online');
+        }
+      } catch(e) {
+        // Offline — use cached data
+        setBadge('offline');
+        showOfflineBanner(true);
+        const cached = await getCachedRobots();
+        if (cached.length > 0 && robots.length === 0) {
+          robots = cached;
+          render();
+          log('使用缓存数据（离线模式）', 'warn');
+        }
+      }
+    }
+
+    function handleRobotState(topic, payload) {
+      // Parse VDA5050 state from MQTT
+      const parts = topic.split('/');
+      const manufacturer = parts[1];
+      const serialNumber = parts[2];
+      const msgType = parts[3];
+
+      if (msgType === 'state' && payload) {
+        const idx = robots.findIndex(r => r.id === serialNumber);
+        const robot = {
+          id: serialNumber,
+          brand: manufacturer,
+          state: payload.driving ? 'MOVING' : (payload.actionStates ? 'EXECUTING' : 'IDLE'),
+          battery: payload.batteryState?.batteryCharge,
+          lastSeen: new Date().toISOString(),
+          position: payload.agvPosition || {},
+        };
+        if (idx >= 0) robots[idx] = robot;
+        else robots.push(robot);
+        cacheRobot(robot);
+        render();
+      }
+    }
+
+    // ── Canvas Map ──
+    function drawMap() {
+      const canvas = document.getElementById('mapCanvas');
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+      canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1);
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+
+      // Background
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, cw, ch);
+
+      // Grid
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x < cw; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,ch); ctx.stroke(); }
+      for (let y = 0; y < ch; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cw,y); ctx.stroke(); }
+
+      if (!robots.length) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '14px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText('等待机器人位置数据…', cw/2, ch/2);
+        return;
+      }
+
+      // Draw robots
+      const now = Date.now();
+      robots.forEach((r, i) => {
+        // Simple grid layout if no true positions
+        const x = 30 + (i % 5) * 80;
+        const y = 30 + Math.floor(i / 5) * 60;
+        const px = r.position?.x ? (r.position.x % 500) / 500 * (cw - 60) + 30 : x;
+        const py = r.position?.y ? (r.position.y % 500) / 500 * (ch - 60) + 30 : y;
+
+        const state = (r.state || 'UNKNOWN').toLowerCase();
+        const colors = { idle:'#22c55e', moving:'#3b82f6', executing:'#eab308', error:'#ef4444', charging:'#a855f7', offline:'#64748b' };
+        const color = colors[state] || colors.offline;
+
+        // Shadow
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12;
+
+        // Robot circle
+        ctx.beginPath();
+        ctx.arc(px, py, 8 + (state === 'error' ? 3 : 0), 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+
+        // Label
+        ctx.fillStyle = '#f1f5f9';
+        ctx.font = '9px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(r.id.length > 10 ? r.id.slice(0,10)+'…' : r.id, px, py + 18);
+
+        // Battery if available
+        if (r.battery !== undefined) {
+          ctx.fillStyle = r.battery < BATTERY_CRITICAL ? '#ef4444' : r.battery < BATTERY_WARN ? '#eab308' : '#22c55e';
+          ctx.font = '7px monospace';
+          ctx.fillText(Math.round(r.battery)+'%', px, py - 14);
+        }
+      });
+    }
+
+    // ── Render ──
+    function render() {
+      const now = Date.now();
+
+      // Robot table rows
+      const container = document.getElementById('robotRows');
+      const online = robots.filter(r => {
+        const t = new Date(r.lastSeen || 0).getTime();
+        return (now - t) < STALE_THRESHOLD;
+      });
+
+      if (robots.length === 0) {
+        container.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">等待数据…</p>';
+      } else {
+        container.innerHTML = robots.map(r => {
+          const t = new Date(r.lastSeen || 0).getTime();
+          const stale = (now - t) > STALE_THRESHOLD;
+          const state = stale ? 'offline' : (r.state || 'unknown').toLowerCase();
+          const bat = r.battery !== undefined ? Math.round(r.battery) : '--';
+          const batClass = bat === '--' ? '' : bat < BATTERY_CRITICAL ? 'critical' : bat < BATTERY_WARN ? 'warn' : 'good';
+          const lastSeen = stale ? '离线' : new Date(t).toLocaleTimeString();
+
+          return `<div class="robot-row">
+            <span>${r.id}</span>
+            <span>${r.brand || '--'}</span>
+            <span><span class="status-dot ${state}"></span>${state.toUpperCase()}</span>
+            <span>${bat !== '--' ? `<div class="battery-bar"><div class="fill ${batClass}" style="width:${bat}%"></div></div>` : ''}${bat}</span>
+            <span>${lastSeen}</span>
+          </div>`;
+        }).join('');
+      }
+
+      // Stats
+      document.getElementById('statOnline').textContent = online.length;
+      const idle = online.filter(r => (r.state||'').toLowerCase() === 'idle').length;
+      const moving = online.filter(r => (r.state||'').toLowerCase() === 'moving' || (r.state||'').toLowerCase() === 'executing').length;
+      const error = online.filter(r => (r.state||'').toLowerCase() === 'error').length;
+      const lowBat = robots.filter(r => r.battery !== undefined && r.battery < BATTERY_CRITICAL).length;
+      document.getElementById('statIdle').textContent = idle;
+      document.getElementById('statMoving').textContent = moving;
+      document.getElementById('statError').textContent = error;
+      document.getElementById('statBatteryLow').textContent = lowBat;
+      document.getElementById('robotCount').textContent = robots.length + ' 台机器人';
+
+      // Update order form robot dropdown
+      const sel = document.getElementById('orderRobot');
+      const currentVal = sel.value;
+      sel.innerHTML = '<option value="">— 选择 —</option>' +
+        online.filter(r => r.state !== 'charging').map(r =>
+          `<option value="${r.id}" ${r.id === currentVal ? 'selected' : ''}>${r.id} (${r.brand})</option>`
+        ).join('');
+
+      // Map
+      drawMap();
+    }
+
+    // ── UI Helpers ──
+    function setBadge(state) {
+      const el = document.getElementById('connBadge');
+      el.className = 'badge ' + state;
+      el.textContent = state === 'online' ? '在线' : state === 'warning' ? '降级' : '离线';
+      showOfflineBanner(state === 'offline');
+    }
+
+    function showOfflineBanner(show) {
+      document.getElementById('offlineBanner').className = 'offline-banner' + (show ? ' show' : '');
+    }
+
+    function log(msg, level) {
+      const el = document.getElementById('alertLog');
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      entry.innerHTML = `<span class="ts">${new Date().toLocaleTimeString()}</span>[${level || 'info'}] ${msg}`;
+      el.prepend(entry);
+      if (el.children.length > 100) el.removeChild(el.lastChild);
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('show');
+    }
+
+    // ── Actions ──
+    window.confirmEStop = function() {
+      document.getElementById('estopModal').classList.add('show');
+    };
+
+    window.executeEStop = function() {
+      closeModal('estopModal');
+      const btn = document.getElementById('estopBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 正在停止…';
+      log('⚠ 执行紧急停止！', 'warn');
+
+      // Send to all robots via API
+      const promises = robots.filter(r => {
+        const t = new Date(r.lastSeen || 0).getTime();
+        return (Date.now() - t) < STALE_THRESHOLD;
+      }).map(r =>
+        fetch('/api/v1/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            manufacturer: r.brand || 'UNKNOWN',
+            serialNumber: r.id,
+            orderId: 'ESTOP-' + Date.now(),
+            orderType: 'EMERGENCY_STOP',
+            priority: 0,
+          }),
+        }).catch(() => {})
+      );
+
+      Promise.allSettled(promises).then(() => {
+        btn.disabled = false;
+        btn.textContent = '🛑 紧急停止';
+        log('✅ 紧急停止指令已发送至 ' + promises.length + ' 台机器人');
+      });
+    };
+
+    window.recoverAll = function() {
+      if (!confirm('确定恢复所有机器人运行？')) return;
+      log('🔄 发送恢复运行指令…');
+      fetch('/api/v1/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          manufacturer: 'SYSTEM',
+          serialNumber: 'BROADCAST',
+          orderId: 'RECOVER-' + Date.now(),
+          orderType: 'MOVE',
+          priority: 0,
+        }),
+      }).then(r => r.ok ? log('✅ 恢复指令已发送') : log('❌ 恢复失败', 'error'))
+        .catch(() => log('❌ 恢复请求失败', 'error'));
+    };
+
+    window.safeMode = function() {
+      log('🛡 触发安全模式…');
+      fetch('/api/safe-mode', { method: 'POST' })
+        .then(r => r.ok ? log('✅ 安全模式已激活') : log('❌ 安全模式失败', 'error'))
+        .catch(() => log('❌ 安全模式请求失败（离线）', 'warn'));
+    };
+
+    window.submitOrder = function() {
+      const robot = document.getElementById('orderRobot').value;
+      const type = document.getElementById('orderType').value;
+      const source = document.getElementById('orderSource').value;
+      const dest = document.getElementById('orderDest').value;
+      const priority = parseInt(document.getElementById('orderPriority').value);
+      const fb = document.getElementById('orderFeedback');
+
+      if (!robot) { fb.textContent = '请选择机器人'; fb.style.color = 'var(--red)'; return; }
+
+      const payload = {
+        manufacturer: robots.find(r => r.id === robot)?.brand || 'MANUAL',
+        serialNumber: robot,
+        orderId: 'MANUAL-' + Date.now(),
+        orderType: type,
+        priority: priority,
+        nodes: [],
+        edges: [],
+        source: `MANUAL:${source}→${dest}`,
+      };
+
+      const req = fetch('/api/v1/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      req.then(r => {
+        if (r.ok) {
+          fb.textContent = `✅ 订单已提交: ${payload.orderId}`;
+          fb.style.color = 'var(--green)';
+          log(`📋 手动订单 ${payload.orderId} → ${robot}`);
+        } else {
+          fb.textContent = '❌ 提交失败';
+          fb.style.color = 'var(--red)';
+          savePendingOrder(payload);
+          log('📋 订单已保存至离线队列', 'warn');
+        }
+      }).catch(() => {
+        fb.textContent = '📦 已保存至离线队列（连接恢复后自动同步）';
+        fb.style.color = 'var(--yellow)';
+        savePendingOrder(payload);
+      });
+    };
+
+    // ── Init ──
+    async function init() {
+      log('🚑 急救控制台已加载');
+
+      // Register service worker
+      if ('serviceWorker' in navigator) {
+        try {
+          await navigator.serviceWorker.register('sw.js');
+          log('✅ 离线缓存已激活');
+        } catch(e) {
+          log('Service Worker 注册失败', 'warn');
+        }
+      }
+
+      // Try MQTT WebSocket
+      connectMQTT();
+
+      // Poll API
+      intervals.push(setInterval(pollRobots, POLL_INTERVAL));
+      intervals.push(setInterval(drawMap, 2000));
+
+      // Initial load
+      await pollRobots();
+
+      // Try flushing pending orders
+      window.addEventListener('online', () => {
+        showOfflineBanner(false);
+        flushPendingOrders();
+      });
+    }
+
+    // Handle visibility change — pause when hidden, resume when visible
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        intervals.forEach(clearInterval);
+        intervals.length = 0;
+      } else {
+        pollRobots();
+        intervals.push(setInterval(pollRobots, POLL_INTERVAL));
+        intervals.push(setInterval(drawMap, 2000));
+      }
+    });
+
+    // Window resize → redraw map
+    window.addEventListener('resize', drawMap);
+
+    init();
+  })();
   </script>
 </body>
 </html>

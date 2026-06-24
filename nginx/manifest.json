@@ -1,0 +1,10 @@
+{
+  "name": "SAP-EWM 机器人调度平台 · 急救控制台",
+  "short_name": "急救控制台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "description": "离线急救控制台 — 机器人状态监控、紧急停止、手动订单",
+  "icons": []
+}
