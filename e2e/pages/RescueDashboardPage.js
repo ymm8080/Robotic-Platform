@@ -15,8 +15,8 @@ class RescueDashboardPage {
 
     // ── Page structure ────────────────────────────────────────────────
     this.pageTitle = page.locator('h1, .dashboard-title, header h1');
-    this.statusIndicator = page.locator('#status, .status-badge, .health-indicator');
-    this.robotStatusSection = page.locator('#robot-status, .robot-status-panel, [data-testid="robot-status"]');
+    this.statusIndicator = page.locator('#status, #connBadge, .status-badge, .health-indicator');
+    this.robotStatusSection = page.locator('#robot-status, #robotTable, .robot-status-panel, [data-testid="robot-status"]');
     this.systemHealthSection = page.locator('#system-health, .system-health-panel, [data-testid="system-health"]');
     this.lastUpdated = page.locator('#last-updated, .last-updated, [data-testid="last-updated"]');
 

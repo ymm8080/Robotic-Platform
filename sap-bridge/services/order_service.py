@@ -15,7 +15,7 @@ from models.order import WarehouseOrder, OrderType, OrderStatus, _now
 logger = logging.getLogger(__name__)
 
 # SQLite database path (mounted Docker volume path)
-DB_PATH = os.getenv("DB_PATH", "/data/robot_platform.db")
+DB_PATH = os.getenv("DB_PATH", "/tmp/robot_platform.db")
 
 
 class OrderService:
@@ -23,6 +23,36 @@ class OrderService:
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """Create tables if they don't exist."""
+        conn = self._connect()
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_no TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    priority INTEGER DEFAULT 3,
+                    source TEXT,
+                    robot_brand TEXT,
+                    robot_serial TEXT,
+                    status TEXT DEFAULT 'CREATED',
+                    payload TEXT,
+                    zone_id TEXT,
+                    location TEXT,
+                    weight REAL,
+                    env_tag TEXT,
+                    expected_qty INTEGER,
+                    created_at REAL,
+                    updated_at REAL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_v2_status ON orders_v2(status)")
+            conn.commit()
+        finally:
+            conn.close()
 
     # ── Connection ──────────────────────────────────────
 

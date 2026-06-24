@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SAP-EWM 机器人调度平台 · 急救控制台</title>
+  <title>Rescue Dashboard · SAP-EWM 机器人调度平台 · 急救控制台</title>
   <link rel="manifest" href="manifest.json" />
   <style>
     /* ═══════════════════════════════════════════════════════
@@ -144,7 +144,9 @@
     <h1>🚑 <span>急救控制台</span> <span id="version" style="font-size:0.75rem;color:var(--muted)">v3.4</span></h1>
     <div style="display:flex;gap:0.5rem;align-items:center">
       <span id="robotCount" style="font-size:0.85rem">0 台机器人</span>
-      <span id="connBadge" class="badge offline">离线</span>
+      <span id="last-updated" style="font-size:0.75rem;color:var(--muted)">—</span>
+      <button onclick="refreshData()" style="background:var(--surface2);border:1px solid var(--surface2);color:var(--text);padding:0.25rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.8rem">刷新</button>
+      <span id="connBadge" class="badge offline" data-testid="status">离线</span>
     </div>
   </header>
 
@@ -364,6 +366,7 @@
           robots.forEach(r => cacheRobot(r));
           render();
           setBadge('online');
+          document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
         }
       } catch(e) {
         // Offline — use cached data
@@ -377,6 +380,13 @@
         }
       }
     }
+    async function refreshData() {
+      robots = [];
+      setBadge('offline');
+      await pollRobots();
+    }
+
+    
 
     function handleRobotState(topic, payload) {
       // Parse VDA5050 state from MQTT
@@ -493,10 +503,10 @@
           const batClass = bat === '--' ? '' : bat < BATTERY_CRITICAL ? 'critical' : bat < BATTERY_WARN ? 'warn' : 'good';
           const lastSeen = stale ? '离线' : new Date(t).toLocaleTimeString();
 
-          return `<div class="robot-row">
+          return `<div class="robot-row" data-testid="robot-card">
             <span>${r.id}</span>
             <span>${r.brand || '--'}</span>
-            <span><span class="status-dot ${state}"></span>${state.toUpperCase()}</span>
+            <span data-testid="robot-status"><span class="status-dot ${state}"></span>${state.toUpperCase()}</span>
             <span>${bat !== '--' ? `<div class="battery-bar"><div class="fill ${batClass}" style="width:${bat}%"></div></div>` : ''}${bat}</span>
             <span>${lastSeen}</span>
           </div>`;
