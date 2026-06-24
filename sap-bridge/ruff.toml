@@ -1,0 +1,7 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+ignore = [
+    "E402",  # Module-level import not at top — intentional for lazy-loaded endpoints
+]

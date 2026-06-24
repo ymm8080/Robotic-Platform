@@ -1,12 +1,9 @@
 """Tests for Metrics module — metric registration, labels, response."""
+import importlib
 import pytest
 
 # Check if prometheus_client is available
-try:
-    import prometheus_client
-    HAS_PROMETHEUS = True
-except ImportError:
-    HAS_PROMETHEUS = False
+HAS_PROMETHEUS = importlib.util.find_spec("prometheus_client") is not None
 
 
 pytestmark = pytest.mark.skipif(not HAS_PROMETHEUS, reason="prometheus_client not installed")
@@ -19,7 +16,7 @@ class TestMetricsRegistry:
         from metrics import (orders_created, orders_completed, orders_failed,
                              mqtt_connected, redis_connected, sap_connected,
                              queue_depth, deadletter_unresolved,
-                             http_requests, uptime, metrics_response)
+                             http_requests, uptime)
         assert "sap_bridge_orders_created" in str(orders_created._name)
         assert "sap_bridge_orders_completed" in str(orders_completed._name)
         assert "sap_bridge_orders_failed" in str(orders_failed._name)

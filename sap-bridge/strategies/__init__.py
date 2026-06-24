@@ -20,6 +20,7 @@ __all__ = [
     "BatteryInfo",
     "BrandQuirk",
     "StrategyRegistry",
+    "get_registry",
     "KukaStrategy",
     "MirStrategy",
     "OttoStrategy",
