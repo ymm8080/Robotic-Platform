@@ -1,59 +1,658 @@
 [
-    {
-        "id": "tab_health",
-        "type": "tab",
-        "label": "监控与健康",
-        "disabled": false,
-        "info": "Watchdog 健康检查端点 + 全局 Catch"
+  {
+    "id": "tab_health",
+    "type": "tab",
+    "label": "监控与健康",
+    "disabled": false,
+    "info": "Watchdog 健康检查端点 + 全局 Catch"
+  },
+  {
+    "id": "tab_orders",
+    "type": "tab",
+    "label": "订单派单",
+    "disabled": false,
+    "info": "订单状态机：CREATED→DISPATCHED→EXECUTING→COMPLETED→SAP_CONFIRMED"
+  },
+  {
+    "id": "tab_outbox",
+    "type": "tab",
+    "label": "Outbox 与审计",
+    "disabled": false,
+    "info": "Outbox 双写 + 审计日志 + 死信队列 + SAP 确认轮询"
+  },
+  {
+    "id": "tab_rescue",
+    "type": "tab",
+    "label": "急救与管理",
+    "disabled": false,
+    "info": "安全模式 / Zone Lock 管理 / Force Sync"
+  },
+  {
+    "id": "glob_catch",
+    "type": "catch",
+    "z": "tab_health",
+    "name": "CATCH_GLOBAL",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 80,
+    "wires": [
+      [
+        "glob_catch_debug"
+      ]
+    ]
+  },
+  {
+    "id": "glob_catch_debug",
+    "type": "debug",
+    "z": "tab_health",
+    "name": "[CATCH] 全局异常",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 380,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "http_health",
+    "type": "http in",
+    "z": "tab_health",
+    "name": "GET /api/system-health",
+    "url": "/api/system-health",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 160,
+    "wires": [
+      [
+        "health_check"
+      ]
+    ]
+  },
+  {
+    "id": "health_check",
+    "type": "function",
+    "z": "tab_health",
+    "name": "FN 健康检查",
+    "func": "const safeMode = global.get('safe_mode') || false;\nconst throttleMode = global.get('throttle_mode') || false;\n\n// 获取 checkpoint_ms (从 context 获取，SQLite Init 会在启动时写入参考值)\nconst checkpointMs = env.get('CHECKPOINT_MS') || 0;\n\nmsg.payload = {\n    status: 'healthy',\n    version: env.get('RUNTIME_VERSION') || 'v3.4',\n    safe_mode: safeMode,\n    throttle_mode: throttleMode,\n    checkpoint_ms: parseInt(checkpointMs),\n    uptime: process.uptime(),\n    timestamp: new Date().toISOString()\n};\n\n// 如果安全模式，返回 503\nif (safeMode) {\n    msg.statusCode = 503;\n    msg.payload.status = 'safe_mode';\n}\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 380,
+    "y": 160,
+    "wires": [
+      [
+        "health_resp"
+      ]
+    ]
+  },
+  {
+    "id": "health_resp",
+    "type": "http response",
+    "z": "tab_health",
+    "name": "200 OK",
+    "statusCode": "",
+    "headers": {},
+    "x": 560,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "http_orders",
+    "type": "http in",
+    "z": "tab_orders",
+    "name": "POST /api/orders",
+    "url": "/api/orders",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 80,
+    "wires": [
+      [
+        "order_validate"
+      ]
+    ]
+  },
+  {
+    "id": "order_validate",
+    "type": "function",
+    "z": "tab_orders",
+    "name": "FN 校验(拒收)",
+    "func": "const tid = msg.trace_id || msg._msgid || ('m' + Date.now());\nmsg.trace_id = tid;\n\nconst p = Array.isArray(msg.payload)\n    ? (msg.payload[0] != null ? msg.payload[0] : {})\n    : (msg.payload != null ? msg.payload : {});\n\n// 入库拒收校验 (010-nodered-core.mdc 第4条)\nif (!p.order_id || p.weight == null || p.weight <= 0 || !p.location) {\n    msg.statusCode = 400;\n    msg.payload = {\n        error: 'INVALID',\n        tid: tid,\n        details: 'order_id/weight(>0)/location required'\n    };\n    return msg;\n}\n\n// 安全模式检查\nconst safeMode = global.get('safe_mode');\nif (safeMode) {\n    msg.statusCode = 503;\n    msg.payload = {\n        error: 'SAFE_MODE',\n        tid: tid,\n        details: 'System in safe mode, order rejected'\n    };\n    return msg;\n}\n\nmsg._validated = {\n    order_id: p.order_id,\n    weight: p.weight,\n    location: p.location,\n    brand: p.brand || 'generic',\n    zone_id: p.zone_id || null,\n    priority: p.priority || 0\n};\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 380,
+    "y": 80,
+    "wires": [
+      [
+        "order_create"
+      ]
+    ]
+  },
+  {
+    "id": "order_create",
+    "type": "function",
+    "z": "tab_orders",
+    "name": "FN 订单入库",
+    "func": "const v = msg._validated;\n\n// 分配 zone_token (区域锁)\nconst zoneToken = v.zone_id ? ('zt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8)) : null;\n\nmsg.payload = {\n    order_no: v.order_id,\n    status: 'CREATED',\n    weight: v.weight,\n    location: v.location,\n    zone_id: v.zone_id,\n    zone_token: zoneToken,\n    brand: v.brand,\n    priority: v.priority,\n    created_at: new Date().toISOString(),\n    version: 1\n};\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 560,
+    "y": 80,
+    "wires": [
+      [
+        "order_outbox_pending"
+      ]
+    ]
+  },
+  {
+    "id": "order_outbox_pending",
+    "type": "function",
+    "z": "tab_orders",
+    "name": "FN Outbox CREATED",
+    "func": "// Outbox 写入: audit_log + orders (010-nodered-core.mdc 第3条)\nconst order = msg.payload;\n\n// 写入 audit_log\nmsg.audit_event = {\n    event: 'ORDER_CREATED',\n    order_no: order.order_no,\n    status: 'CREATED',\n    timestamp: new Date().toISOString(),\n    trace_id: msg.trace_id\n};\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 760,
+    "y": 80,
+    "wires": [
+      [
+        "order_dispatch"
+      ]
+    ]
+  },
+  {
+    "id": "order_dispatch",
+    "type": "function",
+    "z": "tab_orders",
+    "name": "SW 品牌派单",
+    "func": "const order = msg.payload;\n\n// 品牌路由策略 (v3.4 策略模式)\nconst brand = order.brand || 'generic';\n\n// 电量检查 (模拟，生产环境从 robot_status 表读取)\n// 电量 < 20% 限制短单\n\nmsg.next_status = 'DISPATCHED';\nmsg.current_status = 'CREATED';\n\n// 状态机校验 (050-state-machine.mdc)\nconst ok = {\n    CREATED: ['DISPATCHED','CANCELLED'],\n    DISPATCHED: ['EXECUTING','SUSPENDED','RECALLING','CANCELLED'],\n    EXECUTING: ['COMPLETED','DIFF_SUSPENDED','SUSPENDED'],\n    COMPLETED: ['SAP_CONFIRMED','SAP_PENDING'],\n    SUSPENDED: ['DISPATCHED','MANUAL_HANDLED','CANCELLED','DEGRADED'],\n    DIFF_SUSPENDED: ['COMPLETED','MANUAL_HANDLED','SUSPENDED'],\n    RECALLING: ['CANCELLED'],\n    SAP_PENDING: ['SAP_CONFIRMED','SUSPENDED']\n};\n\nconst A = msg.current_status;\nconst B = msg.next_status;\n\nif (A && B && ok[A] && ok[A].indexOf(B) === -1) {\n    msg.statusCode = 409;\n    msg.payload = { error: 'BAD_STATE', A: A, B: B, tid: msg.trace_id };\n    return msg;\n}\n\nmsg.payload.status = 'DISPATCHED';\nmsg.payload.updated_at = new Date().toISOString();\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 940,
+    "y": 80,
+    "wires": [
+      [
+        "order_http_200"
+      ]
+    ]
+  },
+  {
+    "id": "order_http_200",
+    "type": "http response",
+    "z": "tab_orders",
+    "name": "202 Accepted",
+    "statusCode": "202",
+    "headers": {
+      "content-type": "application/json"
     },
-    {
-        "id": "tab_orders",
-        "type": "tab",
-        "label": "订单派单",
-        "disabled": false,
-        "info": "订单状态机：CREATED→DISPATCHED→EXECUTING→COMPLETED→SAP_CONFIRMED"
-    },
-    {
-        "id": "tab_outbox",
-        "type": "tab",
-        "label": "Outbox 与审计",
-        "disabled": false,
-        "info": "Outbox 双写 + 审计日志 + 死信队列 + SAP 确认轮询"
-    },
-    {
-        "id": "tab_rescue",
-        "type": "tab",
-        "label": "急救与管理",
-        "disabled": false,
-        "info": "安全模式 / Zone Lock 管理 / Force Sync"
-    },
-
-    {"id":"glob_catch","type":"catch","z":"tab_health","name":"CATCH_GLOBAL","scope":null,"uncaught":true,"x":180,"y":80,"wires":[["glob_catch_debug"]]},
-    {"id":"glob_catch_debug","type":"debug","z":"tab_health","name":"[CATCH] 全局异常","active":true,"tosidebar":true,"console":true,"tostatus":false,"complete":"payload","targetType":"msg","x":380,"y":80,"wires":[]},
-
-    {"id":"http_health","type":"http in","z":"tab_health","name":"GET /api/system-health","url":"/api/system-health","method":"get","upload":false,"swaggerDoc":"","x":180,"y":160,"wires":[["health_check"]]},
-    {"id":"health_check","type":"function","z":"tab_health","name":"FN 健康检查","func":"const safeMode = global.get('safe_mode') || false;\nconst throttleMode = global.get('throttle_mode') || false;\n\n// 获取 checkpoint_ms (从 context 获取，SQLite Init 会在启动时写入参考值)\nconst checkpointMs = env.get('CHECKPOINT_MS') || 0;\n\nmsg.payload = {\n    status: 'healthy',\n    version: env.get('RUNTIME_VERSION') || 'v3.4',\n    safe_mode: safeMode,\n    throttle_mode: throttleMode,\n    checkpoint_ms: parseInt(checkpointMs),\n    uptime: process.uptime(),\n    timestamp: new Date().toISOString()\n};\n\n// 如果安全模式，返回 503\nif (safeMode) {\n    msg.statusCode = 503;\n    msg.payload.status = 'safe_mode';\n}\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":380,"y":160,"wires":[["health_resp"]]},
-    {"id":"health_resp","type":"http response","z":"tab_health","name":"200 OK","statusCode":"","headers":{},"x":560,"y":160,"wires":[]},
-
-    {"id":"http_orders","type":"http in","z":"tab_orders","name":"POST /api/orders","url":"/api/orders","method":"post","upload":false,"swaggerDoc":"","x":180,"y":80,"wires":[["order_validate"]]},
-    {"id":"order_validate","type":"function","z":"tab_orders","name":"FN 校验(拒收)","func":"const tid = msg.trace_id || msg._msgid || ('m' + Date.now());\nmsg.trace_id = tid;\n\nconst p = Array.isArray(msg.payload)\n    ? (msg.payload[0] != null ? msg.payload[0] : {})\n    : (msg.payload != null ? msg.payload : {});\n\n// 入库拒收校验 (010-nodered-core.mdc 第4条)\nif (!p.order_id || p.weight == null || p.weight <= 0 || !p.location) {\n    msg.statusCode = 400;\n    msg.payload = {\n        error: 'INVALID',\n        tid: tid,\n        details: 'order_id/weight(>0)/location required'\n    };\n    return msg;\n}\n\n// 安全模式检查\nconst safeMode = global.get('safe_mode');\nif (safeMode) {\n    msg.statusCode = 503;\n    msg.payload = {\n        error: 'SAFE_MODE',\n        tid: tid,\n        details: 'System in safe mode, order rejected'\n    };\n    return msg;\n}\n\nmsg._validated = {\n    order_id: p.order_id,\n    weight: p.weight,\n    location: p.location,\n    brand: p.brand || 'generic',\n    zone_id: p.zone_id || null,\n    priority: p.priority || 0\n};\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":380,"y":80,"wires":[["order_create"]]},
-    {"id":"order_create","type":"function","z":"tab_orders","name":"FN 订单入库","func":"const v = msg._validated;\n\n// 分配 zone_token (区域锁)\nconst zoneToken = v.zone_id ? ('zt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8)) : null;\n\nmsg.payload = {\n    order_no: v.order_id,\n    status: 'CREATED',\n    weight: v.weight,\n    location: v.location,\n    zone_id: v.zone_id,\n    zone_token: zoneToken,\n    brand: v.brand,\n    priority: v.priority,\n    created_at: new Date().toISOString(),\n    version: 1\n};\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":560,"y":80,"wires":[["order_outbox_pending"]]},
-    {"id":"order_outbox_pending","type":"function","z":"tab_orders","name":"FN Outbox CREATED","func":"// Outbox 写入: audit_log + orders (010-nodered-core.mdc 第3条)\nconst order = msg.payload;\n\n// 写入 audit_log\nmsg.audit_event = {\n    event: 'ORDER_CREATED',\n    order_no: order.order_no,\n    status: 'CREATED',\n    timestamp: new Date().toISOString(),\n    trace_id: msg.trace_id\n};\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":760,"y":80,"wires":[["order_dispatch"]]},
-    {"id":"order_dispatch","type":"function","z":"tab_orders","name":"SW 品牌派单","func":"const order = msg.payload;\n\n// 品牌路由策略 (v3.4 策略模式)\nconst brand = order.brand || 'generic';\n\n// 电量检查 (模拟，生产环境从 robot_status 表读取)\n// 电量 < 20% 限制短单\n\nmsg.next_status = 'DISPATCHED';\nmsg.current_status = 'CREATED';\n\n// 状态机校验 (050-state-machine.mdc)\nconst ok = {\n    CREATED: ['DISPATCHED','CANCELLED'],\n    DISPATCHED: ['EXECUTING','SUSPENDED','RECALLING','CANCELLED'],\n    EXECUTING: ['COMPLETED','DIFF_SUSPENDED','SUSPENDED'],\n    COMPLETED: ['SAP_CONFIRMED','SAP_PENDING'],\n    SUSPENDED: ['DISPATCHED','MANUAL_HANDLED','CANCELLED','DEGRADED'],\n    DIFF_SUSPENDED: ['COMPLETED','MANUAL_HANDLED','SUSPENDED'],\n    RECALLING: ['CANCELLED'],\n    SAP_PENDING: ['SAP_CONFIRMED','SUSPENDED']\n};\n\nconst A = msg.current_status;\nconst B = msg.next_status;\n\nif (A && B && ok[A] && ok[A].indexOf(B) === -1) {\n    msg.statusCode = 409;\n    msg.payload = { error: 'BAD_STATE', A: A, B: B, tid: msg.trace_id };\n    return msg;\n}\n\nmsg.payload.status = 'DISPATCHED';\nmsg.payload.updated_at = new Date().toISOString();\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":940,"y":80,"wires":[["order_http_200"]]},
-    {"id":"order_http_200","type":"http response","z":"tab_orders","name":"202 Accepted","statusCode":"202","headers":{"content-type":"application/json"},"x":1120,"y":80,"wires":[]},
-
-    {"id":"http_rescue","type":"http in","z":"tab_rescue","name":"POST /api/safe-mode","url":"/api/safe-mode","method":"post","upload":false,"swaggerDoc":"","x":180,"y":80,"wires":[["safe_mode_enter"]]},
-    {"id":"safe_mode_enter","type":"function","z":"tab_rescue","name":"FN 进入安全模式","func":"// 由 Watchdog 或主管手动触发\nglobal.set('safe_mode', true);\n\nmsg.payload = {\n    status: 'SAFE_MODE_ENTERED',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":380,"y":80,"wires":[["safe_mode_resp"]]},
-    {"id":"safe_mode_resp","type":"http response","z":"tab_rescue","name":"200 OK","statusCode":"200","headers":{},"x":560,"y":80,"wires":[]},
-
-    {"id":"http_restore","type":"http in","z":"tab_rescue","name":"POST /api/restore-mode","url":"/api/restore-mode","method":"post","upload":false,"swaggerDoc":"","x":180,"y":140,"wires":[["safe_mode_exit"]]},
-    {"id":"safe_mode_exit","type":"function","z":"tab_rescue","name":"FN 退出安全模式","func":"global.set('safe_mode', false);\n\nmsg.payload = {\n    status: 'SAFE_MODE_EXITED',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":380,"y":140,"wires":[["restore_resp"]]},
-    {"id":"restore_resp","type":"http response","z":"tab_rescue","name":"200 OK","statusCode":"200","headers":{},"x":560,"y":140,"wires":[]},
-
-    {"id":"safe_mode_check","type":"inject","z":"tab_rescue","name":"INJ 轮询安全模式(10s)","topic":"","payload":"","payloadType":"date","repeat":"10","crontab":"","once":true,"onceDelay":10,"x":180,"y":220,"wires":[["safe_mode_poll"]]},
-    {"id":"safe_mode_poll","type":"function","z":"tab_rescue","name":"FN 读取 Redis safe_mode","func":"// 从 Redis 读取系统安全模式标志\n// Watchdog 写入 system:safe_mode 时自动进入安全模式\n// 生产环境: 使用 contextStorage.redis 读取\n\n// 模拟: 检查 context (Redis context 启用后自动同步)\nconst redisSafeMode = env.get('REDIS_SAFE_MODE');\n\nif (redisSafeMode) {\n    global.set('safe_mode', true);\n    node.warn('[WATCHDOG] 安全模式已由 Watchdog 激活: ' + redisSafeMode);\n} else {\n    // 不自动解除，需人工 /api/restore-mode\n}\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":400,"y":220,"wires":[[]]},
-
-    {"id":"zone_lock_http","type":"http in","z":"tab_rescue","name":"GET /api/zone_lock","url":"/api/zone_lock","method":"get","upload":false,"swaggerDoc":"","x":180,"y":300,"wires":[["zone_lock_query"]]},
-    {"id":"zone_lock_query","type":"function","z":"tab_rescue","name":"FN 查询区域锁","func":"// 返回当前区域锁状态\n// 生产环境从 SQLite zone_lock 表读取\n\nmsg.payload = {\n    zones: global.get('zone_locks') || {},\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;","outputs":1,"noerr":0,"initialize":"","finalize":"","x":380,"y":300,"wires":[["zone_lock_resp"]]},
-    {"id":"zone_lock_resp","type":"http response","z":"tab_rescue","name":"200 OK","statusCode":"200","headers":{},"x":560,"y":300,"wires":[]}
+    "x": 1120,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "http_rescue",
+    "type": "http in",
+    "z": "tab_rescue",
+    "name": "POST /api/safe-mode",
+    "url": "/api/safe-mode",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 80,
+    "wires": [
+      [
+        "safe_mode_enter"
+      ]
+    ]
+  },
+  {
+    "id": "safe_mode_enter",
+    "type": "function",
+    "z": "tab_rescue",
+    "name": "FN 进入安全模式",
+    "func": "// 由 Watchdog 或主管手动触发\nglobal.set('safe_mode', true);\n\nmsg.payload = {\n    status: 'SAFE_MODE_ENTERED',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 380,
+    "y": 80,
+    "wires": [
+      [
+        "safe_mode_resp"
+      ]
+    ]
+  },
+  {
+    "id": "safe_mode_resp",
+    "type": "http response",
+    "z": "tab_rescue",
+    "name": "200 OK",
+    "statusCode": "200",
+    "headers": {},
+    "x": 560,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "http_restore",
+    "type": "http in",
+    "z": "tab_rescue",
+    "name": "POST /api/restore-mode",
+    "url": "/api/restore-mode",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 140,
+    "wires": [
+      [
+        "safe_mode_exit"
+      ]
+    ]
+  },
+  {
+    "id": "safe_mode_exit",
+    "type": "function",
+    "z": "tab_rescue",
+    "name": "FN 退出安全模式",
+    "func": "global.set('safe_mode', false);\n\nmsg.payload = {\n    status: 'SAFE_MODE_EXITED',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 380,
+    "y": 140,
+    "wires": [
+      [
+        "restore_resp"
+      ]
+    ]
+  },
+  {
+    "id": "restore_resp",
+    "type": "http response",
+    "z": "tab_rescue",
+    "name": "200 OK",
+    "statusCode": "200",
+    "headers": {},
+    "x": 560,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "safe_mode_check",
+    "type": "inject",
+    "z": "tab_rescue",
+    "name": "INJ 轮询安全模式(10s)",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "repeat": "10",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 10,
+    "x": 180,
+    "y": 220,
+    "wires": [
+      [
+        "safe_mode_poll"
+      ]
+    ]
+  },
+  {
+    "id": "safe_mode_poll",
+    "type": "function",
+    "z": "tab_rescue",
+    "name": "FN 读取 Redis safe_mode",
+    "func": "// 从 Redis 读取系统安全模式标志\n// Watchdog 写入 system:safe_mode 时自动进入安全模式\n// 生产环境: 使用 contextStorage.redis 读取\n\n// 模拟: 检查 context (Redis context 启用后自动同步)\nconst redisSafeMode = env.get('REDIS_SAFE_MODE');\n\nif (redisSafeMode) {\n    global.set('safe_mode', true);\n    node.warn('[WATCHDOG] 安全模式已由 Watchdog 激活: ' + redisSafeMode);\n} else {\n    // 不自动解除，需人工 /api/restore-mode\n}\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 400,
+    "y": 220,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "zone_lock_http",
+    "type": "http in",
+    "z": "tab_rescue",
+    "name": "GET /api/zone_lock",
+    "url": "/api/zone_lock",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 180,
+    "y": 300,
+    "wires": [
+      [
+        "zone_lock_query"
+      ]
+    ]
+  },
+  {
+    "id": "zone_lock_query",
+    "type": "function",
+    "z": "tab_rescue",
+    "name": "FN 查询区域锁",
+    "func": "// 返回当前区域锁状态\n// 生产环境从 SQLite zone_lock 表读取\n\nmsg.payload = {\n    zones: global.get('zone_locks') || {},\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 380,
+    "y": 300,
+    "wires": [
+      [
+        "zone_lock_resp"
+      ]
+    ]
+  },
+  {
+    "id": "zone_lock_resp",
+    "type": "http response",
+    "z": "tab_rescue",
+    "name": "200 OK",
+    "statusCode": "200",
+    "headers": {},
+    "x": 560,
+    "y": 300,
+    "wires": []
+  },
+  {
+    "id": "outbox_catch",
+    "type": "catch",
+    "z": "tab_outbox",
+    "name": "CATCH Outbox",
+    "scope": null,
+    "uncaught": false,
+    "x": 160,
+    "y": 380,
+    "wires": [
+      [
+        "outbox_http_fail"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_catch_debug",
+    "type": "debug",
+    "z": "tab_outbox",
+    "name": "[CATCH] Outbox 异常",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 360,
+    "y": 380,
+    "wires": []
+  },
+  {
+    "id": "outbox_inject",
+    "type": "inject",
+    "z": "tab_outbox",
+    "name": "INJ 轮询 Outbox(30s)",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "repeat": "30",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 15,
+    "x": 160,
+    "y": 60,
+    "wires": [
+      [
+        "outbox_query"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_query",
+    "type": "function",
+    "z": "tab_outbox",
+    "name": "FN 查询待处理出库事件",
+    "func": "// 查询所有 PENDING outbox 事件 (retry_count < 5)\nconst Database = require('sqlite3');\nconst dbPath = env.get('DB_PATH') || '/data/robot_platform.db';\n\nconst db = new Database(dbPath);\n\ntry {\n    const rows = db.prepare(\n        `SELECT id, order_id, event_type, payload, retry_count, created_at\n         FROM outbox_events\n         WHERE status = 'PENDING' AND retry_count < 5\n         ORDER BY created_at ASC\n         LIMIT 20`\n    ).all();\n\n    if (rows.length === 0) {\n        msg.payload = [];\n        msg._count = 0;\n        return msg;\n    }\n\n    // Parse payload JSON for each row\n    const events = rows.map(row => ({\n        ...row,\n        payload: (() => { try { return JSON.parse(row.payload); } catch(e) { return {}; } })()\n    }));\n\n    msg.payload = events;\n    msg._count = events.length;\n    msg._index = 0;\n    node.status({fill:'blue',shape:'dot',text:'${events.length} pending'});\n    return msg;\n} finally {\n    db.close();\n}",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 360,
+    "y": 60,
+    "wires": [
+      [
+        "outbox_check"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_check",
+    "type": "switch",
+    "z": "tab_outbox",
+    "name": "SW 有事件?",
+    "property": "_count",
+    "propertyType": "msg",
+    "rules": [
+      {
+        "t": "gt",
+        "v": "0"
+      },
+      {
+        "t": "else"
+      }
+    ],
+    "checkall": "true",
+    "repair": false,
+    "outputs": 2,
+    "x": 540,
+    "y": 60,
+    "wires": [
+      [
+        "outbox_split"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "outbox_split",
+    "type": "split",
+    "z": "tab_outbox",
+    "name": "SPLIT 逐个处理",
+    "splt": "\\n",
+    "spltType": "str",
+    "arraySplt": 1,
+    "arraySpltType": "len",
+    "stream": false,
+    "addname": "",
+    "x": 720,
+    "y": 60,
+    "wires": [
+      [
+        "outbox_process"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_process",
+    "type": "function",
+    "z": "tab_outbox",
+    "name": "FN 构建 SAP 确认请求",
+    "func": "// 根据 event_type 构建 SAP Bridge 请求\nconst event = msg.payload;\n\nif (!event || !event.id) {\n    return null;\n}\n\nmsg._outbox_id = event.id;\nmsg._order_id = event.order_id;\nmsg._event_type = event.event_type;\nmsg._retry_count = event.retry_count || 0;\n\n// 根据事件类型路由\nswitch (event.event_type) {\n    case 'ORDER_CONFIRM':\n    case 'WAREHOUSE_TASK_CONFIRM':\n        msg.url = 'http://sap-bridge:8000/api/v1/sap/tasks/' + encodeURIComponent(event.order_id) + '/confirm?warehouse=WM01';\n        msg.method = 'POST';\n        break;\n\n    case 'ORDER_CANCEL':\n        msg.url = 'http://sap-bridge:8000/api/v1/sap/tasks/' + encodeURIComponent(event.order_id) + '/cancel?warehouse=WM01';\n        msg.method = 'POST';\n        break;\n\n    case 'INVENTORY_SYNC':\n        msg.url = 'http://sap-bridge:8000/api/v1/inventory/sync?warehouse=WM01';\n        msg.method = 'POST';\n        break;\n\n    case 'SAP_HEALTH_CHECK':\n        msg.url = 'http://sap-bridge:8000/api/v1/sap/health';\n        msg.method = 'GET';\n        break;\n\n    default:\n        // Unknown event type - try posting to SAP Bridge order API\n        msg.url = 'http://sap-bridge:8000/api/v1/orders';\n        msg.method = 'POST';\n        msg.payload = event.payload || {};\n        break;\n}\n\nnode.status({fill:'yellow',shape:'dot',text:'processing #' + event.id});\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 160,
+    "y": 140,
+    "wires": [
+      [
+        "outbox_http"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_http",
+    "type": "http request",
+    "z": "tab_outbox",
+    "name": "HTTP SAP Bridge",
+    "method": "POST",
+    "ret": "obj",
+    "url": "",
+    "tls": "",
+    "followRedirects": true,
+    "x": 360,
+    "y": 140,
+    "wires": [
+      [
+        "outbox_update"
+      ]
+    ],
+    "timeout": "10"
+  },
+  {
+    "id": "outbox_update",
+    "type": "function",
+    "z": "tab_outbox",
+    "name": "FN 更新出库事件状态",
+    "func": "// 根据 HTTP 响应更新 outbox_events 状态\nconst Database = require('sqlite3');\nconst dbPath = env.get('DB_PATH') || '/data/robot_platform.db';\nconst db = new Database(dbPath);\n\nconst outboxId = msg._outbox_id;\nconst orderId = msg._order_id;\nconst statusCode = msg.statusCode || 500;\n\ntry {\n    if (statusCode >= 200 && statusCode < 300) {\n        // ✅ 成功\n        db.prepare(\n            `UPDATE outbox_events SET status = 'SENT', retry_count = retry_count + 1\n             WHERE id = ?`\n        ).run(outboxId);\n\n        msg._success = true;\n        node.status({fill:'green',shape:'dot',text:'sent #' + outboxId});\n        node.warn('[OUTBOX] Sent event #' + outboxId + ' (order=' + orderId + ')');\n    } else {\n        // ❌ 失败：增加重试次数\n        const result = db.prepare(\n            `UPDATE outbox_events SET retry_count = retry_count + 1\n             WHERE id = ? AND status = 'PENDING'`\n        ).run(outboxId);\n\n        // 读取最新的 retry_count\n        const row = db.prepare(\n            `SELECT retry_count, status FROM outbox_events WHERE id = ?`\n        ).get(outboxId);\n\n        msg._retry_count = row ? row.retry_count : (msg._retry_count + 1);\n        msg._success = false;\n        msg._status_code = statusCode;\n\n        if (row && row.retry_count >= 5) {\n            msg._deadletter = true;\n            node.status({fill:'red',shape:'dot',text:'deadletter #' + outboxId});\n            node.warn('[OUTBOX] Event #' + outboxId + ' deadlettered after 5 retries');\n        } else {\n            node.status({fill:'yellow',shape:'dot',text:'retry #' + (row ? row.retry_count : '?')});\n            node.warn('[OUTBOX] Event #' + outboxId + ' failed (HTTP ' + statusCode + '), will retry');\n        }\n    }\n\n    return msg;\n} finally {\n    db.close();\n}",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 540,
+    "y": 140,
+    "wires": [
+      [
+        "outbox_route"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_route",
+    "type": "switch",
+    "z": "tab_outbox",
+    "name": "SW 成功/失败",
+    "property": "_success",
+    "propertyType": "msg",
+    "rules": [
+      {
+        "t": "true"
+      },
+      {
+        "t": "false",
+        "checkall": "true"
+      }
+    ],
+    "checkall": "true",
+    "repair": false,
+    "outputs": 2,
+    "x": 720,
+    "y": 140,
+    "wires": [
+      [],
+      [
+        "outbox_deadletter_check"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_deadletter_check",
+    "type": "switch",
+    "z": "tab_outbox",
+    "name": "SW 已达上限?",
+    "property": "_deadletter",
+    "propertyType": "msg",
+    "rules": [
+      {
+        "t": "true"
+      },
+      {
+        "t": "else"
+      }
+    ],
+    "checkall": "true",
+    "repair": false,
+    "outputs": 2,
+    "x": 160,
+    "y": 240,
+    "wires": [
+      [
+        "outbox_deadletter"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "outbox_deadletter",
+    "type": "function",
+    "z": "tab_outbox",
+    "name": "FN 写入死信队列",
+    "func": "// 将失败事件写入 dead_letter_queue\nconst Database = require('sqlite3');\nconst dbPath = env.get('DB_PATH') || '/data/robot_platform.db';\nconst db = new Database(dbPath);\n\ntry {\n    db.prepare(\n        `INSERT INTO dead_letter_queue (original_id, error_type, error_message, payload, status)\n         VALUES (?, ?, ?, ?, 'UNRESOLVED')`\n    ).run(\n        msg._outbox_id || 0,\n        'OUTBOX_RETRY_EXCEEDED',\n        'Outbox event failed after ' + (msg._retry_count || 5) + ' retries (HTTP ' + (msg._status_code || 'unknown') + ')',\n        JSON.stringify({\n            order_id: msg._order_id,\n            event_type: msg._event_type,\n            outbox_id: msg._outbox_id\n        })\n    );\n\n    // 更新出库事件状态为 FAILED\n    db.prepare(\n        `UPDATE outbox_events SET status = 'FAILED' WHERE id = ?`\n    ).run(msg._outbox_id);\n\n    node.status({fill:'red',shape:'dot',text:'DLQ #' + msg._outbox_id});\n    node.warn('[OUTBOX] Event #' + msg._outbox_id + ' sent to dead letter queue');\n    return msg;\n} finally {\n    db.close();\n}",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 360,
+    "y": 240,
+    "wires": [
+      [
+        "outbox_dlq_debug"
+      ]
+    ]
+  },
+  {
+    "id": "outbox_dlq_debug",
+    "type": "debug",
+    "z": "tab_outbox",
+    "name": "[DLQ] 已入死信",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 560,
+    "y": 240,
+    "wires": []
+  },
+  {
+    "id": "outbox_http_fail",
+    "type": "function",
+    "z": "tab_outbox",
+    "name": "FN HTTP 失败处理",
+    "func": "// 当 HTTP 请求本身失败（网络错误、超时）时的兜底处理\nmsg._success = false;\n\n// 增加重试计数\nconst Database = require('sqlite3');\nconst dbPath = env.get('DB_PATH') || '/data/robot_platform.db';\nconst db = new Database(dbPath);\n\ntry {\n    db.prepare(\n        `UPDATE outbox_events SET retry_count = retry_count + 1 WHERE id = ?`\n    ).run(msg._outbox_id);\n\n    const row = db.prepare(\n        `SELECT retry_count FROM outbox_events WHERE id = ?`\n    ).get(msg._outbox_id);\n\n    msg._retry_count = row ? row.retry_count : 5;\n    msg._deadletter = (msg._retry_count >= 5);\n    msg._status_code = 0;\n\n    if (msg._deadletter) {\n        node.warn('[OUTBOX] Event #' + msg._outbox_id + ' deadlettered (HTTP error)');\n    }\n    return msg;\n} finally {\n    db.close();\n}",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "x": 160,
+    "y": 320,
+    "wires": [
+      [
+        "outbox_deadletter_check"
+      ]
+    ]
+  }
 ]

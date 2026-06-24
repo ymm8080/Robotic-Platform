@@ -1,0 +1,51 @@
+[
+  {
+    "id": "subflow:vda5050-publish",
+    "type": "subflow",
+    "name": "VDA5050 Publish",
+    "info": "Publish a VDA5050 order message to MQTT with auto-sequence-number.\n\nInput: \n  msg.payload.manufacturer = robot manufacturer (e.g. 'KUKA')\n  msg.payload.serialNumber = robot serial\n  msg.payload.topicSuffix = 'order' | 'instantActions' | 'state'\n  msg.payload.body = VDA5050 message body (without header)\n\nOutput: msg.payload = { mid, sequenceNumber, topic }",
+    "category": "platform",
+    "in": [
+      {
+        "x": 60,
+        "y": 60,
+        "wires": [{ "id": "vda5050-seq" }]
+      }
+    ],
+    "out": [
+      {
+        "x": 680,
+        "y": 60,
+        "wires": [{ "id": "vda5050-done", "port": 0 }]
+      },
+      {
+        "x": 680,
+        "y": 140,
+        "wires": [{ "id": "vda5050-done", "port": 1 }]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "vda5050-seq",
+        "type": "function",
+        "name": "build VDA5050 message",
+        "func": "const Redis = global.get('redis');\nconst { manufacturer, serialNumber, topicSuffix, body } = msg.payload;\n\nif (!manufacturer || !serialNumber || !topicSuffix) {\n    node.error('Missing required fields: manufacturer, serialNumber, topicSuffix');\n    return null;\n}\n\nconst topic = `vda5050/${manufacturer}/${serialNumber}/${topicSuffix}`;\n\n// Build VDA5050 message with header\nconst message = {\n    headerId: Date.now(),\n    timestamp: new Date().toISOString(),\n    version: '2.0.0',\n    manufacturer: manufacturer,\n    serialNumber: serialNumber,\n    ...body\n};\n\nmsg.topic = topic;\nmsg.payload = message;\nmsg.qos = 1;\nmsg.retain = (topicSuffix === 'connection');\nreturn msg;",
+        "outputs": 1,
+        "timeout": 3,
+        "wires": [["vda5050-mqtt-out"]]
+      },
+      {
+        "id": "vda5050-mqtt-out",
+        "type": "mqtt out",
+        "name": "publish VDA5050",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "broker": "localhost",
+        "x": 400,
+        "y": 60,
+        "wires": []
+      }
+    ]
+  }
+]

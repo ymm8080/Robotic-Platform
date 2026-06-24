@@ -325,6 +325,7 @@ module.exports = {
     },
 
     // --- 上下文存储：使用 Redis（多实例共享） ---
+    // Redis context store enabled for large state (>100KB) externalization
     contextStorage: {
         default: "memory",
         memory: {
@@ -364,7 +365,14 @@ module.exports = {
                     };
 
                     // 写入 SQLite 审计表（异步，不阻塞）
-                    const sqlite3 = require('sqlite3');
+                    let sqlite3;
+                    try {
+                        sqlite3 = require('sqlite3');
+                    } catch (e) {
+                        // sqlite3 模块未安装时跳过审计日志
+                        console.warn('[AUDIT] sqlite3 not available, skipping');
+                        return;
+                    }
                     const dbPath = process.env.DB_PATH || '/data/robot_platform.db';
                     const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE);
 
@@ -387,6 +395,17 @@ module.exports = {
         return Object.keys(global).filter(k => !k.toLowerCase().includes('secret') && !k.toLowerCase().includes('password'));
     },
 
+    // --- Prometheus 指标端点（供 Watchdog / Grafana 采集） ---
+    // 暴露 http://nodered:1880/metrics 供 Prometheus 刮取
+    metrics: {
+        includePerNode: true,      // 每个节点的指标
+        includePerFlow: true,      // 每个流程的指标
+        includeRuntime: true,      // 运行时指标（内存、事件循环延迟）
+        prefix: "nodered_",        // 指标名称前缀
+        gcInterval: 300000,        // GC 收集间隔（5分钟）
+        collectDefault: true,      // Node.js 默认指标
+    },
+
     // --- 其他生产级配置 ---
     debugMaxLength: 1000,  // debug 节点截断，防内存泄漏
     mqttReconnectTime: 15000,
@@ -394,6 +413,11 @@ module.exports = {
     socketReconnectTime: 15000,
     socketTimeout: 120000,
     tcpRequestTimeout: 30000,
+    // 响应头：去除 X-Powered-By 等信息
+    httpHeaders: {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+    },
 
     // --- 安全：禁止安装未审核节点（等保要求） ---
     externalModules: {

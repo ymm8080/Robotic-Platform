@@ -1,0 +1,57 @@
+[
+  {
+    "id": "subflow:alert-notify",
+    "type": "subflow",
+    "name": "Alert Notify (Feishu/WeCom)",
+    "info": "Send alert notification via configured channels (Feishu, WeCom).\n\nInput: \n  msg.payload.channel = 'feishu' | 'wecom' | 'all' (default: 'all')\n  msg.payload.title = alert title\n  msg.payload.message = alert body\n  msg.payload.severity = 'info' | 'warning' | 'critical' (default: 'warning')\n\nOutput: msg.payload = { success: bool, channels: [...] }",
+    "category": "platform",
+    "in": [
+      {
+        "x": 60,
+        "y": 60,
+        "wires": [{ "id": "alert-format" }]
+      }
+    ],
+    "out": [
+      {
+        "x": 680,
+        "y": 60,
+        "wires": [{ "id": "alert-done", "port": 0 }]
+      },
+      {
+        "x": 680,
+        "y": 140,
+        "wires": [{ "id": "alert-done", "port": 1 }]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "alert-format",
+        "type": "function",
+        "name": "format alert",
+        "func": "const channel = (msg.payload.channel || 'all').toLowerCase();\nconst title = msg.payload.title || 'Alert';\nconst message = msg.payload.message || '';\nconst severity = (msg.payload.severity || 'warning').toUpperCase();\n\nconst colors = { INFO: 2122957, WARNING: 16761856, CRITICAL: 16711680 };\nconst color = colors[severity] || colors.WARNING;\n\nconst feishuCard = {\n    msg_type: 'interactive',\n    card: {\n        header: { title: { tag: 'plain_text', content: title }, template: severity === 'CRITICAL' ? 'red' : severity === 'WARNING' ? 'yellow' : 'blue' },\n        elements: [{ tag: 'markdown', content: message }]\n    }\n};\n\nconst wecomMsg = {\n    msgtype: 'markdown',\n    markdown: { content: `## ${title}\\n${message}` }\n};\n\nmsg.payload = { channel, feishuCard, wecomMsg, title, message, severity };\nreturn msg;",
+        "outputs": 1,
+        "timeout": 3,
+        "wires": [["alert-feishu", "alert-wecom"]]
+      },
+      {
+        "id": "alert-feishu",
+        "type": "http request",
+        "name": "Feishu webhook",
+        "method": "POST",
+        "url": "process.env.FEISHU_WEBHOOK_URL || ''",
+        "timeout": "5",
+        "wires": [["alert-done-feishu"]]
+      },
+      {
+        "id": "alert-wecom",
+        "type": "http request",
+        "name": "WeCom webhook",
+        "method": "POST",
+        "url": "process.env.WECOM_WEBHOOK_URL || ''",
+        "timeout": "5",
+        "wires": [["alert-done-wecom"]]
+      }
+    ]
+  }
+]

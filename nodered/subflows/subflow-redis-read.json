@@ -1,0 +1,46 @@
+[
+  {
+    "id": "subflow:redis-read",
+    "type": "subflow",
+    "name": "Redis Read",
+    "info": "Read from Redis key. Returns value or null. Automatically retries on error.\n\nInput: msg.payload = Redis key name\nOutput: msg.payload = value (string) or null\n\nEnv vars: REDIS_HOST (default: redis), REDIS_PORT (default: 6379)",
+    "category": "platform",
+    "in": [
+      {
+        "x": 60,
+        "y": 60,
+        "wires": [{ "id": "redis-read-node" }]
+      }
+    ],
+    "out": [
+      {
+        "x": 680,
+        "y": 60,
+        "wires": [{ "id": "redis-read-end", "port": 0 }]
+      },
+      {
+        "x": 680,
+        "y": 140,
+        "wires": [{ "id": "redis-read-end", "port": 1 }]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "redis-read-node",
+        "type": "function",
+        "name": "read redis key",
+        "func": "const Redis = global.get('redis');\nif (!Redis) {\n    node.error('Redis client not available in global context');\n    return null;\n}\nconst key = msg.payload;\nif (!key || typeof key !== 'string') {\n    node.warn('Invalid Redis key: ' + JSON.stringify(key));\n    return null;\n}\ntry {\n    const value = await Redis.get(key);\n    if (value !== null) {\n        // Try to parse JSON, fall back to string\n        try { msg.payload = JSON.parse(value); }\n        catch(e) { msg.payload = value; }\n    } else {\n        msg.payload = null;\n    }\n    return msg;\n} catch(e) {\n    node.error('Redis read error: ' + e.message);\n    return null;\n}",
+        "outputs": 1,
+        "timeout": 5,
+        "wires": [[]]
+      },
+      {
+        "id": "redis-read-error",
+        "type": "catch",
+        "name": "catch redis error",
+        "scope": ["redis-read-node"],
+        "wires": [[]]
+      }
+    ]
+  }
+]

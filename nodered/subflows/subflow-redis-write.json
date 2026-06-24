@@ -1,0 +1,39 @@
+[
+  {
+    "id": "subflow:redis-write",
+    "type": "subflow",
+    "name": "Redis Write (with TTL)",
+    "info": "Write value to Redis key with optional TTL.\n\nInput: msg.payload.key = Redis key\n       msg.payload.value = value (string or object)\n       msg.payload.ttl = TTL in seconds (optional, default: no expiry)\n\nOutput: msg.payload = 'OK' on success",
+    "category": "platform",
+    "in": [
+      {
+        "x": 60,
+        "y": 60,
+        "wires": [{ "id": "redis-write-node" }]
+      }
+    ],
+    "out": [
+      {
+        "x": 680,
+        "y": 60,
+        "wires": [{ "id": "redis-write-complete", "port": 0 }]
+      },
+      {
+        "x": 680,
+        "y": 140,
+        "wires": [{ "id": "redis-write-complete", "port": 1 }]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "redis-write-node",
+        "type": "function",
+        "name": "write to redis",
+        "func": "const Redis = global.get('redis');\nif (!Redis) {\n    node.error('Redis client not available');\n    return null;\n}\nconst key = msg.payload.key;\nconst value = typeof msg.payload.value === 'object' \n    ? JSON.stringify(msg.payload.value) \n    : String(msg.payload.value || '');\nconst ttl = parseInt(msg.payload.ttl) || undefined;\n\nif (!key) {\n    node.warn('Missing Redis key');\n    return null;\n}\n\ntry {\n    if (ttl) {\n        await Redis.set(key, value, 'EX', ttl);\n    } else {\n        await Redis.set(key, value);\n    }\n    msg.payload = 'OK';\n    return msg;\n} catch(e) {\n    node.error('Redis write error: ' + e.message);\n    return null;\n}",
+        "outputs": 1,
+        "timeout": 5,
+        "wires": [[]]
+      }
+    ]
+  }
+]
