@@ -9,3 +9,4 @@
 - [Implementation Roadmap](implementation-roadmap-plan.md) — v3.4→v5.0 upgrade path, multi-warehouse
 - [Rescue Dashboard Architecture](rescue-dashboard-architecture.md) — Offline-capable rescue design
 - [File Placement Lessons](file-placement-lessons.md) — Root cause analysis + systemic prevention for file placement / script blind-spot issues
+- [Warehouse Backend Abstraction](warehouse-backend-abstraction.md) — Dual EWM+WM backend via plugin registry pattern, design approved not yet implemented

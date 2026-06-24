@@ -1,43 +1,8 @@
 ﻿[
     {
-        "path":  "05_reference/robots/robotic-interface-specs-overview.md",
-        "mtime":  "2026-06-22T15:23:46.8931322Z",
-        "size":  7656
-    },
-    {
-        "path":  "05_reference/README.md",
-        "mtime":  "2026-06-22T07:07:52.3745885Z",
-        "size":  2529
-    },
-    {
-        "path":  "CURSOR 3.4 docs/CURSOR_ARCHITECTURE_MANIFEST_v3.4.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
-        "size":  11731
-    },
-    {
-        "path":  "DATABASE OVERVIEW/DATABASE OVERVIEW 2026-06-23.md",
-        "mtime":  "2026-06-23T12:51:36.1124514Z",
-        "size":  14052
-    },
-    {
-        "path":  "05_reference/robots/geekplus-strategy.md",
-        "mtime":  "2026-06-22T06:36:35.8535748Z",
-        "size":  5402
-    },
-    {
-        "path":  "05_reference/protocols/lwt-config.md",
-        "mtime":  "2026-06-22T15:23:33.4133223Z",
-        "size":  1582
-    },
-    {
-        "path":  "05_reference/sap/auth/csrf-token-flow.md",
-        "mtime":  "2026-06-22T06:23:45.4887433Z",
-        "size":  5089
-    },
-    {
-        "path":  "05_reference/robots/README.md",
-        "mtime":  "2026-06-22T15:14:10.3394018Z",
-        "size":  4373
+        "path":  "CURSOR 3.4 docs/CHECKLIST_ADDITIONS_v3.4.md",
+        "mtime":  "2026-06-23T06:28:02.3351067Z",
+        "size":  2669
     },
     {
         "path":  "05_reference/robots/quicktron-strategy.md",
@@ -45,19 +10,9 @@
         "size":  1531
     },
     {
-        "path":  "05_reference/sap/wm-classic-integration.md",
-        "mtime":  "2026-06-22T06:27:15.8457742Z",
-        "size":  7660
-    },
-    {
-        "path":  "05_reference/protocols/vda5050/vda5050-state-machine.md",
-        "mtime":  "2026-06-22T06:23:36.5888933Z",
-        "size":  6520
-    },
-    {
-        "path":  "05_reference/sap/idoc/ewm-warehouse-task-idoc.md",
-        "mtime":  "2026-06-22T06:23:45.9680497Z",
-        "size":  8253
+        "path":  "CURSOR 3.4 docs/48h-checklist-v3.4.md",
+        "mtime":  "2026-06-23T06:28:02.2824021Z",
+        "size":  27645
     },
     {
         "path":  "05_reference/sap/rfc-function-module-catalog.md",
@@ -65,19 +20,29 @@
         "size":  5248
     },
     {
-        "path":  "CURSOR 3.4 docs/CHECKLIST_ADDITIONS_v3.4.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
-        "size":  2669
+        "path":  "CURSOR 3.4 docs/CURSOR_ARCHITECTURE_MANIFEST_v3.4.md",
+        "mtime":  "2026-06-23T06:28:02.3448648Z",
+        "size":  11731
     },
     {
-        "path":  "CURSOR 3.4 docs/APPENDIX_BACKUP.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
-        "size":  4928
+        "path":  "CURSOR 3.4 docs/DEPLOY_GUIDE_v3.4.md",
+        "mtime":  "2026-06-23T06:28:02.3565778Z",
+        "size":  11507
     },
     {
-        "path":  "CURSOR 3.4 docs/APPENDIX_NTP.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
-        "size":  2478
+        "path":  "Design/EWM 机器人调度平台 v3.4 技术栈清单.docx",
+        "mtime":  "2026-06-03T01:46:08.2478294Z",
+        "size":  20084
+    },
+    {
+        "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.35.md",
+        "mtime":  "2026-06-23T15:15:28.3670356Z",
+        "size":  36910
+    },
+    {
+        "path":  "Design/MVP到最终架构的演进.docx",
+        "mtime":  "2026-05-31T11:16:28.7086703Z",
+        "size":  25410
     },
     {
         "path":  "05_reference/sap/README.md",
@@ -85,14 +50,24 @@
         "size":  898
     },
     {
-        "path":  "05_reference/sap/error-code-matrix.md",
-        "mtime":  "2026-06-22T06:48:25.1270678Z",
-        "size":  5160
+        "path":  "05_reference/robots/geekplus-strategy.md",
+        "mtime":  "2026-06-22T06:36:35.8535748Z",
+        "size":  5402
     },
     {
-        "path":  "CURSOR 3.4 docs/DEPLOY_GUIDE_v3.4.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
-        "size":  11507
+        "path":  "05_reference/sap/auth/csrf-token-flow.md",
+        "mtime":  "2026-06-22T06:23:45.4887433Z",
+        "size":  5089
+    },
+    {
+        "path":  "05_reference/protocols/vda5050/vda5050-state-machine.md",
+        "mtime":  "2026-06-22T06:23:36.5888933Z",
+        "size":  6520
+    },
+    {
+        "path":  "05_reference/README.md",
+        "mtime":  "2026-06-22T07:07:52.3745885Z",
+        "size":  2529
     },
     {
         "path":  "05_reference/robots/hairobotics-strategy.md",
@@ -100,9 +75,44 @@
         "size":  6925
     },
     {
+        "path":  "05_reference/sap/error-code-matrix.md",
+        "mtime":  "2026-06-22T06:48:25.1270678Z",
+        "size":  5160
+    },
+    {
+        "path":  "CURSOR 3.4 docs/playwright-test-cases.md",
+        "mtime":  "2026-06-21T12:57:00.9263741Z",
+        "size":  11302
+    },
+    {
+        "path":  "05_reference/sap/idoc/ewm-warehouse-task-idoc.md",
+        "mtime":  "2026-06-22T06:23:45.9680497Z",
+        "size":  8253
+    },
+    {
+        "path":  "CURSOR 3.4 docs/APPENDIX_NTP.md",
+        "mtime":  "2026-06-23T06:28:02.3224168Z",
+        "size":  2478
+    },
+    {
         "path":  "CURSOR 3.4 docs/APPENDIX_NOTIFICATION.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
+        "mtime":  "2026-06-23T06:28:02.3097291Z",
         "size":  3117
+    },
+    {
+        "path":  "Design/技术栈清单 v3.4.docx",
+        "mtime":  "2026-06-03T01:47:05.5688793Z",
+        "size":  37678
+    },
+    {
+        "path":  "05_reference/sap/odata-warehouse-task-api.md",
+        "mtime":  "2026-06-22T06:23:45.0760263Z",
+        "size":  5518
+    },
+    {
+        "path":  "05_reference/robots/robotic-interface-specs-overview.md",
+        "mtime":  "2026-06-22T15:23:46.8931322Z",
+        "size":  7656
     },
     {
         "path":  "05_reference/protocols/vda5050/vda5050-message-schemas.md",
@@ -110,13 +120,53 @@
         "size":  7149
     },
     {
-        "path":  "CURSOR 3.4 docs/48h-checklist-v3.4.md",
-        "mtime":  "2026-06-02T02:52:32.0000000Z",
-        "size":  27645
+        "path":  "CURSOR 3.4 docs/audit-findings-p1.md",
+        "mtime":  "2026-06-23T14:21:02.1295669Z",
+        "size":  2942
     },
     {
-        "path":  "05_reference/sap/odata-warehouse-task-api.md",
-        "mtime":  "2026-06-22T06:23:45.0760263Z",
-        "size":  5518
+        "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.35.docx",
+        "mtime":  "2026-06-23T15:13:17.8672328Z",
+        "size":  52566
+    },
+    {
+        "path":  "CURSOR 3.4 docs/secrets-management.md",
+        "mtime":  "2026-06-21T10:50:03.9188798Z",
+        "size":  1308
+    },
+    {
+        "path":  "CURSOR 3.4 docs/playwright-brief.md",
+        "mtime":  "2026-06-21T12:56:38.5216240Z",
+        "size":  6369
+    },
+    {
+        "path":  "CURSOR 3.4 docs/APPENDIX_BACKUP.md",
+        "mtime":  "2026-06-23T06:28:02.2960646Z",
+        "size":  4928
+    },
+    {
+        "path":  "05_reference/robots/README.md",
+        "mtime":  "2026-06-22T15:14:10.3394018Z",
+        "size":  4373
+    },
+    {
+        "path":  "05_reference/protocols/lwt-config.md",
+        "mtime":  "2026-06-22T15:23:33.4133223Z",
+        "size":  1582
+    },
+    {
+        "path":  "Design/企业级工业AI调度系统架构设计说明书_v13.1.0.docx",
+        "mtime":  "2026-05-31T11:17:23.1804879Z",
+        "size":  59978
+    },
+    {
+        "path":  "Design/_extracted_summary.txt",
+        "mtime":  "2026-06-23T15:32:35.4179158Z",
+        "size":  58480
+    },
+    {
+        "path":  "05_reference/sap/wm-classic-integration.md",
+        "mtime":  "2026-06-22T06:27:15.8457742Z",
+        "size":  7660
     }
 ]

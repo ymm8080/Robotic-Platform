@@ -1,36 +1,30 @@
-# Secrets Management
+# Secrets Management Guide v3.4
 
-**Last Updated**: 2026-06-21
+> Approved locations and procedures for all sensitive credentials.
 
 ## Approved Secret Locations
 
-| Secret | Storage | Load Path | Managed In |
-|--------|---------|-----------|------------|
-| SAP password | `secrets/sap_password.txt` | Docker Secret → `/run/secrets/sap_password` | `.env` → `docker-compose.yml` |
-| Dify DB password | `.env` variable `DIFY_DB_PASSWORD` | Environment variable | `.env` |
-| Feishu webhook | `.env` variables | Environment variable | `.env` |
-| WeCom webhook | `.env` variables | Environment variable | `.env` |
-
-## Rules
-
-1. **Never** put passwords in source code files (`.ts`, `.py`, `.js`, `.yml` directly)
-2. **Never** commit `secrets/` directory (blocked by `.gitignore`)
-3. **Never** commit `.env` file (blocked by `.gitignore`)
-4. **Always** use Docker Secrets for production credentials (mount at `/run/secrets/`)
-5. **Always** copy `.env.example` to `.env` and fill real values — never edit `.env.example`
-
-## Rotation
-
-- SAP password: monthly (set calendar reminder)
-- API tokens: when compromised or quarterly
+| Secret | Location | Mechanism | Git Status |
+|--------|----------|-----------|------------|
+| SAP Password | `secrets/sap_password.txt` | Docker Secrets → /run/secrets/sap_password | `.gitignore` |
+| Dify DB Password | `.env` → `DIFY_DB_PASSWORD` | Environment variable | `.gitignore` |
+| Feishu Webhook | `.env` → `FEISHU_WEBHOOK_URL` | Environment variable | `.gitignore` |
+| WeCom Webhook | `.env` → `WECOM_CORP_ID` etc. | Environment variable | `.gitignore` |
+| Grafana Password | `.env` → `GRAFANA_ADMIN_PASSWORD` | Environment variable | `.gitignore` |
 
 ## Verification
 
 ```bash
-# Check no secrets in code
-grep -rn "password\|secret" --include="*.{yml,ts,js,py,env}" \
-  --exclude-dir={.git,node_modules,secrets} .
-
-# Verify Docker secrets loaded
-docker exec robot-platform-sap-bridge cat /run/secrets/sap_password
+grep -rn "password\|secret\|PASSWORD\|SECRET" \
+  --include="*.{yml,yaml,js,ts,py,json,env,txt,md,conf}" \
+  --exclude-dir={.git,node_modules,secrets,__pycache__} .
 ```
+
+## Policies
+
+1. **Never commit real secrets** — all secrets in `.gitignore`
+2. **Use Docker Secrets** for file-based secrets (SAP password)
+3. **Use .env** for API URLs/tokens (Feishu, WeCom)
+4. **Rotate SAP password monthly** — update `secrets/sap_password.txt` + restart sap-bridge
+5. **No secrets in Dockerfiles** — volumes and env vars only
+6. **No secrets in MQTT payloads** — VDA5050 metadata only
