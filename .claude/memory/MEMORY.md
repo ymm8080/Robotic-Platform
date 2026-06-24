@@ -10,3 +10,4 @@
 - [Rescue Dashboard Architecture](rescue-dashboard-architecture.md) — Offline-capable rescue design
 - [File Placement Lessons](file-placement-lessons.md) — Root cause analysis + systemic prevention for file placement / script blind-spot issues
 - [Warehouse Backend Abstraction](warehouse-backend-abstraction.md) — Dual EWM+WM backend via plugin registry pattern, design approved not yet implemented
+- [GSD + Caveman auto-loaded as rules](autoloaded-gsd-caveman.md) — 2026-06-25: GSD workflow + compressed communication migrated to .claude/rules/ with alwaysApply: true, no need to call /gsd or /caveman anymore
