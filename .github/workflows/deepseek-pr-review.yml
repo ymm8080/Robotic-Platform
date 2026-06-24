@@ -1,0 +1,90 @@
+name: DeepSeek PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: DeepSeek AI Review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -c "
+          import subprocess, json, urllib.request, os
+
+          # Get PR diff
+          diff = subprocess.run(
+            ['git', 'diff', f'origin/{os.environ[\"BASE_REF\"]}', f'origin/{os.environ[\"HEAD_REF\"]}'],
+            capture_output=True, text=True, timeout=30
+          ).stdout
+
+          # Truncate to ~8000 lines for token limit
+          lines = diff.split('\n')
+          if len(lines) > 8000:
+              diff = '\n'.join(lines[:8000]) + '\n... (truncated)'
+
+          # Build API request
+          payload = json.dumps({
+            'model': 'deepseek-chat',
+            'messages': [
+              {
+                'role': 'system',
+                'content': 'You are an expert code reviewer. Analyze the PR diff and provide a concise, actionable review in Chinese. Focus on: 1) bugs and logic errors 2) security issues 3) performance concerns 4) code style best practices. Be specific - reference line numbers and suggest fixes. If the code looks good, say so briefly.'
+              },
+              {
+                'role': 'user',
+                'content': f'Review this PR diff:\n\n{diff}'
+              }
+            ],
+            'max_tokens': 4096,
+            'temperature': 0.3
+          }).encode('utf-8')
+
+          # Call DeepSeek API
+          req = urllib.request.Request(
+            'https://api.deepseek.com/chat/completions',
+            data=payload,
+            headers={
+              'Content-Type': 'application/json',
+              'Authorization': f'Bearer {os.environ[\"DEEPSEEK_API_KEY\"]}'
+            }
+          )
+          resp = json.loads(urllib.request.urlopen(req, timeout=60).read().decode('utf-8'))
+          review = resp['choices'][0]['message']['content']
+
+          # Save review
+          with open('review_output.md', 'w') as f:
+              f.write(review)
+          print('Review generated successfully')
+          "
+
+      - name: Post review as PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          REVIEW=$(cat review_output.md)
+          COMMENT="## 🤖 DeepSeek AI Review
+
+          ${REVIEW}
+
+          ---
+          *Powered by DeepSeek API | [Config](/.github/workflows/deepseek-pr-review.yml)*"
+
+          gh pr comment "$PR_NUMBER" --body "$COMMENT"
