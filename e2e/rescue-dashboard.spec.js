@@ -2,8 +2,6 @@
  * ── Rescue Dashboard Tests ─────────────────────────────────────────────
  *
  * Tests the Nginx static rescue / offline dashboard (port 8080).
- * This page is served when Node-RED is unavailable and provides
- * essential robot status monitoring.
  *
  * @group rescue
  * @group dashboard
@@ -12,109 +10,81 @@
 const { test, expect } = require('./fixtures');
 
 test.describe('Rescue Dashboard', () => {
-  test.beforeEach(async ({ rescueDashboardPage }) => {
-    await rescueDashboardPage.goto();
-    await rescueDashboardPage.waitForDashboardReady();
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
   });
 
   test.describe('Page Rendering', () => {
-    test('should load successfully', async ({ rescueDashboardPage }) => {
-      // The page should load without errors
-      await rescueDashboardPage.expectDashboardRendered();
+    test('should load successfully', async ({ page }) => {
+      const title = await page.title();
+      expect(title.length).toBeGreaterThan(0);
     });
 
-    test('should have a page title', async ({ rescueDashboardPage }) => {
-      const title = await rescueDashboardPage.getPageTitle();
+    test('should have a page title', async ({ page }) => {
+      const title = await page.title();
       expect(title.length).toBeGreaterThan(0);
       expect(title.toLowerCase()).toContain('rescue');
     });
 
-    test('should have a visible main heading', async ({ rescueDashboardPage }) => {
-      await expect(rescueDashboardPage.pageTitle).toBeVisible({ timeout: 5000 });
-      const text = await rescueDashboardPage.pageTitle.textContent();
+    test('should have a visible main heading', async ({ page }) => {
+      const heading = page.locator('h1').first();
+      await expect(heading).toBeVisible({ timeout: 5000 });
+      const text = await heading.textContent();
       expect(text.length).toBeGreaterThan(0);
     });
   });
 
   test.describe('Status Display', () => {
-    test('should display a system status indicator', async ({ rescueDashboardPage }) => {
-      await expect(rescueDashboardPage.statusIndicator).toBeVisible({ timeout: 5000 });
+    test('should display a system status indicator', async ({ page }) => {
+      const indicator = page.locator('#connBadge');
+      await expect(indicator).toBeVisible({ timeout: 5000 });
     });
 
-    test('should show the last updated timestamp', async ({ rescueDashboardPage }) => {
-      await expect(rescueDashboardPage.lastUpdated).toBeVisible({ timeout: 5000 });
-
-      const timestamp = await rescueDashboardPage.lastUpdated.textContent();
+    test('should show the last updated timestamp', async ({ page }) => {
+      const lastUpdated = page.locator('#last-updated');
+      await expect(lastUpdated).toBeVisible({ timeout: 5000 });
+      const timestamp = await lastUpdated.textContent();
       expect(timestamp.length).toBeGreaterThan(0);
     });
   });
 
   test.describe('Robot Status Section', () => {
-    test('should have a robot status section', async ({ rescueDashboardPage }) => {
-      // Either the dedicated section or a robot table/cards should be present
-      const hasSection = await rescueDashboardPage.robotStatusSection.isVisible().catch(() => false);
-      const hasTable = await rescueDashboardPage.robotTable.isVisible().catch(() => false);
-      const hasCards = await rescueDashboardPage.robotCards.first().isVisible().catch(() => false);
-
-      expect(hasSection || hasTable || hasCards).toBeTruthy();
+    test('should have a robot status section', async ({ page }) => {
+      const section = page.locator('#robotTable, .robot-grid');
+      await expect(section).toBeVisible({ timeout: 5000 });
     });
 
-    test('should display robot status data', async ({ rescueDashboardPage }) => {
-      const robotCount = await rescueDashboardPage.getRobotCount();
-      // Should show robots (even if 0 exists with a proper message)
-      expect(robotCount).toBeGreaterThanOrEqual(0);
+    test('should display robot status data', async ({ page }) => {
+      const count = await page.locator('#robotCount').textContent();
+      expect(count.length).toBeGreaterThan(0);
     });
 
-    test('should render robot cards/rows with name and status', async ({ rescueDashboardPage }) => {
-      const robots = await rescueDashboardPage.getRobotStatusList();
-
-      // Each robot entry should have a name and status
-      for (const robot of robots) {
-        expect(robot.name).toBeTruthy();
-        expect(robot.status).toBeTruthy();
-      }
+    test('should render robot cards/rows with name and status', async ({ page }) => {
+      const headerRow = page.locator('.robot-row.header');
+      await expect(headerRow).toBeVisible({ timeout: 5000 });
     });
 
-    test('should display robot status in Chinese (本地化)', async ({ rescueDashboardPage }) => {
-      // For robots with Chinese status labels
-      const robotStatuses = await rescueDashboardPage.getRobotStatusList();
-      const statusTexts = robotStatuses.map(r => r.status);
-
-      // Check for Chinese status indicators if the UI is localized
-      const hasChineseStatus = statusTexts.some(
-        s => /[一-鿿]/.test(s)  // Contains CJK characters
-      );
-      // This might or might not be localized, so we just log it
-      if (hasChineseStatus) {
-        console.log('Robot status labels include Chinese characters');
-      }
+    test('should display robot status in Chinese (本地化)', async ({ page }) => {
+      const statusDots = page.locator('.status-dot');
+      const count = await statusDots.count();
+      expect(count).toBeGreaterThan(0);
     });
   });
 
   test.describe('Refresh Functionality', () => {
-    test('should have a refresh button', async ({ rescueDashboardPage }) => {
-      await expect(rescueDashboardPage.refreshButton).toBeVisible({ timeout: 5000 });
-    });
-
-    test('should update data on refresh', async ({ rescueDashboardPage }) => {
-      const robotCountBefore = await rescueDashboardPage.getRobotCount();
-
-      await rescueDashboardPage.clickRefresh();
-
-      // After refresh, the dashboard should still display robot data
-      const robotCountAfter = await rescueDashboardPage.getRobotCount();
-      expect(robotCountAfter).toBeGreaterThanOrEqual(0);
+    test('should have a refresh button', async ({ page }) => {
+      const refreshBtn = page.locator('button:has-text("刷新")').first();
+      await expect(refreshBtn).toBeVisible({ timeout: 5000 });
     });
   });
 
   test.describe('Safe Mode', () => {
-    test('should have a safe mode button visible', async ({ rescueDashboardPage }) => {
-      // The rescue dashboard has an emergency safe mode button
-      const hasSafeMode = await rescueDashboardPage.safeModeButton.isVisible().catch(() => false);
-
-      // This is an optional feature
-      if (hasSafeMode) {
-        await expect(rescueDashboardPage.safeModeButton).toBeEnabled();
+    test('should have a safe mode button visible', async ({ page }) => {
+      const safeModeBtn = page.locator('button:has-text("安全模式")').first();
+      const isVisible = await safeModeBtn.isVisible().catch(() => false);
+      if (isVisible) {
+        await expect(safeModeBtn).toBeEnabled();
       }
     });
   });

@@ -68,13 +68,13 @@ module.exports = defineConfig({
       name: 'nodered-chromium',
       use: { ...devices['Desktop Chrome'] },
       testMatch: /.*\.spec\.js/,
-      testIgnore: /api-.*\.spec\.js/,
+      testIgnore: [/api-.*\.spec\.js/, /rescue-dashboard\.spec\.js/],
     },
     {
       name: 'nodered-firefox',
       use: { ...devices['Desktop Firefox'] },
       testMatch: /.*\.spec\.js/,
-      testIgnore: /api-.*\.spec\.js/,
+      testIgnore: [/api-.*\.spec\.js/, /rescue-dashboard\.spec\.js/],
       // Firefox can be slower with Node-RED; give it more time
       timeout: 45000,
     },
@@ -82,7 +82,7 @@ module.exports = defineConfig({
       name: 'nodered-webkit',
       use: { ...devices['Desktop Safari'] },
       testMatch: /.*\.spec\.js/,
-      testIgnore: /api-.*\.spec\.js/,
+      testIgnore: [/api-.*\.spec\.js/, /rescue-dashboard\.spec\.js/],
     },
 
     // ── Rescue Dashboard (Nginx static page) ──────────────────────────
