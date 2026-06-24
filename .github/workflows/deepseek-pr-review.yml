@@ -1,6 +1,8 @@
-name: DeepSeek PR Review
+name: DeepSeek AI Review
 
 on:
+  push:
+    branches: [master]
   pull_request:
     types: [opened, synchronize]
 
@@ -12,79 +14,98 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout PR code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: DeepSeek AI Review
+        id: review
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 -c "
-          import subprocess, json, urllib.request, os
+          # Determine what to diff
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            HEAD="origin/${{ github.head_ref }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
 
-          # Get PR diff
-          diff = subprocess.run(
-            ['git', 'diff', f'origin/{os.environ[\"BASE_REF\"]}', f'origin/{os.environ[\"HEAD_REF\"]}'],
-            capture_output=True, text=True, timeout=30
-          ).stdout
+          DIFF=$(git diff "$BASE".."$HEAD" 2>/dev/null || git diff HEAD~1 HEAD)
 
-          # Truncate to ~8000 lines for token limit
-          lines = diff.split('\n')
-          if len(lines) > 8000:
-              diff = '\n'.join(lines[:8000]) + '\n... (truncated)'
+          LINE_COUNT=$(echo "$DIFF" | wc -l)
+          if [ "$LINE_COUNT" -gt 8000 ]; then
+            DIFF=$(echo "$DIFF" | head -8000)
+            DIFF="$DIFF\n... (truncated)"
+          fi
 
-          # Build API request
-          payload = json.dumps({
-            'model': 'deepseek-chat',
-            'messages': [
-              {
-                'role': 'system',
-                'content': 'You are an expert code reviewer. Analyze the PR diff and provide a concise, actionable review in Chinese. Focus on: 1) bugs and logic errors 2) security issues 3) performance concerns 4) code style best practices. Be specific - reference line numbers and suggest fixes. If the code looks good, say so briefly.'
-              },
-              {
-                'role': 'user',
-                'content': f'Review this PR diff:\n\n{diff}'
-              }
-            ],
-            'max_tokens': 4096,
-            'temperature': 0.3
-          }).encode('utf-8')
+          if [ -z "$DIFF" ]; then
+            echo "No diff, skipping"
+            exit 0
+          fi
 
-          # Call DeepSeek API
-          req = urllib.request.Request(
-            'https://api.deepseek.com/chat/completions',
-            data=payload,
-            headers={
-              'Content-Type': 'application/json',
-              'Authorization': f'Bearer {os.environ[\"DEEPSEEK_API_KEY\"]}'
-            }
-          )
-          resp = json.loads(urllib.request.urlopen(req, timeout=60).read().decode('utf-8'))
-          review = resp['choices'][0]['message']['content']
+          echo "$DIFF" > /tmp/pr_diff.txt
 
-          # Save review
-          with open('review_output.md', 'w') as f:
-              f.write(review)
-          print('Review generated successfully')
-          "
+          python3 << 'PYEOF'
+import json, urllib.request, os
 
-      - name: Post review as PR comment
+with open('/tmp/pr_diff.txt') as f:
+    diff = f.read()
+
+payload = json.dumps({
+    "model": "deepseek-chat",
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are an expert code reviewer. Analyze the diff and provide concise, actionable review in Chinese. Focus on: 1) bugs 2) security 3) performance 4) style. Be specific with line numbers. If code looks good, say so briefly."
+        },
+        {
+            "role": "user",
+            "content": f"Review this diff:\n\n{diff}"
+        }
+    ],
+    "max_tokens": 4096,
+    "temperature": 0.3
+}).encode("utf-8")
+
+req = urllib.request.Request(
+    "https://api.deepseek.com/chat/completions",
+    data=payload,
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"
+    }
+)
+try:
+    resp = json.loads(urllib.request.urlopen(req, timeout=60).read().decode("utf-8"))
+    review = resp["choices"][0]["message"]["content"]
+    with open("review_output.md", "w") as f:
+        f.write(review)
+    print("Review generated successfully")
+except Exception as e:
+    print(f"API call failed: {e}")
+    print("Check DEEPSEEK_API_KEY secret is set in GitHub repo settings")
+PYEOF
+
+      - name: Post review comment
+        if: success() && hashFiles('review_output.md') != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           REVIEW=$(cat review_output.md)
           COMMENT="## 🤖 DeepSeek AI Review
 
-          ${REVIEW}
+${REVIEW}
 
-          ---
-          *Powered by DeepSeek API | [Config](/.github/workflows/deepseek-pr-review.yml)*"
+---
+*Powered by DeepSeek API | [Config](/.github/workflows/deepseek-pr-review.yml)*"
 
-          gh pr comment "$PR_NUMBER" --body "$COMMENT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT"
+            echo "Posted as PR comment #${{ github.event.pull_request.number }}"
+          else
+            gh commit comment "${{ github.sha }}" --body "$COMMENT"
+            echo "Posted as commit comment on ${{ github.sha }}"
+          fi
