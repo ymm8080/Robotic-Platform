@@ -2,12 +2,15 @@
 
 Usage:
     factory = WarehouseBackendFactory(config_dict)
-    backend = factory.get_backend("WM01")
-    tasks = backend.list_tasks("WM01")
+    backend = factory.get_backend("WM02")
+    tasks = backend.list_tasks("WM02")
+
+Thread-safe: get_backend() uses a lock to prevent double-init race.
 """
 
 import logging
 import os
+import threading
 
 import yaml
 
@@ -29,13 +32,10 @@ class WarehouseBackendFactory:
               backend: ewm
               base_url: "http://sap-ewm:8000"
               client: "100"
-              rate_limit: 80
             WM02:
               backend: wm
-              rfc_ashost: "sap-wm.example.com"
-              rfc_sysnr: "00"
-              rfc_client: "800"
-              rfc_lang: "ZH"
+              mode: http
+              simulator_url: "http://wm-simulator:8001"
     """
 
     def __init__(self, config_path: str = DEFAULT_CONFIG_PATH):
@@ -43,6 +43,7 @@ class WarehouseBackendFactory:
         self._warehouses: dict[str, WarehouseBackend] = {}
         self._config: dict = {}
         self._registry = get_registry()
+        self._lock = threading.Lock()
         self._load_config()
 
     def _load_config(self):
@@ -61,36 +62,41 @@ class WarehouseBackendFactory:
     def get_backend(self, warehouse_id: str) -> WarehouseBackend | None:
         """Get (or create) backend for a warehouse.
 
-        Caches backend instances per warehouse — the same warehouse always
-        returns the same backend object.
+        Thread-safe with per-instance lock. Caches backend instances.
         """
-        # Return cached instance
-        if warehouse_id in self._warehouses:
-            return self._warehouses[warehouse_id]
+        # Fast path (read-only, no lock)
+        cached = self._warehouses.get(warehouse_id)
+        if cached is not None:
+            return cached
 
-        # Look up warehouse config
-        warehouses = self._config.get("sap", {}).get("warehouses", {})
-        wh_config = warehouses.get(warehouse_id)
+        with self._lock:
+            # Double-check after acquiring lock
+            cached = self._warehouses.get(warehouse_id)
+            if cached is not None:
+                return cached
 
-        if wh_config is None:
-            logger.warning(f"No config for warehouse '{warehouse_id}'")
-            return None
+            warehouses = self._config.get("sap", {}).get("warehouses", {})
+            wh_config = warehouses.get(warehouse_id)
 
-        backend_type = wh_config.get("backend", "ewm")
-        backend = self._registry.instantiate(backend_type, wh_config)
-        if backend is None:
-            logger.error(
-                f"Failed to create backend '{backend_type}' "
-                f"for warehouse '{warehouse_id}'"
+            if wh_config is None:
+                logger.warning(f"No config for warehouse '{warehouse_id}'")
+                return None
+
+            backend_type = wh_config.get("backend", "ewm")
+            backend = self._registry.instantiate(backend_type, wh_config)
+            if backend is None:
+                logger.error(
+                    f"Failed to create backend '{backend_type}' "
+                    f"for warehouse '{warehouse_id}'"
+                )
+                return None
+
+            self._warehouses[warehouse_id] = backend
+            logger.info(
+                f"Warehouse '{warehouse_id}' → {backend.display_name} "
+                f"(type={backend_type})"
             )
-            return None
-
-        self._warehouses[warehouse_id] = backend
-        logger.info(
-            f"Warehouse '{warehouse_id}' → {backend.display_name} "
-            f"(type={backend_type})"
-        )
-        return backend
+            return backend
 
     def list_warehouses(self) -> list[str]:
         """List all configured warehouse IDs."""
@@ -103,9 +109,20 @@ class WarehouseBackendFactory:
         return warehouses.get(warehouse_id)
 
     def reload(self):
-        """Reload config from disk and clear cached backends."""
-        self._warehouses.clear()
-        self._load_config()
+        """Reload config from disk and recreate all backends.
+
+        Calls close() on each backend before discarding.
+        """
+        with self._lock:
+            for wh_id, backend in self._warehouses.items():
+                try:
+                    backend.close()
+                    logger.debug(f"Closed backend for warehouse '{wh_id}'")
+                except Exception as e:
+                    logger.warning(f"Error closing backend for '{wh_id}': {e}")
+            self._warehouses.clear()
+            self._load_config()
+        logger.info("Factory reloaded — all backends recreated on next access")
 
     def health_check_all(self) -> dict[str, dict]:
         """Check connectivity for all configured warehouses."""
@@ -122,19 +139,20 @@ class WarehouseBackendFactory:
 # ── Module-level singleton ─────────────────────────────────
 
 _factory: WarehouseBackendFactory | None = None
+_factory_lock = threading.Lock()
 
 
 def get_factory(config_path: str | None = None) -> WarehouseBackendFactory:
     """Get the global backend factory singleton.
 
     Uses DEFAULT_CONFIG_PATH on first call. Pass config_path to initialize
-    with a custom path; subsequent calls with different paths log a warning
-    and return the existing factory. Use reload() on the factory to pick up
-    config changes without recreating the singleton.
+    with a custom path. Thread-safe.
     """
     global _factory
     if _factory is None:
-        _factory = WarehouseBackendFactory(config_path=config_path or DEFAULT_CONFIG_PATH)
+        with _factory_lock:
+            if _factory is None:
+                _factory = WarehouseBackendFactory(config_path=config_path or DEFAULT_CONFIG_PATH)
     elif config_path is not None and config_path != _factory._config_path:
         logger.warning(
             f"get_factory() called with config_path={config_path!r} "

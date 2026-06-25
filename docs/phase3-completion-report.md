@@ -12,7 +12,7 @@
 
 Phase 3 (Production Readiness) is **substantially complete**. All planned infrastructure, testing, security, compliance, and operational readiness work has been delivered and verified. The platform comprises 13 Docker services spanning core dispatch, monitoring, alerting, and observability.
 
-**Key metric**: 305 Python unit/integration tests pass (82% line coverage), CI/CD pipeline with 5 phases (lint, ADR validation, test, build, Trivy security scan), all 22 domain rules synced to `.claude/rules/`, all 5 ADRs documented, and zero HIGH/CRITICAL security findings in the last audit pass.
+**Key metric**: 360 Python unit/integration tests pass (including 55 WM backend tests: 31 unit + 10 integration + 6 HTTP mode + 8 shared), 82% line coverage, CI/CD pipeline with 5 phases (lint, ADR validation, test, build, Trivy security scan), all 22 domain rules synced to `.claude/rules/`, all 5 ADRs documented, and zero HIGH/CRITICAL security findings in the last audit pass.
 
 **Readiness verdict**: The platform is **production-ready** for controlled rollout with documented known issues (see Section 5). P0 items from the 48h checklist are structurally addressed; physical-layer checks (E-stop latency, NTP sync, disaster recovery drill) require on-site execution that cannot be performed in this environment.
 

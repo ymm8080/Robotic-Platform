@@ -88,11 +88,22 @@ class CsrfTokenManager:
         logger.info("Fetched new CSRF token")
         return token, cookies
 
+    def close(self):
+        """Close Redis connection."""
+        try:
+            self._redis.close()
+        except Exception:
+            pass
+
 
 # ── EWM Backend ────────────────────────────────────────────
 
 class EwmBackend(WarehouseBackend):
     """SAP EWM OData warehouse task operations."""
+
+    # Class-level identifiers (used by Registry — no __init__ needed to inspect)
+    backend_type_name = "ewm"
+    display_name_str = "SAP EWM"
 
     def __init__(self, config: dict | None = None):
         self._cfg = config or {}
@@ -107,19 +118,22 @@ class EwmBackend(WarehouseBackend):
         password = self._cfg.get("password") or _read_password(pw_file)
         self._auth = (user, password) if user else None
 
-        self._redis = rd.from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
-        self._csrf = CsrfTokenManager(self._redis, auth=self._auth)
+        # Lazy init — Redis connection created on first use
+        self._redis: rd.Redis | None = None
+        self._csrf: CsrfTokenManager | None = None
         self._last_request_time = 0.0
 
-    # ── WarehouseBackend ABC ─────────────────────────────
+    def _ensure_redis(self) -> rd.Redis:
+        """Get or create Redis connection (lazy init)."""
+        if self._redis is None:
+            self._redis = rd.from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
+        return self._redis
 
-    @property
-    def backend_type(self) -> str:
-        return "ewm"
-
-    @property
-    def display_name(self) -> str:
-        return "SAP EWM"
+    def _ensure_csrf(self) -> CsrfTokenManager:
+        """Get or create CSRF token manager (lazy init)."""
+        if self._csrf is None:
+            self._csrf = CsrfTokenManager(self._ensure_redis(), auth=self._auth)
+        return self._csrf
 
     # ── Rate limiting ────────────────────────────────────
 
@@ -146,11 +160,12 @@ class EwmBackend(WarehouseBackend):
         return headers
 
     def _get_csrf_headers(self, client: httpx.Client) -> dict:
-        cached = self._csrf.get_token()
+        csrf = self._ensure_csrf()
+        cached = csrf.get_token()
         if cached:
             token, cookies = cached
             return {**self._get_headers(token), "Cookie": cookies}
-        token, cookies = self._csrf.fetch_new(client, self._base_url, self._odata_service)
+        token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
         return {**self._get_headers(token), "Cookie": cookies}
 
     # ── Task CRUD ────────────────────────────────────────
@@ -158,7 +173,6 @@ class EwmBackend(WarehouseBackend):
     def list_tasks(self, warehouse: str = "WM01", status: str = "0",
                    top: int = 100, skip: int = 0) -> list[WarehouseTask]:
         self._throttle()
-        # Sanitize inputs to prevent OData injection
         if not re.match(r'^[A-Za-z0-9_\-]+$', warehouse):
             logger.error(f"Invalid warehouse param: {warehouse!r}")
             return []
@@ -227,7 +241,8 @@ class EwmBackend(WarehouseBackend):
                 return self._parse_task(resp.json().get("d", resp.json()))
             elif resp.status_code == 403:
                 logger.info("CSRF token expired, refreshing...")
-                token, cookies = self._csrf.fetch_new(client, self._base_url, self._odata_service)
+                csrf = self._ensure_csrf()
+                token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
                 headers["X-CSRF-Token"] = token
                 headers["Cookie"] = cookies
                 resp = client.post(url, json=payload, headers=headers, auth=self._auth)
@@ -257,7 +272,8 @@ class EwmBackend(WarehouseBackend):
                 logger.info(f"Confirmed task {task_id}")
                 return True
             elif resp.status_code == 403:
-                token, cookies = self._csrf.fetch_new(client, self._base_url, self._odata_service)
+                csrf = self._ensure_csrf()
+                token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
                 headers["X-CSRF-Token"] = token
                 headers["Cookie"] = cookies
                 resp = client.post(url, json={}, headers=headers, auth=self._auth)
@@ -278,7 +294,8 @@ class EwmBackend(WarehouseBackend):
                 logger.info(f"Cancelled task {task_id}")
                 return True
             elif resp.status_code == 403:
-                token, cookies = self._csrf.fetch_new(client, self._base_url, self._odata_service)
+                csrf = self._ensure_csrf()
+                token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
                 headers["X-CSRF-Token"] = token
                 headers["Cookie"] = cookies
                 resp = client.post(url, json={}, headers=headers, auth=self._auth)
@@ -295,12 +312,37 @@ class EwmBackend(WarehouseBackend):
                 resp = client.get(url, headers=self._get_headers(), auth=self._auth, timeout=10)
                 return {
                     "connected": resp.status_code == 200,
-                    "status_code": resp.status_code,
-                    "auth_configured": self._auth is not None,
                     "backend": self.backend_type,
+                    "mode": "odata",
+                    "warehouse_configured": self._auth is not None,
+                    "details": {"status_code": resp.status_code},
                 }
         except Exception as e:
-            return {"connected": False, "error": str(e), "backend": self.backend_type}
+            return {
+                "connected": False,
+                "backend": self.backend_type,
+                "mode": "odata",
+                "warehouse_configured": self._auth is not None,
+                "error": str(e)[:200],
+            }
+
+    # ── Lifecycle ────────────────────────────────────────
+
+    def close(self):
+        """Release Redis and httpx connections."""
+        if self._csrf is not None:
+            try:
+                self._csrf.close()
+            except Exception:
+                pass
+            self._csrf = None
+        if self._redis is not None:
+            try:
+                self._redis.close()
+            except Exception:
+                pass
+            self._redis = None
+        logger.debug("EwmBackend connections closed")
 
     # ── Parsing ──────────────────────────────────────────
 
@@ -320,12 +362,14 @@ class EwmBackend(WarehouseBackend):
             actual_qty=float(item.get("ActualQuantityInBaseUnit", 0) or 0),
             uom=item.get("BaseUnit", "EA"),
             status=ewm_status,
-            warehouse_order=item.get("WarehouseOrder"),
-            process_type=item.get("WarehouseProcessType"),
-            is_hu_task=bool(item.get("IsHandlingUnitWarehouseTask", False)),
-            source_hu=item.get("SourceHandlingUnit"),
-            dest_hu=item.get("DestinationHandlingUnit"),
-            raw=item,
+            vendor_data={
+                "warehouse_order": item.get("WarehouseOrder"),
+                "process_type": item.get("WarehouseProcessType"),
+                "is_hu_task": bool(item.get("IsHandlingUnitWarehouseTask", False)),
+                "source_hu": item.get("SourceHandlingUnit"),
+                "dest_hu": item.get("DestinationHandlingUnit"),
+                "raw": item,
+            },
         )
 
     @staticmethod

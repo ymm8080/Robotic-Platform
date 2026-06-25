@@ -1,4 +1,9 @@
-"""Canonical warehouse task model — normalized for both SAP EWM and Classic WM."""
+"""Canonical warehouse task model — normalized for both SAP EWM and Classic WM.
+
+Only truly cross-system fields are top-level. Backend-specific data goes
+into the vendor_data dict. This keeps the model lean and avoids field
+proliferation as new backends are added.
+"""
 
 from dataclasses import dataclass, field
 
@@ -7,15 +12,16 @@ from dataclasses import dataclass, field
 class WarehouseTask:
     """Normalized warehouse task representing either an EWM Warehouse Task or WM Transfer Order.
 
-    The model normalizes the two SAP warehouse concepts into one canonical shape.
-    Use source_system to distinguish which backend produced it.
+    Core fields are shared by all backends. Backend-specific enrichment
+    (EWM: process_type, HU info; WM: transfer_type, movement_type, etc.)
+    lives in vendor_data.
     """
 
-    # ── Canonical fields (populated for both EWM and WM) ──
+    # ── Core fields (every backend must populate) ──────────
     source_system: str                    # "EWM" | "WM"
-    warehouse: str                        # Warehouse number (EWM: 4-char, WM: 3-char)
+    warehouse: str                        # Warehouse number
     external_id: str                      # WT number (EWM) or TO number (WM)
-    item_no: str = "0001"                 # Item number within the task/order
+    item_no: str = "0001"                 # Item number within the task
     task_type: str = "MOVE"               # PICK | PUT | MOVE | CHARGE (normalized)
     source_bin: str | None = None
     dest_bin: str | None = None
@@ -26,23 +32,8 @@ class WarehouseTask:
     uom: str = "EA"
     status: str = "0"                     # 0=Open, 1=InProcess, 2=Confirmed, 3=Cancelled
 
-    # ── EWM-specific ──
-    warehouse_order: str | None = None  # Warehouse Order number
-    process_type: str | None = None     # e.g. "PICK", "PUT", "STO"
-    is_hu_task: bool = False
-    source_hu: str | None = None
-    dest_hu: str | None = None
-
-    # ── WM-specific ──
-    to_number: str | None = None        # WM Transfer Order number (same as external_id)
-    movement_type: str | None = None    # BWLVS movement type
-    transfer_type: str | None = None    # E=putaway, A=removal, U=transfer
-    storage_unit: str | None = None     # Storage Unit number
-    plant: str | None = None
-    storage_location: str | None = None
-
-    # ── Raw payload for debugging ──
-    raw: dict = field(default_factory=dict)
+    # ── Vendor-specific data ──────────────────────────────
+    vendor_data: dict = field(default_factory=dict)
 
     @property
     def is_ewm(self) -> bool:
@@ -51,6 +42,80 @@ class WarehouseTask:
     @property
     def is_wm(self) -> bool:
         return self.source_system.upper() == "WM"
+
+    # ── Convenience property accessors ────────────────────
+    # These provide backward-compatible access to common vendor fields.
+
+    @property
+    def process_type(self) -> str | None:
+        """EWM process type (e.g. PICK, PUT, STO)."""
+        return self.vendor_data.get("process_type")
+
+    @property
+    def warehouse_order(self) -> str | None:
+        """EWM Warehouse Order number."""
+        return self.vendor_data.get("warehouse_order")
+
+    @property
+    def is_hu_task(self) -> bool:
+        """EWM: whether this is a Handling Unit task."""
+        return bool(self.vendor_data.get("is_hu_task", False))
+
+    @property
+    def source_hu(self) -> str | None:
+        return self.vendor_data.get("source_hu")
+
+    @property
+    def dest_hu(self) -> str | None:
+        return self.vendor_data.get("dest_hu")
+
+    @property
+    def to_number(self) -> str | None:
+        """WM Transfer Order number (same as external_id)."""
+        return self.vendor_data.get("to_number")
+
+    @to_number.setter
+    def to_number(self, value: str):
+        self.vendor_data["to_number"] = value
+
+    @property
+    def movement_type(self) -> str | None:
+        """WM BWLVS movement type."""
+        return self.vendor_data.get("movement_type")
+
+    @movement_type.setter
+    def movement_type(self, value: str):
+        self.vendor_data["movement_type"] = value
+
+    @property
+    def transfer_type(self) -> str | None:
+        """WM transfer type (E=putaway, A=removal, U=transfer)."""
+        return self.vendor_data.get("transfer_type")
+
+    @transfer_type.setter
+    def transfer_type(self, value: str):
+        self.vendor_data["transfer_type"] = value
+
+    @property
+    def plant(self) -> str | None:
+        return self.vendor_data.get("plant")
+
+    @plant.setter
+    def plant(self, value: str):
+        self.vendor_data["plant"] = value
+
+    @property
+    def storage_location(self) -> str | None:
+        return self.vendor_data.get("storage_location")
+
+    @storage_location.setter
+    def storage_location(self, value: str):
+        self.vendor_data["storage_location"] = value
+
+    @property
+    def raw(self) -> dict:
+        """Raw payload from backend, for debugging."""
+        return self.vendor_data.get("raw", {})
 
     def to_dict(self) -> dict:
         return {
@@ -67,15 +132,4 @@ class WarehouseTask:
             "actualQty": self.actual_qty,
             "uom": self.uom,
             "status": self.status,
-            "warehouseOrder": self.warehouse_order,
-            "processType": self.process_type,
-            "isHuTask": self.is_hu_task,
-            "sourceHu": self.source_hu,
-            "destHu": self.dest_hu,
-            "toNumber": self.to_number,
-            "movementType": self.movement_type,
-            "transferType": self.transfer_type,
-            "storageUnit": self.storage_unit,
-            "plant": self.plant,
-            "storageLocation": self.storage_location,
         }
