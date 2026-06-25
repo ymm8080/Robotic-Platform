@@ -5,11 +5,11 @@
 # =============================================================================
 set -euo pipefail
 
-BACKUP_BASE="${BACKUP_DIR:-D:/EWM ROBOT/backups}"
+BACKUP_BASE="${BACKUP_DIR:-/var/backup/robot-platform}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="${BACKUP_BASE}/${TIMESTAMP}"
 VOLUMES="nodered-data redis-data dify-data mqtt-data mqtt-logs sap-bridge-logs watchdog-logs prometheus-data grafana-data"
-COMPOSE_FILE="D:/EWM ROBOT/ROBOTIC PLATFORM CODES/docker-compose.yml"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 LOG_FILE="${BACKUP_DIR}/backup.log"
 
 mkdir -p "${BACKUP_DIR}"

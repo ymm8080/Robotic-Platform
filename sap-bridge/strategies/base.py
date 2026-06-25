@@ -100,9 +100,9 @@ class BaseStrategy(ABC):
             "IDLE": ["MOVING", "CHARGING", "ERROR", "UNAVAILABLE"],
             "MOVING": ["IDLE", "EXECUTING", "PAUSED", "ERROR"],
             "EXECUTING": ["MOVING", "IDLE", "PAUSED", "ERROR"],
-            "PAUSED": ["MOVING", "EXECUTING", "ERROR"],
-            "CHARGING": ["IDLE", "ERROR"],
-            "ERROR": ["IDLE"],
+            "PAUSED": ["MOVING", "EXECUTING", "ERROR", "IDLE"],
+            "CHARGING": ["IDLE", "MOVING", "ERROR"],
+            "ERROR": ["IDLE", "UNAVAILABLE"],
             "UNAVAILABLE": ["IDLE"],
         }
         return to_state in allowed.get(from_state, [])

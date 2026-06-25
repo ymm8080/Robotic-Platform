@@ -52,7 +52,7 @@ class VDA5050Publisher:
         # Last Will & Testament
         self.client.will_set(
             topic=f"vda5050/{MQTT_CLIENT_ID}/connection",
-            payload=json.dumps({"state": "DISCONNECTED", "timestamp": self._iso_now()}),
+            payload=json.dumps({"connectionState": "CONNECTIONBROKEN", "timestamp": self._iso_now()}),
             qos=1,
             retain=True,
         )
@@ -127,7 +127,7 @@ class VDA5050Publisher:
             # Announce self as connected
             self.publish(
                 "SYSTEM", "sap-bridge", "connection",
-                {"state": "ONLINE"}, retain=True
+                {"connectionState": "ONLINE"}, retain=True
             )
         else:
             self._connected = False

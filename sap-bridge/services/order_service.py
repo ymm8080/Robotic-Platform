@@ -213,11 +213,11 @@ class OrderService:
     # ── Helpers ─────────────────────────────────────────
 
     def _update(self, order: WarehouseOrder):
-        """Persist order state changes."""
+        """Persist order state changes. Raises on version conflict."""
         conn = self._connect()
         try:
             order.version += 1
-            conn.execute(
+            cur = conn.execute(
                 """UPDATE orders_v2 SET
                    status=?, robot_brand=?, robot_serial=?, payload=?,
                    zone_id=?, location=?, weight=?, expected_qty=?,
@@ -235,6 +235,14 @@ class OrderService:
                 ),
             )
             conn.commit()
+            if cur.rowcount == 0:
+                logger.error(
+                    f"Optimistic lock failed for {order.order_no} — "
+                    f"concurrent modification detected"
+                )
+                raise RuntimeError(
+                    f"Order {order.order_no} was modified concurrently"
+                )
             logger.info(f"Order updated: {order.order_no} → {order.status.value} (v{order.version})")
         finally:
             conn.close()

@@ -63,9 +63,11 @@ class TestHeartbeatMonitor:
         msg = MagicMock()
         msg.topic = "vda5050/MiR/MIR-001/state"
         msg.payload = json.dumps({
-            "drivingState": "MOVING",
+            "driving": True,
             "batteryState": {"batteryCharge": 85},
-            "position": {"x": 10.5, "y": 20.3},
+            "agvPosition": {"x": 10.5, "y": 20.3, "theta": 0.0, "lastNodeId": "N1", "positionInitialized": True},
+            "operatingMode": "AUTOMATIC",
+            "errors": [],
         }).encode()
 
         monitor._on_message(None, None, msg)
@@ -75,8 +77,10 @@ class TestHeartbeatMonitor:
         call_kwargs = monitor.redis_client.hset.call_args[1]
         assert "mapping" in call_kwargs, "hset should have been called with mapping= kwarg"
         mapping = call_kwargs["mapping"]
-        assert mapping["state"] == "MOVING"
+        assert mapping["state"] == "MOVING", "driving=true without errors/paused should be MOVING"
         assert mapping["battery"] == "85"
+        assert mapping["driving"] == "true"
+        assert mapping["operatingMode"] == "AUTOMATIC"
         assert monitor.redis_client.expire.called
 
     def test_on_message_invalid_json(self, monitor):

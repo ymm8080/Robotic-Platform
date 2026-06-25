@@ -162,7 +162,7 @@ class TestOrderLifecycleE2E:
         assert order.version == 4
 
     def test_version_optimistic_locking(self, setup_db):
-        """Concurrent updates: second write with stale version skips ahead."""
+        """Concurrent updates: second write with stale version raises RuntimeError."""
         from models.order import OrderStatus, WarehouseOrder
         from services.order_service import OrderService
 
@@ -182,9 +182,11 @@ class TestOrderLifecycleE2E:
 
         order.status = OrderStatus.IN_PROGRESS  # stale
         order.version = 2  # stale
-        svc._update(order)
-        # Should have succeeded but version skipped ahead
+        with pytest.raises(RuntimeError, match="was modified concurrently"):
+            svc._update(order)
+        # Verify the concurrent write was preserved
         refreshed = svc.get_order("E2E-LOCK-001")
+        assert refreshed.status == OrderStatus.COMPLETED
         assert refreshed.version >= 3
 
     def test_list_orders_pagination(self, setup_db):

@@ -55,8 +55,9 @@ def _read_password(password_file: str) -> str:
 class CsrfTokenManager:
     """Manages SAP OData CSRF tokens with Redis caching."""
 
-    def __init__(self, redis_client: rd.Redis):
+    def __init__(self, redis_client: rd.Redis, auth: tuple[str, str] | None = None):
         self._redis = redis_client
+        self._auth = auth
 
     def get_token(self) -> tuple[str, str] | None:
         token = self._redis.get("sap:csrf_token")
@@ -106,7 +107,7 @@ class EwmBackend(WarehouseBackend):
         self._auth = (user, password) if user else None
 
         self._redis = rd.from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
-        self._csrf = CsrfTokenManager(self._redis)
+        self._csrf = CsrfTokenManager(self._redis, auth=self._auth)
         self._last_request_time = 0.0
 
     # ── WarehouseBackend ABC ─────────────────────────────
@@ -130,7 +131,8 @@ class EwmBackend(WarehouseBackend):
     # ── HTTP helpers ─────────────────────────────────────
 
     def _get_client(self) -> httpx.Client:
-        return httpx.Client(timeout=30.0, verify=False)
+        verify_ssl = os.getenv("SAP_VERIFY_SSL", "false").lower() == "true"
+        return httpx.Client(timeout=30.0, verify=verify_ssl)
 
     def _get_headers(self, csrf_token: str | None = None) -> dict:
         headers = {
@@ -170,8 +172,10 @@ class EwmBackend(WarehouseBackend):
             logger.error("SAP auth failed — check credentials")
             raise PermissionError("SAP authentication failed")
         elif resp.status_code == 429:
-            logger.warning("SAP rate limited — backing off")
-            time.sleep(5)
+            retry_after = int(resp.headers.get("Retry-After", 2))
+            delay = min(retry_after, 30)
+            logger.warning(f"SAP rate limited — backing off {delay}s")
+            time.sleep(delay)
             return self.list_tasks(warehouse, status, top, skip)
         else:
             logger.error(f"SAP error {resp.status_code}: {resp.text[:200]}")
@@ -222,8 +226,10 @@ class EwmBackend(WarehouseBackend):
                 if resp.status_code in (200, 201):
                     return self._parse_task(resp.json().get("d", resp.json()))
             elif resp.status_code == 429:
-                logger.warning("Rate limited on create, retrying after backoff")
-                time.sleep(5)
+                retry_after = int(resp.headers.get("Retry-After", 2))
+                delay = min(retry_after, 30)
+                logger.warning(f"Rate limited on create, retrying after {delay}s backoff")
+                time.sleep(delay)
                 return self.create_task(task)
 
             logger.error(f"Create task failed: {resp.status_code} {resp.text[:200]}")
