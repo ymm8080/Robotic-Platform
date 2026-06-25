@@ -12,6 +12,7 @@ References:
 
 import logging
 import os
+import re
 import time
 
 import httpx
@@ -157,6 +158,13 @@ class EwmBackend(WarehouseBackend):
     def list_tasks(self, warehouse: str = "WM01", status: str = "0",
                    top: int = 100, skip: int = 0) -> list[WarehouseTask]:
         self._throttle()
+        # Sanitize inputs to prevent OData injection
+        if not re.match(r'^[A-Za-z0-9_\-]+$', warehouse):
+            logger.error(f"Invalid warehouse param: {warehouse!r}")
+            return []
+        if not re.match(r'^[A-Za-z0-9_\-]+$', status):
+            logger.error(f"Invalid status param: {status!r}")
+            return []
         filter_str = f"EWMWarehouse eq '{warehouse}' and WarehouseTaskStatus eq '{status}'"
         params = {"$filter": filter_str, "$top": top, "$skip": skip}
 

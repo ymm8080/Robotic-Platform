@@ -43,15 +43,19 @@ class InventoryService:
         return None
 
     def get_all_stock(self, warehouse: str = "WM01") -> dict[str, float]:
-        """Get all cached inventory for a warehouse."""
+        """Get all cached inventory for a warehouse. Uses SCAN to avoid blocking."""
         pattern = f"inventory:{warehouse}:*"
-        keys = self._redis.keys(pattern)
+        cursor = 0
         result = {}
-        for key in keys:
-            product = key.replace(f"inventory:{warehouse}:", "")
-            val = self._redis.get(key)
-            if val is not None:
-                result[product] = float(val)
+        while True:
+            cursor, keys = self._redis.scan(cursor, match=pattern, count=100)
+            for key in keys:
+                product = key.replace(f"inventory:{warehouse}:", "")
+                val = self._redis.get(key)
+                if val is not None:
+                    result[product] = float(val)
+            if cursor == 0:
+                break
         return result
 
     def update_stock(self, product: str, quantity: float,
@@ -112,12 +116,19 @@ class InventoryService:
         self._redis.set("inventory:last_sync", str(self._last_sync))
 
     def clear_cache(self, warehouse: str = "WM01"):
-        """Clear all cached inventory for a warehouse."""
+        """Clear all cached inventory for a warehouse. Uses SCAN to avoid blocking."""
         pattern = f"inventory:{warehouse}:*"
-        keys = self._redis.keys(pattern)
-        if keys:
-            self._redis.delete(*keys)
-            logger.info(f"Cleared {len(keys)} inventory cache entries for {warehouse}")
+        cursor = 0
+        deleted = 0
+        while True:
+            cursor, keys = self._redis.scan(cursor, match=pattern, count=100)
+            if keys:
+                self._redis.delete(*keys)
+                deleted += len(keys)
+            if cursor == 0:
+                break
+        if deleted:
+            logger.info(f"Cleared {deleted} inventory cache entries for {warehouse}")
 
     def _log_event(self, event: str, product: str, qty: float,
                    order_id: str, warehouse: str):

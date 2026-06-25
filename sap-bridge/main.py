@@ -7,6 +7,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+# Shared Redis connection (avoid per-request from_url)
+import redis as _redis_module
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -26,6 +28,11 @@ from metrics import (
 )
 from mqtt_publisher import get_publisher
 from strategies import get_registry
+
+_redis_client = _redis_module.from_url(
+    os.getenv("REDIS_URL", "redis://redis:6379/1"),
+    decode_responses=True,
+)
 
 # ──────────────────────────────────────────────
 # Logging
@@ -67,13 +74,13 @@ app.add_middleware(MetricsMiddleware)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Log and return server errors for debugging."""
+    """Log full traceback server-side, return generic error to client."""
     import traceback
     tb = traceback.format_exc()
     logger.error(f"Unhandled error on {request.method} {request.url.path}:\n{tb}")
     return JSONResponse(
         status_code=500,
-        content={"error": str(exc), "traceback": tb.split("\n")[-5:] if tb else []},
+        content={"error": "Internal server error"},
     )
 
 
@@ -127,13 +134,11 @@ async def robot_status():
     """Return all connected robots' status from Redis, normalized by brand strategy."""
     import json as json_mod
 
-    import redis
-    r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/1"), decode_responses=True)
-    keys = r.keys("robot:connection:*")
+    keys = _redis_client.keys("robot:connection:*")
     registry = get_registry()
     robots = []
     for key in keys:
-        data = r.hgetall(key)
+        data = _redis_client.hgetall(key)
         robot_id = key.replace("robot:connection:", "")
         brand = data.get("brand", "UNKNOWN")
 
@@ -535,8 +540,6 @@ def _uptime() -> int:
 
 def _check_redis() -> bool:
     try:
-        import redis
-        r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/1"), decode_responses=True)
-        return r.ping()
+        return _redis_client.ping()
     except Exception:
         return False
