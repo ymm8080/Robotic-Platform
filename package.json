@@ -13,7 +13,9 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:codegen": "playwright codegen http://localhost:1880",
     "test:e2e:install": "playwright install --with-deps",
-    "test:e2e:all-browsers": "playwright test --project=nodered-chromium --project=nodered-firefox --project=nodered-webkit"
+    "test:e2e:all-browsers": "playwright test --project=nodered-chromium --project=nodered-firefox --project=nodered-webkit",
+    "test:e2e:direct": "node e2e/api-smoke-direct.js",
+    "test:api": "node e2e/api-smoke-direct.js"
   },
   "dependencies": {
     "docx": "^9.7.1",
@@ -21,7 +23,7 @@
     "vda-5050-lib": "^1.7.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "^1.61.1",
     "dotenv": "^17.4.2"
   }
 }

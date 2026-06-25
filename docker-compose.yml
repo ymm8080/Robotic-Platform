@@ -278,16 +278,19 @@ services:
       - "127.0.0.1:8080:80"
     volumes:
       - ./nginx/rescue-dashboard-offline.html:/usr/share/nginx/html/index.html:ro
+      - ./nginx/sw.js:/usr/share/nginx/html/sw.js:ro
+      - ./nginx/manifest.json:/usr/share/nginx/html/manifest.json:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     environment:
       - TZ=UTC
       - NODE_RED_HOST=nodered
       - NODE_RED_PORT=1880
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 15s
     networks:
       - internal
     deploy:

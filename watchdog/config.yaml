@@ -39,6 +39,14 @@ safe_mode:
   nodered_unhealthy: true
   nodered_cpu_fatal: false  # 默认不触发，避免误杀
 
+# 错误率阈值（滑动窗口 5 分钟）
+error_rate:
+  window_seconds: 300    # 滑动窗口（秒）
+  warning: 3             # 警告阈值 %
+  critical: 5            # 限流阈值 %
+  fatal: 15              # 安全模式阈值 %
+  min_samples: 10        # 最少样本数才判定
+
 # 飞书告警模板（支持变量替换）
 feishu_templates:
   safe_mode: |

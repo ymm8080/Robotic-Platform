@@ -396,6 +396,37 @@ async def trigger_batch(warehouse: str = "WM01"):
     }
 
 
+# ──────────────────────────────────────────────
+# IDoc listener endpoint
+# ──────────────────────────────────────────────
+
+from services.idoc_listener import IdocListener
+
+_idoc_listener = IdocListener()
+
+
+@app.post("/api/v1/idoc")
+async def receive_idoc(request: Request):
+    """Receive SAP IDoc XML push, parse to warehouse tasks, enqueue."""
+    raw = await request.body()
+    xml_str = raw.decode("utf-8", errors="replace")
+    result = _idoc_listener.process(xml_str)
+    status = 202 if result.get("accepted") else 400
+    return JSONResponse(content=result, status_code=status)
+
+
+@app.get("/api/v1/idoc/stats")
+async def idoc_stats():
+    """IDoc processing statistics."""
+    return {"stats": _idoc_listener.get_stats()}
+
+
+@app.get("/api/v1/idoc/recent")
+async def idoc_recent(n: int = 10):
+    """Recent IDoc log entries."""
+    return {"idocs": _idoc_listener.get_recent(n)}
+
+
 @app.get("/api/v1/orders/batch/metrics")
 async def batch_metrics():
     """Batch service metrics."""
