@@ -106,7 +106,12 @@ class TestQueueWorkerLifecycle:
         from dispatch_queue.worker import QueueWorker
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
+            # _tick on empty queue should do nothing and return without error
+            assert worker._queue.depth() == 0
             worker._tick()
+            # After tick, queue should still be empty, no orders dispatched
+            assert worker._queue.depth() == 0
+            assert worker._metrics["dispatched"] == 0
 
 
 class TestQueueWorkerDispatch:

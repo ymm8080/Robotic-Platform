@@ -121,6 +121,7 @@ ${REVIEW}
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT"
           else
-            gh commit comment "${{ github.sha }}" --body "$COMMENT"
+            gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+              --field body="$COMMENT"
           fi
           echo "Review posted successfully"

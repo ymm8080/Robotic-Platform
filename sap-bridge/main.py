@@ -266,6 +266,16 @@ async def list_orders(status: str = "", brand: str = "", limit: int = 50, offset
     return {"orders": [o.to_dict() for o in orders], "count": len(orders)}
 
 
+@app.get("/api/v1/orders/queue")
+async def order_queue_depth():
+    """Return queue depth grouped by priority level."""
+    all_orders = _order_service.list_orders(status=OrderStatus.CREATED, limit=1000)
+    depth = {0: 0, 1: 0, 2: 0, 3: 0}
+    for o in all_orders:
+        depth[o.priority] = depth.get(o.priority, 0) + 1
+    return {"queue": depth, "total": len(all_orders)}
+
+
 @app.get("/api/v1/orders/{order_no}")
 async def get_order(order_no: str):
     """Get order by order number."""
@@ -311,16 +321,6 @@ async def suspend_order(order_no: str, req: UpdateOrderStatusRequest):
     if order is None:
         return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
     return order.to_dict()
-
-
-@app.get("/api/v1/orders/queue")
-async def order_queue_depth():
-    """Return queue depth grouped by priority level."""
-    all_orders = _order_service.list_orders(status=OrderStatus.CREATED, limit=1000)
-    depth = {0: 0, 1: 0, 2: 0, 3: 0}
-    for o in all_orders:
-        depth[o.priority] = depth.get(o.priority, 0) + 1
-    return {"queue": depth, "total": len(all_orders)}
 
 
 # ──────────────────────────────────────────────

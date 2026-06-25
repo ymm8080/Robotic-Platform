@@ -124,11 +124,23 @@ class WarehouseBackendFactory:
 _factory: WarehouseBackendFactory | None = None
 
 
-def get_factory(config_path: str = DEFAULT_CONFIG_PATH) -> WarehouseBackendFactory:
-    """Get the global backend factory singleton."""
+def get_factory(config_path: str | None = None) -> WarehouseBackendFactory:
+    """Get the global backend factory singleton.
+
+    Uses DEFAULT_CONFIG_PATH on first call. Pass config_path to initialize
+    with a custom path; subsequent calls with different paths log a warning
+    and return the existing factory. Use reload() on the factory to pick up
+    config changes without recreating the singleton.
+    """
     global _factory
     if _factory is None:
-        _factory = WarehouseBackendFactory(config_path=config_path)
+        _factory = WarehouseBackendFactory(config_path=config_path or DEFAULT_CONFIG_PATH)
+    elif config_path is not None and config_path != _factory._config_path:
+        logger.warning(
+            f"get_factory() called with config_path={config_path!r} "
+            f"but factory already initialized with {_factory._config_path!r}. "
+            f"Call factory.reload() to reload config."
+        )
     return _factory
 
 

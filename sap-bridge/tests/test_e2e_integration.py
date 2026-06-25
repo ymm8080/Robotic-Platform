@@ -322,6 +322,7 @@ class TestHTTPAPIE2E:
         mock_redis.lpush.return_value = 1
         mock_redis.ltrim.return_value = True
         mock_redis.exists.return_value = 0
+        mock_redis.bzpopmin.return_value = None
 
         mock_pub = MagicMock()
         mock_pub.is_connected = True
@@ -453,10 +454,9 @@ class TestHTTPAPIE2E:
 
     def test_queue_depth_endpoint(self, client):
         resp = client.get("/api/v1/orders/queue")
-        assert resp.status_code in (200, 404)
-        if resp.status_code == 200:
-            data = resp.json()
-            assert "queue" in data
+        assert resp.status_code == 200, f"Expected 200 got {resp.status_code}"
+        data = resp.json()
+        assert "queue" in data
 
     def test_robot_status_endpoint(self, client):
         resp = client.get("/api/v1/robots/status")

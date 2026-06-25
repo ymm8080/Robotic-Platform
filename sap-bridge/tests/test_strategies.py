@@ -25,11 +25,12 @@ class TestBaseStrategy:
         assert strategy.validate_state_transition("ERROR", "IDLE") is True
 
     def test_validate_state_transition_invalid(self):
-        """Invalid state transitions."""
+        """Invalid state transitions — and one valid (ERROR from IDLE is allowed)."""
         strategy = KukaStrategy()
         assert strategy.validate_state_transition("IDLE", "ERROR") is True   # ERROR from IDLE is valid
         assert strategy.validate_state_transition("IDLE", "EXECUTING") is False  # Must go MOVING first
         assert strategy.validate_state_transition("MOVING", "CHARGING") is False
+        assert strategy.validate_state_transition("IDLE", "PAUSED") is False
 
     def test_map_connection_state(self):
         strategy = KukaStrategy()
