@@ -65,12 +65,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           REVIEW=$(cat review_output.md)
-          COMMENT="## 🤖 AI Code Review
-
-${REVIEW}
-
----
-*Powered by DeepSeek API*"
+          { echo "## 🤖 AI Code Review"; echo ""; echo "$REVIEW"; echo ""; echo "---"; echo "*Powered by DeepSeek API*"; } > /tmp/comment_body.md
+          COMMENT=$(cat /tmp/comment_body.md)
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT"
