@@ -9,4 +9,3 @@ if sys.platform == 'win32':
     signal.SIGUSR1 = 10
     signal.SIGUSR2 = 12
 
-import omnigent

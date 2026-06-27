@@ -2,8 +2,9 @@ name: DeepSeek AI Review
 
 on:
   push:
-    branches: [master]
+    branches: ['**']
   pull_request:
+    branches: ['**']
     types: [opened, synchronize]
 
 jobs:
@@ -23,6 +24,7 @@ jobs:
         id: review
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -x  # Debug output
 
@@ -38,6 +40,7 @@ jobs:
             fi
           fi
 
+          echo "Diffing $BASE..$HEAD"
           git diff "$BASE".."$HEAD" > /tmp/pr_diff.txt 2>&1 || git diff HEAD~1 HEAD > /tmp/pr_diff.txt 2>&1
 
           if [ ! -s /tmp/pr_diff.txt ]; then
@@ -53,57 +56,8 @@ jobs:
 
           echo "Diff size: $LINE_COUNT lines"
 
-          python3 << 'PYEOF'
-import json, urllib.request, os, sys
-
-with open('/tmp/pr_diff.txt') as f:
-    diff = f.read()
-
-api_key = os.environ.get('DEEPSEEK_API_KEY', '')
-if not api_key:
-    print("ERROR: DEEPSEEK_API_KEY not set")
-    sys.exit(1)
-
-payload = json.dumps({
-    "model": "deepseek-chat",
-    "messages": [
-        {
-            "role": "system",
-            "content": "You are an expert code reviewer. Analyze the diff and provide concise, actionable review in Chinese. Focus on: 1) bugs 2) security 3) performance 4) style. Be specific with line numbers."
-        },
-        {
-            "role": "user",
-            "content": "Review this diff:\n\n" + diff
-        }
-    ],
-    "max_tokens": 4096,
-    "temperature": 0.3
-}).encode("utf-8")
-
-req = urllib.request.Request(
-    "https://api.deepseek.com/chat/completions",
-    data=payload,
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-)
-try:
-    resp = urllib.request.urlopen(req, timeout=120)
-    result = json.loads(resp.read().decode("utf-8"))
-    review = result["choices"][0]["message"]["content"]
-    with open("review_output.md", "w") as f:
-        f.write(review)
-    print("Review generated successfully")
-except urllib.error.HTTPError as e:
-    print(f"HTTP Error: {e.code} {e.reason}")
-    body = e.read().decode("utf-8")
-    print(f"Response: {body[:500]}")
-    sys.exit(1)
-except Exception as e:
-    print(f"Error: {e}")
-    sys.exit(1)
-PYEOF
+          cp /tmp/pr_diff.txt pr_diff.txt
+          python3 .github/scripts/deepseek-review.py 2>&1
 
       - name: Post review comment
         if: success() && hashFiles('review_output.md') != ''
@@ -111,12 +65,8 @@ PYEOF
           GH_TOKEN: ${{ github.token }}
         run: |
           REVIEW=$(cat review_output.md)
-          COMMENT="## AI Code Review
-
-${REVIEW}
-
----
-*Powered by DeepSeek API*"
+          { echo "## 🤖 AI Code Review"; echo ""; echo "$REVIEW"; echo ""; echo "---"; echo "*Powered by DeepSeek API*"; } > /tmp/comment_body.md
+          COMMENT=$(cat /tmp/comment_body.md)
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT"
