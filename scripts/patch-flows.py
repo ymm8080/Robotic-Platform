@@ -13,7 +13,6 @@ Usage: python scripts/patch-flows.py nodered/flows.json
 import json
 import os
 import sys
-import copy
 
 
 def patch_flows(path):
@@ -103,8 +102,7 @@ def patch_flows(path):
     # 5. Remove hardcoded URL warnings — replace with env var patterns
     for node in nodes:
         if node.get("type") in ("http in",):
-            url = node.get("url", "")
-            # Only flag — we keep them since Node-RED uses routes, not env vars for endpoints
+            # Keep them — Node-RED uses routes, not env vars for endpoints
             pass
 
     # 6. Check inject nodes have correct onceDelay
@@ -117,7 +115,7 @@ def patch_flows(path):
     print(f"\n  Total patches applied: {patches}")
     print(f"  Unprotected function nodes: {len(unprotected_fns)}")
     if unprotected_fns:
-        print(f"  (Protected by global catch node — no action needed)")
+        print("  (Protected by global catch node — no action needed)")
 
     # Write patched flows
     with open(path, 'w', encoding='utf-8') as f:
