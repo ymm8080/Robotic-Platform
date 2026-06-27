@@ -7,7 +7,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, test-deepseek-pr]
     paths-ignore:
       - "**.md"
       - "docs/**"
