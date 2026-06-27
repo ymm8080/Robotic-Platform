@@ -136,7 +136,7 @@ jobs:
           cd sap-bridge
           python -m pytest tests/ \
             --asyncio-mode=auto \
-            --cov=. \
+            --cov=. --cov-config=.coveragerc \
             --cov-report=term-missing \
             --cov-report=xml:../coverage.xml \
             -v
