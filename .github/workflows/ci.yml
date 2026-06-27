@@ -1,19 +1,19 @@
 # =============================================================================
 # SAP-EWM 机器人调度平台 CI/CD 流水线 v3.4
-# 触发：push/PR 到 master + 每日定时扫描
+# 触发：push/PR 全分支 + 每日定时扫描
 # 阶段：lint → adr → test → build → trivy scan → docker build (no push)
 # =============================================================================
 name: CI
 
 on:
   push:
-    branches: [master]
+    branches: ['**']
     paths-ignore:
       - "**.md"
       - "docs/**"
       - ".claude/**"
   pull_request:
-    branches: [master]
+    branches: ['**']
     paths-ignore:
       - "**.md"
       - "docs/**"
