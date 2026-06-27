@@ -1,5 +1,5 @@
 """Coverage gap tests for VDA5050Publisher — lifecycle, callbacks, connect/disconnect, edge cases."""
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 

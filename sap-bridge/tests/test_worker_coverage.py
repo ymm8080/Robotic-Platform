@@ -1,13 +1,14 @@
-"""Coverage gap tests for QueueWorker — targeting unticked lines in _tick, _dispatch error paths, lifecycle edge cases."""
+"""Coverage gap tests for QueueWorker — _tick path, _dispatch error, lifecycle."""
+import contextlib
 import os
-import time
 import sqlite3
 import tempfile
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from models.order import WarehouseOrder, OrderStatus
+from models.order import OrderStatus, WarehouseOrder
 
 
 def _create_tables(db_path):
@@ -122,10 +123,8 @@ class TestWorkerLifecycleEdgeCases:
             worker._running = True
             worker._tick = MagicMock(side_effect=ValueError("boom"))
             # Run a single iteration by calling the inner logic
-            try:
+            with contextlib.suppress(ValueError):
                 worker._tick()
-            except ValueError:
-                pass  # this is what _run_loop's except catches
             # The loop's except block would log and continue
             # Verify worker is still 'running' (loop didn't crash)
             assert worker._running is True
