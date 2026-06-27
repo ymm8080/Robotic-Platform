@@ -7,10 +7,8 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
-from typing import Optional
 
-from models.order import WarehouseOrder, OrderType, OrderStatus, _now
+from models.order import OrderStatus, OrderType, WarehouseOrder
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +90,7 @@ class OrderService:
         finally:
             conn.close()
 
-    def get_order(self, order_no: str) -> Optional[WarehouseOrder]:
+    def get_order(self, order_no: str) -> WarehouseOrder | None:
         """Get order by order number."""
         conn = self._connect()
         try:
@@ -105,7 +103,7 @@ class OrderService:
         finally:
             conn.close()
 
-    def get_order_by_id(self, order_id: int) -> Optional[WarehouseOrder]:
+    def get_order_by_id(self, order_id: int) -> WarehouseOrder | None:
         """Get order by database ID."""
         conn = self._connect()
         try:
@@ -120,8 +118,8 @@ class OrderService:
 
     def list_orders(
         self,
-        status: Optional[OrderStatus] = None,
-        brand: Optional[str] = None,
+        status: OrderStatus | None = None,
+        brand: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[WarehouseOrder]:
@@ -148,7 +146,7 @@ class OrderService:
 
     # ── State transitions ───────────────────────────────
 
-    def assign_order(self, order_no: str, brand: str, serial: str) -> Optional[WarehouseOrder]:
+    def assign_order(self, order_no: str, brand: str, serial: str) -> WarehouseOrder | None:
         """Assign order to a robot. Validates CREATED → ASSIGNED transition."""
         order = self.get_order(order_no)
         if order is None:
@@ -161,7 +159,7 @@ class OrderService:
         self._update(order)
         return order
 
-    def start_execution(self, order_no: str) -> Optional[WarehouseOrder]:
+    def start_execution(self, order_no: str) -> WarehouseOrder | None:
         """Mark order as in progress. ASSIGNED → IN_PROGRESS."""
         order = self.get_order(order_no)
         if order is None or order.status != OrderStatus.ASSIGNED:
@@ -170,7 +168,7 @@ class OrderService:
         self._update(order)
         return order
 
-    def complete_order(self, order_no: str) -> Optional[WarehouseOrder]:
+    def complete_order(self, order_no: str) -> WarehouseOrder | None:
         """Complete order successfully. IN_PROGRESS → COMPLETED."""
         order = self.get_order(order_no)
         if order is None:
@@ -182,7 +180,7 @@ class OrderService:
         self._update(order)
         return order
 
-    def fail_order(self, order_no: str, error: str) -> Optional[WarehouseOrder]:
+    def fail_order(self, order_no: str, error: str) -> WarehouseOrder | None:
         """Mark order as failed. IN_PROGRESS/ASSIGNED → FAILED."""
         order = self.get_order(order_no)
         if order is None:
@@ -191,7 +189,7 @@ class OrderService:
         self._update(order)
         return order
 
-    def cancel_order(self, order_no: str) -> Optional[WarehouseOrder]:
+    def cancel_order(self, order_no: str) -> WarehouseOrder | None:
         """Cancel order. CREATED/ASSIGNED → CANCELLED."""
         order = self.get_order(order_no)
         if order is None:
@@ -203,7 +201,7 @@ class OrderService:
         self._update(order)
         return order
 
-    def suspend_order(self, order_no: str, reason: str) -> Optional[WarehouseOrder]:
+    def suspend_order(self, order_no: str, reason: str) -> WarehouseOrder | None:
         """Suspend order for human intervention. IN_PROGRESS → SUSPENDED."""
         order = self.get_order(order_no)
         if order is None:
@@ -215,11 +213,11 @@ class OrderService:
     # ── Helpers ─────────────────────────────────────────
 
     def _update(self, order: WarehouseOrder):
-        """Persist order state changes."""
+        """Persist order state changes. Raises on version conflict."""
         conn = self._connect()
         try:
             order.version += 1
-            conn.execute(
+            cur = conn.execute(
                 """UPDATE orders_v2 SET
                    status=?, robot_brand=?, robot_serial=?, payload=?,
                    zone_id=?, location=?, weight=?, expected_qty=?,
@@ -237,6 +235,14 @@ class OrderService:
                 ),
             )
             conn.commit()
+            if cur.rowcount == 0:
+                logger.error(
+                    f"Optimistic lock failed for {order.order_no} — "
+                    f"concurrent modification detected"
+                )
+                raise RuntimeError(
+                    f"Order {order.order_no} was modified concurrently"
+                )
             logger.info(f"Order updated: {order.order_no} → {order.status.value} (v{order.version})")
         finally:
             conn.close()

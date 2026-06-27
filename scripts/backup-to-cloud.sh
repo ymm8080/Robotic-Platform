@@ -26,7 +26,7 @@ FLOWS_FILE="${FLOWS_FILE:-/data/flows.json}"
 NAMESPACE="${NAMESPACE:-robot-platform}"
 TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
 RETENTION_DAYS=${RETENTION_DAYS:-30}
-LOG_FILE="${LOG_FILE:-/var/log/backup.log}
+LOG_FILE="${LOG_FILE:-/var/log/backup.log}"
 
 # OSS (阿里云) — primary
 OSS_ENDPOINT="${OSS_ENDPOINT:-oss-cn-hangzhou.aliyuncs.com}"

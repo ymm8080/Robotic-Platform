@@ -12,6 +12,7 @@ import time
 import json
 import signal
 import logging
+import logging.handlers
 import hashlib
 import base64
 import hmac
@@ -80,6 +81,24 @@ DEFAULT_CONFIG = {
         'hourly_limit': 100,
         'block_duration': 3600,      # 超限后阻止调用时长（秒）
         'warning_threshold': 0.85,    # 达到 85% 预警
+    },
+    'error_rate': {
+        'window_seconds': 300,
+        'warning': 3,
+        'critical': 5,
+        'fatal': 15,
+        'min_samples': 10,
+        'feishu_template': (
+            "🔴 错误率超阈值\n"
+            "当前：{error_rate:.1f}%（{errors}/{total}）\n"
+            "阈值：警告 {warning}% / 限流 {critical}% / 熔断 {fatal}%\n"
+            "窗口：{window_seconds}s\n\n"
+            "检查：\n"
+            "1. `docker logs robot-platform-sap-bridge --tail 50`\n"
+            "2. `curl http://localhost:8000/health`\n"
+            "3. `docker logs robot-platform-nodered --tail 30`\n"
+            "⏳ {minutes}分钟内不恢复将自动限流"
+        ),
     },
     'feishu_templates': {
         'safe_mode': (
@@ -193,14 +212,14 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] [%(name)s] %(message)s',
     handlers=[
-        logging.FileHandler('/app/logs/watchdog.log', maxBytes=10*1024*1024, backupCount=5),
+        logging.handlers.RotatingFileHandler('/app/logs/watchdog.log', maxBytes=10*1024*1024, backupCount=5),
         logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger('watchdog')
 
 # PID 文件
-PID_FILE = '/app/.watchdog.pid'
+PID_FILE = '/app/logs/.watchdog.pid'
 _start_time = time.time()
 
 # ==========================================
@@ -226,6 +245,9 @@ class HealthSnapshot:
     safe_mode: bool
     throttle_active: bool
     throttle_rate: int
+    error_rate_percent: float  # 新增：错误率
+    error_count: int           # 新增：错误数
+    total_count: int           # 新增：总请求数
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -723,6 +745,55 @@ class MetricsCollector:
             return 0.0
 
     @staticmethod
+    def check_error_rate() -> Dict[str, Any]:
+        """从 Redis 滑动窗口计算错误率"""
+        result = {
+            'error_rate_percent': 0.0,
+            'error_count': 0,
+            'total_count': 0,
+            'error': None
+        }
+        cfg = CONFIG.get('error_rate', {})
+        window = cfg.get('window_seconds', 300)
+        min_samples = cfg.get('min_samples', 10)
+        cutoff = int(time.time()) - window
+
+        try:
+            totals = redis_client.lrange('watchdog:api_total_ts', 0, -1) or []
+            errors = redis_client.lrange('watchdog:api_error_ts', 0, -1) or []
+
+            total_ts = [int(t) for t in totals if t and t.isdigit()]
+            error_ts = [int(e) for e in errors if e and e.isdigit()]
+
+            total_ts = [t for t in total_ts if t >= cutoff]
+            error_ts = [e for e in error_ts if e >= cutoff]
+
+            total_count = len(total_ts)
+            error_count = len(error_ts)
+
+            result['total_count'] = total_count
+            result['error_count'] = error_count
+
+            if total_count >= min_samples:
+                result['error_rate_percent'] = round((error_count / max(total_count, 1)) * 100, 2)
+
+        except Exception as e:
+            result['error'] = str(e)
+
+        return result
+
+    @staticmethod
+    def record_api_call(success: bool):
+        """记录一次 API 调用结果到滑动窗口"""
+        now = int(time.time())
+        try:
+            redis_client.lpush('watchdog:api_total_ts', str(now), max_len=3000)
+            if not success:
+                redis_client.lpush('watchdog:api_error_ts', str(now), max_len=3000)
+        except Exception:
+            pass
+
+    @staticmethod
     def get_container_health_status(container_name: str) -> str:
         """获取 Docker healthcheck 状态"""
         try:
@@ -990,7 +1061,10 @@ class WatchdogEngine:
         redis_metrics = MetricsCollector.get_redis_metrics()
         wal_size_mb = MetricsCollector.get_sqlite_wal_size()
 
-        # 2. 构建快照
+        # 2. 采集错误率
+        error_rate = MetricsCollector.check_error_rate()
+
+        # 3. 构建快照
         snapshot = HealthSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat(),
             cpu_percent=nodered_stats.get('cpu_percent', 0),
@@ -1009,7 +1083,10 @@ class WatchdogEngine:
             mqtt_status=MetricsCollector.get_container_health_status(MQTT_CONTAINER),
             safe_mode=self.safe_mode_active,
             throttle_active=self.throttle_active,
-            throttle_rate=self.throttle_rate
+            throttle_rate=self.throttle_rate,
+            error_rate_percent=error_rate.get('error_rate_percent', 0.0),
+            error_count=error_rate.get('error_count', 0),
+            total_count=error_rate.get('total_count', 0)
         )
 
         self.last_snapshot = snapshot
@@ -1032,7 +1109,43 @@ class WatchdogEngine:
         elif clock_drift['status'] == 'warning':
             logger.warning(f"🟡 NTP 时钟漂移警告: {clock_drift['drift_seconds']}s")
 
-        # 3. 日志输出（结构化）
+        # 4. 错误率检查（滑动窗口 5 分钟）
+        err_cfg = CONFIG.get('error_rate', {})
+        err_min_samples = err_cfg.get('min_samples', 10)
+        err_rate = snapshot.error_rate_percent
+        err_total = snapshot.total_count
+
+        if err_total >= err_min_samples and err_rate > 0:
+            logger.info(
+                f"📊 错误率: {err_rate:.1f}% ({snapshot.error_count}/{err_total}) "
+                f"阈值: w{err_cfg.get('warning',3)}% c{err_cfg.get('critical',5)}% f{err_cfg.get('fatal',15)}%"
+            )
+
+            # 致命：错误率 > fatal% → 安全模式
+            if err_rate > err_cfg.get('fatal', 15):
+                self.enter_safe_mode(f'ERROR_RATE_FATAL_{int(err_rate)}%', snapshot)
+                alerter.send(
+                    title="错误率致命 - 安全模式",
+                    content=err_cfg.get('feishu_template', ''),
+                    level="fatal", template_key='safe_mode',
+                    error_rate=err_rate, errors=snapshot.error_count, total=err_total,
+                    warning=err_cfg.get('warning', 3), critical=err_cfg.get('critical', 5),
+                    fatal=err_cfg.get('fatal', 15), window_seconds=err_cfg.get('window_seconds', 300),
+                    minutes=err_cfg.get('window_seconds', 300) // 60,
+                )
+                return
+
+            # 临界：错误率 > critical% → 限流（与 CPU/内存限流合并）
+            if err_rate > err_cfg.get('critical', 5):
+                if not self.safe_mode_active:
+                    rate = max(CONFIG['throttle']['min_rate'],
+                               int(self._get_normal_rate() * CONFIG['throttle']['reduction_ratio']))
+                    if not self.throttle_active:
+                        self.enter_throttle(rate, snapshot, severity='error_rate')
+                    logger.warning(f"🟡 错误率超限 {err_rate:.1f}% > {err_cfg.get('critical',5)}%，已限流 {rate} 单/秒")
+                return
+
+        # 5. 日志输出（结构化）
         logger.info(
             f"📊 巡检: CPU={snapshot.cpu_percent:.1f}% Mem={snapshot.memory_percent:.1f}% "
             f"Checkpoint={snapshot.checkpoint_ms}ms WAL={snapshot.wal_size_mb:.1f}MB "
@@ -1239,6 +1352,14 @@ class WatchdogHTTPHandler(BaseHTTPRequestHandler):
             "# TYPE watchdog_mqtt_status gauge",
             f"watchdog_mqtt_status {1 if snapshot.mqtt_status == 'healthy' else 0} {ts}",
             "",
+            "# HELP watchdog_error_rate_percent API error rate in sliding window",
+            "# TYPE watchdog_error_rate_percent gauge",
+            f"watchdog_error_rate_percent {snapshot.error_rate_percent} {ts}",
+            "",
+            "# HELP watchdog_error_count API error count in sliding window",
+            "# TYPE watchdog_error_count gauge",
+            f"watchdog_error_count {snapshot.error_count} {ts}",
+            "",
             "# HELP watchdog_uptime_seconds Watchdog process uptime",
             "# TYPE watchdog_uptime_seconds counter",
             f"watchdog_uptime_seconds {int(time.time() - _start_time)} {ts}",
@@ -1290,6 +1411,7 @@ def main():
     logger.info(f"   限流下限: {CONFIG['throttle']['min_rate']} 单/秒")
     logger.info(f"   飞书告警: {'已配置' if FEISHU_WEBHOOK_URL else '未配置'}")
     logger.info(f"   LLM 日限: {CONFIG['llm']['daily_limit']} 次, 时限: {CONFIG['llm']['hourly_limit']} 次")
+    logger.info(f"   错误率阈值: 警告 {CONFIG['error_rate']['warning']}% / 限流 {CONFIG['error_rate']['critical']}% / 熔断 {CONFIG['error_rate']['fatal']}%")
     logger.info("=" * 70)
 
     # 写入 PID 文件

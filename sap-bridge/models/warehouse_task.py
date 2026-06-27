@@ -1,7 +1,6 @@
 """Canonical warehouse task model — normalized for both SAP EWM and Classic WM."""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -18,29 +17,29 @@ class WarehouseTask:
     external_id: str                      # WT number (EWM) or TO number (WM)
     item_no: str = "0001"                 # Item number within the task/order
     task_type: str = "MOVE"               # PICK | PUT | MOVE | CHARGE (normalized)
-    source_bin: Optional[str] = None
-    dest_bin: Optional[str] = None
-    product: Optional[str] = None
-    batch: Optional[str] = None
+    source_bin: str | None = None
+    dest_bin: str | None = None
+    product: str | None = None
+    batch: str | None = None
     target_qty: float = 0.0
     actual_qty: float = 0.0
     uom: str = "EA"
     status: str = "0"                     # 0=Open, 1=InProcess, 2=Confirmed, 3=Cancelled
 
     # ── EWM-specific ──
-    warehouse_order: Optional[str] = None  # Warehouse Order number
-    process_type: Optional[str] = None     # e.g. "PICK", "PUT", "STO"
+    warehouse_order: str | None = None  # Warehouse Order number
+    process_type: str | None = None     # e.g. "PICK", "PUT", "STO"
     is_hu_task: bool = False
-    source_hu: Optional[str] = None
-    dest_hu: Optional[str] = None
+    source_hu: str | None = None
+    dest_hu: str | None = None
 
     # ── WM-specific ──
-    to_number: Optional[str] = None        # WM Transfer Order number (same as external_id)
-    movement_type: Optional[str] = None    # BWLVS movement type
-    transfer_type: Optional[str] = None    # E=putaway, A=removal, U=transfer
-    storage_unit: Optional[str] = None     # Storage Unit number
-    plant: Optional[str] = None
-    storage_location: Optional[str] = None
+    to_number: str | None = None        # WM Transfer Order number (same as external_id)
+    movement_type: str | None = None    # BWLVS movement type
+    transfer_type: str | None = None    # E=putaway, A=removal, U=transfer
+    storage_unit: str | None = None     # Storage Unit number
+    plant: str | None = None
+    storage_location: str | None = None
 
     # ── Raw payload for debugging ──
     raw: dict = field(default_factory=dict)

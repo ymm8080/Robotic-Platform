@@ -1,10 +1,12 @@
 """Tests for priority queue, deadletter handler, and worker."""
 import json
 import time
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
-from dispatch_queue.priority_queue import PriorityQueue
+
 from dispatch_queue.deadletter import DeadLetterHandler
+from dispatch_queue.priority_queue import PriorityQueue
 
 
 def _make_mock_redis():
@@ -211,7 +213,6 @@ class TestPriorityQueue:
 
     def test_recover_stale_recent(self, q):
         """Recent processing items should not be reclaimed."""
-        import json, time
         from dispatch_queue.priority_queue import PROCESSING_KEY
         item = json.dumps({"order_no": "FRESH", "popped_at": time.time(), "score": 0})
         q._redis.hset(PROCESSING_KEY, "FRESH", item)
@@ -222,7 +223,6 @@ class TestPriorityQueue:
 
     def test_dequeue_adds_to_processing_set(self, q):
         """Dequeue should add item to processing set for crash recovery."""
-        import json
         q.enqueue("PROC-001", priority=0)
         item = q.dequeue(timeout_ms=1000)
         assert item is not None
@@ -235,6 +235,19 @@ class TestPriorityQueue:
         """Empty queue returns all zeros for depth_by_priority."""
         depths = q.depth_by_priority()
         assert depths == {0: 0, 1: 0, 2: 0, 3: 0}
+
+    def test_depth_by_priority_with_items(self, q):
+        """depth_by_priority should correctly count items at each priority level."""
+        q.enqueue("CRITICAL", priority=0, payload={"orderId": "C1"})
+        q.enqueue("HIGH", priority=1, payload={"orderId": "H1"})
+        q.enqueue("HIGH-2", priority=1, payload={"orderId": "H2"})
+        q.enqueue("NORMAL", priority=2, payload={"orderId": "N1"})
+        q.enqueue("LOW", priority=3, payload={"orderId": "L1"})
+        depths = q.depth_by_priority()
+        assert depths[0] == 1, "Should have 1 critical item"
+        assert depths[1] == 2, "Should have 2 high-priority items"
+        assert depths[2] == 1, "Should have 1 normal item"
+        assert depths[3] == 1, "Should have 1 low-priority item"
 
     def test_queue_clear_removes_processing(self, q):
         """Clear should remove both queue and processing set."""
@@ -249,38 +262,32 @@ class TestPriorityQueue:
 class TestPriorityQueueEdgeCases:
     """Additional edge cases for the priority queue."""
 
-    def test_enqueue_priority_clamped_high(self):
+    @pytest.fixture
+    def q(self):
+        from dispatch_queue.priority_queue import PriorityQueue
+        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+            mock_ru.return_value = _make_mock_redis()
+            yield PriorityQueue()
+
+    def test_enqueue_priority_clamped_high(self, q):
         """Priority > 3 should be clamped to 3."""
-        from dispatch_queue.priority_queue import PriorityQueue
-        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
-            mock_ru.return_value = _make_mock_redis()
-            q = PriorityQueue()
-            q.enqueue("HIGH", priority=999)
-            q.enqueue("LOW", priority=-1)
-            assert q.depth() == 2
+        q.enqueue("HIGH", priority=999)
+        q.enqueue("LOW", priority=-1)
+        assert q.depth() == 2
 
-    def test_peek_empty_returns_empty_list(self):
-        from dispatch_queue.priority_queue import PriorityQueue
-        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
-            mock_ru.return_value = _make_mock_redis()
-            q = PriorityQueue()
-            assert q.peek(10) == []
+    def test_peek_empty_returns_empty_list(self, q):
+        assert q.peek(10) == []
 
-    def test_multiple_priority_levels_order(self):
+    def test_multiple_priority_levels_order(self, q):
         """Multiple items at same priority preserve insertion order."""
-        from dispatch_queue.priority_queue import PriorityQueue
-        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
-            mock_ru.return_value = _make_mock_redis()
-            q = PriorityQueue()
-            import time
-            q.enqueue("A", priority=1, payload={"seq": 1})
-            time.sleep(0.005)
-            q.enqueue("B", priority=1, payload={"seq": 2})
-            time.sleep(0.005)
-            q.enqueue("C", priority=1, payload={"seq": 3})
-            assert q.dequeue(timeout_ms=1000)["order_no"] == "A"
-            assert q.dequeue(timeout_ms=1000)["order_no"] == "B"
-            assert q.dequeue(timeout_ms=1000)["order_no"] == "C"
+        q.enqueue("A", priority=1, payload={"seq": 1})
+        time.sleep(0.005)
+        q.enqueue("B", priority=1, payload={"seq": 2})
+        time.sleep(0.005)
+        q.enqueue("C", priority=1, payload={"seq": 3})
+        assert q.dequeue(timeout_ms=1000)["order_no"] == "A"
+        assert q.dequeue(timeout_ms=1000)["order_no"] == "B"
+        assert q.dequeue(timeout_ms=1000)["order_no"] == "C"
 
 
 class TestDeadLetterHandler:

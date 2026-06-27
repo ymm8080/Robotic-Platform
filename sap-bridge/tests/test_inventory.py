@@ -1,6 +1,7 @@
 """Tests for Inventory Service — SAP stock cache with Redis."""
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestInventoryService:
@@ -29,22 +30,22 @@ class TestInventoryService:
         assert qty == 0
 
     def test_get_all_stock(self, svc):
-        svc._redis.keys.return_value = [
+        svc._redis.scan.return_value = (0, [
             "inventory:WM01:PROD-A",
             "inventory:WM01:PROD-B",
-        ]
+        ])
         svc._redis.get.side_effect = ["100", "200"]
         items = svc.get_all_stock("WM01")
         assert items["PROD-A"] == 100
         assert items["PROD-B"] == 200
 
     def test_get_all_stock_empty_warehouse(self, svc):
-        svc._redis.keys.return_value = []
+        svc._redis.scan.return_value = (0, [])
         items = svc.get_all_stock("WM01")
         assert items == {}
 
     def test_clear_cache(self, svc):
-        svc._redis.keys.return_value = ["inventory:WM01:A", "inventory:WM01:B"]
+        svc._redis.scan.return_value = (0, ["inventory:WM01:A", "inventory:WM01:B"])
         svc._redis.delete.return_value = 2
         svc.clear_cache("WM01")
         assert svc._redis.delete.called

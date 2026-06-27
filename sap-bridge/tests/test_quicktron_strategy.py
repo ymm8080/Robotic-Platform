@@ -1,5 +1,6 @@
 """Tests for Quicktron robot strategy — VDA5050 + proprietary fallback."""
 import pytest
+
 from strategies.quicktron import QuicktronStrategy
 
 

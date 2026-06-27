@@ -15,7 +15,8 @@ Metrics:
   sap_bridge_uptime_seconds          — Process uptime (counter)
 """
 import time
-from prometheus_client import Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
+
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -87,9 +88,12 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         # Skip metrics endpoint itself to avoid infinite recursion
         if request.url.path != "/metrics":
+            # Normalize path to route template to prevent unbounded cardinality
+            path = request.scope.get("route", None)
+            route_path = getattr(path, "path", request.url.path) if path else request.url.path
             http_requests.labels(
                 method=request.method,
-                path=request.url.path,
+                path=route_path,
                 status=response.status_code,
             ).inc()
         return response

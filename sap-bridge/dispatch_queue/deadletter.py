@@ -6,8 +6,8 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class DeadLetterHandler:
         order_no: str,
         error_type: str,
         error_message: str,
-        payload: Optional[Any] = None,
+        payload: Any | None = None,
         retry_count: int = 0,
     ) -> int:
         """Move an order to the dead letter queue. Returns deadletter ID."""
@@ -94,7 +94,7 @@ class DeadLetterHandler:
         finally:
             conn.close()
 
-    def retry(self, dl_id: int) -> Optional[dict]:
+    def retry(self, dl_id: int) -> dict | None:
         """Retrieve a deadletter item for retry. Returns payload or None."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -123,4 +123,4 @@ class DeadLetterHandler:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

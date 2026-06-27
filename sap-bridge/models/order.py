@@ -1,18 +1,17 @@
 """Order data models for the robot dispatch platform."""
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Optional
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
 
 
-class OrderType(str, Enum):
+class OrderType(StrEnum):
     PICK = "PICK"
     PUT = "PUT"
     MOVE = "MOVE"
     CHARGE = "CHARGE"
 
 
-class OrderStatus(str, Enum):
+class OrderStatus(StrEnum):
     CREATED = "CREATED"
     ASSIGNED = "ASSIGNED"
     IN_PROGRESS = "IN_PROGRESS"
@@ -36,23 +35,23 @@ class WarehouseOrder:
     order_no: str
     type: OrderType = OrderType.MOVE
     priority: OrderPriority = 3
-    source: Optional[str] = None          # SAP warehouse task ID
-    robot_brand: Optional[str] = None
-    robot_serial: Optional[str] = None
+    source: str | None = None          # SAP warehouse task ID
+    robot_brand: str | None = None
+    robot_serial: str | None = None
     status: OrderStatus = OrderStatus.CREATED
-    payload: Optional[dict] = None        # VDA5050 order payload
-    zone_id: Optional[str] = None
-    location: Optional[str] = None
-    weight: Optional[float] = None
+    payload: dict | None = None        # VDA5050 order payload
+    zone_id: str | None = None
+    location: str | None = None
+    weight: float | None = None
     env_tag: str = "PROD"
-    expected_qty: Optional[int] = None
-    assigned_rule_id: Optional[int] = None
-    error_message: Optional[str] = None
-    id: Optional[int] = None
+    expected_qty: int | None = None
+    assigned_rule_id: int | None = None
+    error_message: str | None = None
+    id: int | None = None
     version: int = 1
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -122,4 +121,4 @@ class WarehouseOrder:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

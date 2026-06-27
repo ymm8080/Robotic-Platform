@@ -9,8 +9,7 @@ Provides VDA5050-compliant MQTT publishing with:
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 import redis
@@ -53,7 +52,7 @@ class VDA5050Publisher:
         # Last Will & Testament
         self.client.will_set(
             topic=f"vda5050/{MQTT_CLIENT_ID}/connection",
-            payload=json.dumps({"state": "DISCONNECTED", "timestamp": self._iso_now()}),
+            payload=json.dumps({"connectionState": "CONNECTIONBROKEN", "timestamp": self._iso_now()}),
             qos=1,
             retain=True,
         )
@@ -75,7 +74,7 @@ class VDA5050Publisher:
         payload: dict,
         qos: int = 1,
         retain: bool = False,
-    ) -> Optional[int]:
+    ) -> int | None:
         """
         Publish a VDA5050 message with auto-incrementing sequence number.
 
@@ -128,7 +127,7 @@ class VDA5050Publisher:
             # Announce self as connected
             self.publish(
                 "SYSTEM", "sap-bridge", "connection",
-                {"state": "ONLINE"}, retain=True
+                {"connectionState": "ONLINE"}, retain=True
             )
         else:
             self._connected = False
@@ -146,11 +145,11 @@ class VDA5050Publisher:
 
     @staticmethod
     def _iso_now() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
 
 # ── Singleton ──────────────────────────────────
-_publisher: Optional[VDA5050Publisher] = None
+_publisher: VDA5050Publisher | None = None
 
 
 def get_publisher() -> VDA5050Publisher:

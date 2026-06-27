@@ -301,7 +301,6 @@ foreach ($td in $topDirs) {
         ".qoder" { $desc = "Qoder AI 技能缓存" }
         ".vscode" { $desc = "VS Code 工作区配置" }
         "fluent-bit" { $desc = "Fluent Bit 日志采集" }
-        "gsd-tool" { $desc = "Get Shit Done CLI 工具" }
         "sap-ewm-mcp-servers" { $desc = "SAP EWM MCP 服务定义（子模块）" }
         "prompts" { $desc = "提示词模板" }
         "templates" { $desc = "文件模板" }

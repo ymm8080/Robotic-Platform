@@ -6,8 +6,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 import redis
@@ -78,31 +77,54 @@ class HeartbeatMonitor:
             logger.warning(f"Invalid JSON from {msg.topic}")
             return
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         if topic_type == "connection":
-            state = payload.get("state", "UNKNOWN")
+            state = payload.get("connectionState", payload.get("state", "UNKNOWN"))
             self.redis_client.hset(redis_key, mapping={
                 "state": state,
                 "lastSeen": now,
                 "manufacturer": manufacturer,
                 "serialNumber": serial_number,
+                "connectionState": state,
             })
             self.redis_client.expire(redis_key, ROBOT_TTL)
             logger.info(f"Robot {robot_id} connection: {state}")
 
         elif topic_type == "state":
-            state = payload.get("orderState", payload.get("drivingState", "UNKNOWN"))
+            # VDA5050 state: derive vehicle state from driving+paused+errors+operatingMode
+            driving = payload.get("driving", False)
+            paused = payload.get("paused", False)
+            errors = payload.get("errors", [])
+            operating_mode = payload.get("operatingMode", "AUTOMATIC")
+            charging = payload.get("batteryState", {}).get("batteryCharge", 0) if payload.get("batteryState") else None
+
+            if any(e.get("errorLevel") == "FATAL" for e in errors if isinstance(e, dict)):
+                vehicle_state = "ERROR"
+            elif operating_mode not in ("AUTOMATIC", "SEMIAUTOMATIC"):
+                vehicle_state = "UNAVAILABLE"
+            elif charging is not None and charging > 0 and not driving and not paused:
+                vehicle_state = "CHARGING"
+            elif driving:
+                vehicle_state = "MOVING"
+            elif paused:
+                vehicle_state = "PAUSED"
+            else:
+                vehicle_state = "IDLE"
+
             battery = payload.get("batteryState", {}).get("batteryCharge", "")
-            position = payload.get("position", {})
+            position = payload.get("agvPosition", payload.get("position", {}))
 
             self.redis_client.hset(redis_key, mapping={
-                "state": state,
+                "state": vehicle_state,
                 "lastSeen": now,
-                "battery": str(battery) if battery else "",
+                "battery": str(battery) if battery != "" else "",
                 "position_x": str(position.get("x", "")),
                 "position_y": str(position.get("y", "")),
                 "manufacturer": manufacturer,
                 "serialNumber": serial_number,
+                "driving": str(driving).lower(),
+                "paused": str(paused).lower(),
+                "operatingMode": operating_mode,
             })
             self.redis_client.expire(redis_key, ROBOT_TTL)

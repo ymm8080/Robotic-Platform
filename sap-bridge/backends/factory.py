@@ -8,7 +8,6 @@ Usage:
 
 import logging
 import os
-from typing import Optional
 
 import yaml
 
@@ -59,7 +58,7 @@ class WarehouseBackendFactory:
             logger.error(f"Failed to load config: {e}")
             self._config = {}
 
-    def get_backend(self, warehouse_id: str) -> Optional[WarehouseBackend]:
+    def get_backend(self, warehouse_id: str) -> WarehouseBackend | None:
         """Get (or create) backend for a warehouse.
 
         Caches backend instances per warehouse — the same warehouse always
@@ -98,7 +97,7 @@ class WarehouseBackendFactory:
         warehouses = self._config.get("sap", {}).get("warehouses", {})
         return list(warehouses.keys())
 
-    def get_warehouse_config(self, warehouse_id: str) -> Optional[dict]:
+    def get_warehouse_config(self, warehouse_id: str) -> dict | None:
         """Get raw config dict for a warehouse."""
         warehouses = self._config.get("sap", {}).get("warehouses", {})
         return warehouses.get(warehouse_id)
@@ -122,17 +121,29 @@ class WarehouseBackendFactory:
 
 # ── Module-level singleton ─────────────────────────────────
 
-_factory: Optional[WarehouseBackendFactory] = None
+_factory: WarehouseBackendFactory | None = None
 
 
-def get_factory(config_path: str = DEFAULT_CONFIG_PATH) -> WarehouseBackendFactory:
-    """Get the global backend factory singleton."""
+def get_factory(config_path: str | None = None) -> WarehouseBackendFactory:
+    """Get the global backend factory singleton.
+
+    Uses DEFAULT_CONFIG_PATH on first call. Pass config_path to initialize
+    with a custom path; subsequent calls with different paths log a warning
+    and return the existing factory. Use reload() on the factory to pick up
+    config changes without recreating the singleton.
+    """
     global _factory
     if _factory is None:
-        _factory = WarehouseBackendFactory(config_path=config_path)
+        _factory = WarehouseBackendFactory(config_path=config_path or DEFAULT_CONFIG_PATH)
+    elif config_path is not None and config_path != _factory._config_path:
+        logger.warning(
+            f"get_factory() called with config_path={config_path!r} "
+            f"but factory already initialized with {_factory._config_path!r}. "
+            f"Call factory.reload() to reload config."
+        )
     return _factory
 
 
-def get_backend_for(warehouse_id: str) -> Optional[WarehouseBackend]:
+def get_backend_for(warehouse_id: str) -> WarehouseBackend | None:
     """Convenience: get backend for a warehouse from the singleton factory."""
     return get_factory().get_backend(warehouse_id)

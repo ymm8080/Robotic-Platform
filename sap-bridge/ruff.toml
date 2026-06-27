@@ -1,0 +1,11 @@
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["F", "E", "W", "I", "UP", "SIM"]
+ignore = [
+    "E402",  # Module-level import not at top — intentional for lazy-loaded endpoints
+    "SIM108",  # Ternary-over-if; both branches same value is intentional readability
+    "SIM115",  # File open without context manager; some patterns need it
+    "SIM117",  # Allow multiple with statements (more readable in some cases)
+]

@@ -1,5 +1,6 @@
 """Service module exports."""
-from .order_service import OrderService
+from .idoc_listener import IdocListener
 from .inventory_service import InventoryService
+from .order_service import OrderService
 
-__all__ = ["OrderService", "InventoryService"]
+__all__ = ["OrderService", "InventoryService", "IdocListener"]

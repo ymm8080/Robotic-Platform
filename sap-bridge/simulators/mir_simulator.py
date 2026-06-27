@@ -5,6 +5,7 @@ VDA5050 v1.1.0 — simulates known quirks:
 - WAITING state before IDLE after job complete
 """
 import random
+
 from .base_simulator import BaseRobotSimulator
 
 

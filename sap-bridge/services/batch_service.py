@@ -3,18 +3,16 @@ Batch order submission service.
 Collects pending warehouse tasks from SAP (EWM or WM) and submits as VDA5050 orders.
 Uses the WarehouseBackend factory — backend type is selected per warehouse from config.
 """
-import json
 import logging
 import os
 import time
-from typing import Optional
 
-from backends.factory import get_backend_for, get_factory
-from backends.base import WarehouseBackend
-from models.warehouse_task import WarehouseTask
-from .order_service import OrderService
+from backends.factory import get_backend_for
 from dispatch_queue import PriorityQueue
-from models.order import WarehouseOrder, OrderType, OrderStatus
+from models.order import OrderType, WarehouseOrder
+from models.warehouse_task import WarehouseTask
+
+from .order_service import OrderService
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +118,7 @@ class BatchService:
 
     # ── Helpers ────────────────────────────────────────
 
-    def _task_to_order(self, task: WarehouseTask, warehouse: str) -> Optional[WarehouseOrder]:
+    def _task_to_order(self, task: WarehouseTask, warehouse: str) -> WarehouseOrder | None:
         """Map an SAP warehouse task to a VDA5050 WarehouseOrder."""
         if not task or not task.external_id:
             return None

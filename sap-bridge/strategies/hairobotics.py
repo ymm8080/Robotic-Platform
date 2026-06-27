@@ -14,10 +14,8 @@ References:
   REFERENCE/05_reference/robots/hairobotics-strategy.md
 """
 
-from typing import Optional
 
-from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
-
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
 
 # HAIQ status → normalized status mapping
 HAIQ_STATUS_MAP = {

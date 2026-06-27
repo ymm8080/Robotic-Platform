@@ -10,16 +10,16 @@ References:
   REFERENCE/05_reference/sap/error-code-matrix.md
 """
 
-import json
 import logging
 import os
+import re
 import time
-from typing import Any, Optional
 
 import httpx
 import redis as rd
 
 from models.warehouse_task import WarehouseTask
+
 from .base import WarehouseBackend
 
 logger = logging.getLogger(__name__)
@@ -56,10 +56,11 @@ def _read_password(password_file: str) -> str:
 class CsrfTokenManager:
     """Manages SAP OData CSRF tokens with Redis caching."""
 
-    def __init__(self, redis_client: rd.Redis):
+    def __init__(self, redis_client: rd.Redis, auth: tuple[str, str] | None = None):
         self._redis = redis_client
+        self._auth = auth
 
-    def get_token(self) -> Optional[tuple[str, str]]:
+    def get_token(self) -> tuple[str, str] | None:
         token = self._redis.get("sap:csrf_token")
         cookies = self._redis.get("sap:csrf_cookies")
         if token and cookies:
@@ -93,7 +94,7 @@ class CsrfTokenManager:
 class EwmBackend(WarehouseBackend):
     """SAP EWM OData warehouse task operations."""
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: dict | None = None):
         self._cfg = config or {}
         self._base_url = self._cfg.get("base_url", DEFAULT_BASE_URL)
         self._client = self._cfg.get("client", DEFAULT_CLIENT)
@@ -107,7 +108,7 @@ class EwmBackend(WarehouseBackend):
         self._auth = (user, password) if user else None
 
         self._redis = rd.from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
-        self._csrf = CsrfTokenManager(self._redis)
+        self._csrf = CsrfTokenManager(self._redis, auth=self._auth)
         self._last_request_time = 0.0
 
     # ── WarehouseBackend ABC ─────────────────────────────
@@ -131,9 +132,10 @@ class EwmBackend(WarehouseBackend):
     # ── HTTP helpers ─────────────────────────────────────
 
     def _get_client(self) -> httpx.Client:
-        return httpx.Client(timeout=30.0, verify=False)
+        verify_ssl = os.getenv("SAP_VERIFY_SSL", "false").lower() == "true"
+        return httpx.Client(timeout=30.0, verify=verify_ssl)
 
-    def _get_headers(self, csrf_token: Optional[str] = None) -> dict:
+    def _get_headers(self, csrf_token: str | None = None) -> dict:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -156,6 +158,13 @@ class EwmBackend(WarehouseBackend):
     def list_tasks(self, warehouse: str = "WM01", status: str = "0",
                    top: int = 100, skip: int = 0) -> list[WarehouseTask]:
         self._throttle()
+        # Sanitize inputs to prevent OData injection
+        if not re.match(r'^[A-Za-z0-9_\-]+$', warehouse):
+            logger.error(f"Invalid warehouse param: {warehouse!r}")
+            return []
+        if not re.match(r'^[A-Za-z0-9_\-]+$', status):
+            logger.error(f"Invalid status param: {status!r}")
+            return []
         filter_str = f"EWMWarehouse eq '{warehouse}' and WarehouseTaskStatus eq '{status}'"
         params = {"$filter": filter_str, "$top": top, "$skip": skip}
 
@@ -171,15 +180,17 @@ class EwmBackend(WarehouseBackend):
             logger.error("SAP auth failed — check credentials")
             raise PermissionError("SAP authentication failed")
         elif resp.status_code == 429:
-            logger.warning("SAP rate limited — backing off")
-            time.sleep(5)
+            retry_after = int(resp.headers.get("Retry-After", 2))
+            delay = min(retry_after, 30)
+            logger.warning(f"SAP rate limited — backing off {delay}s")
+            time.sleep(delay)
             return self.list_tasks(warehouse, status, top, skip)
         else:
             logger.error(f"SAP error {resp.status_code}: {resp.text[:200]}")
             resp.raise_for_status()
             return []
 
-    def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> Optional[WarehouseTask]:
+    def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
         self._throttle()
         key = f"EWMWarehouse='{warehouse}',WarehouseTask='{task_id}',WarehouseTaskItem='{item_no}'"
         url = f"{self._base_url}{self._odata_service}/WarehouseTask({key})"
@@ -193,7 +204,7 @@ class EwmBackend(WarehouseBackend):
             resp.raise_for_status()
             return None
 
-    def create_task(self, task: WarehouseTask) -> Optional[WarehouseTask]:
+    def create_task(self, task: WarehouseTask) -> WarehouseTask | None:
         self._throttle()
         payload = {
             "EWMWarehouse": task.warehouse,
@@ -223,8 +234,10 @@ class EwmBackend(WarehouseBackend):
                 if resp.status_code in (200, 201):
                     return self._parse_task(resp.json().get("d", resp.json()))
             elif resp.status_code == 429:
-                logger.warning("Rate limited on create, retrying after backoff")
-                time.sleep(5)
+                retry_after = int(resp.headers.get("Retry-After", 2))
+                delay = min(retry_after, 30)
+                logger.warning(f"Rate limited on create, retrying after {delay}s backoff")
+                time.sleep(delay)
                 return self.create_task(task)
 
             logger.error(f"Create task failed: {resp.status_code} {resp.text[:200]}")
@@ -316,7 +329,7 @@ class EwmBackend(WarehouseBackend):
         )
 
     @staticmethod
-    def _map_process_type(pt: Optional[str]) -> str:
+    def _map_process_type(pt: str | None) -> str:
         if not pt:
             return "MOVE"
         pt_upper = pt.upper()

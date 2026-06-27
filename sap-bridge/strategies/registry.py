@@ -3,14 +3,13 @@ Brand strategy registry — loads and manages robot brand strategies.
 Strategies are registered by brand name and can be looked up at runtime.
 """
 import logging
-from typing import Optional
 
 from .base import BaseStrategy
+from .geekplus import GeekPlusStrategy
+from .hairobotics import HaiRoboticsStrategy
 from .kuka import KukaStrategy
 from .mir import MirStrategy
 from .otto import OttoStrategy
-from .geekplus import GeekPlusStrategy
-from .hairobotics import HaiRoboticsStrategy
 from .quicktron import QuicktronStrategy
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,10 @@ class StrategyRegistry:
 
     def _register_builtin(self):
         """Register all built-in brand strategies."""
-        for strategy in [KukaStrategy(), MirStrategy(), OttoStrategy(), GeekPlusStrategy(), HaiRoboticsStrategy(), QuicktronStrategy()]:
+        for strategy in [
+            KukaStrategy(), MirStrategy(), OttoStrategy(),
+            GeekPlusStrategy(), HaiRoboticsStrategy(), QuicktronStrategy(),
+        ]:
             self._strategies[strategy.brand.upper()] = strategy
             logger.info(f"Registered strategy: {strategy}")
 
@@ -41,7 +43,7 @@ class StrategyRegistry:
         self._strategies[key] = strategy
         logger.info(f"Registered custom strategy: {strategy}")
 
-    def get(self, brand: str) -> Optional[BaseStrategy]:
+    def get(self, brand: str) -> BaseStrategy | None:
         """Get strategy by brand name. Case-insensitive."""
         return self._strategies.get(brand.upper())
 
@@ -72,7 +74,7 @@ class StrategyRegistry:
 
 
 # Module-level singleton for easy import
-_registry: Optional[StrategyRegistry] = None
+_registry: StrategyRegistry | None = None
 
 
 def get_registry() -> StrategyRegistry:

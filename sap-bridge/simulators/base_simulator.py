@@ -4,12 +4,10 @@ Emits state/connection messages on MQTT and responds to orders.
 """
 import json
 import logging
-import os
 import random
-import time
 import threading
-from datetime import datetime, timezone
-from typing import Optional
+import time
+from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 
@@ -63,7 +61,7 @@ class BaseRobotSimulator:
         self._connected = False
         self._running = False
         self._header_id = 0
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
         # MQTT client
         self._client = mqtt.Client(
@@ -97,7 +95,7 @@ class BaseRobotSimulator:
         self._client.disconnect()
         logger.info(f"Simulator stopped: {self.manufacturer}/{self.serial_number}")
 
-    def set_battery(self, percent: float, voltage: Optional[float] = None):
+    def set_battery(self, percent: float, voltage: float | None = None):
         """Override battery level."""
         self._state["batteryState"]["batteryCharge"] = percent
         if voltage is not None:
@@ -233,4 +231,4 @@ class BaseRobotSimulator:
 
     @staticmethod
     def _iso_now() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()

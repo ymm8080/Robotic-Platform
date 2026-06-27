@@ -27,7 +27,7 @@ Microservices on Docker Compose with Node-RED, MQTT, Redis, PostgreSQL.
 
 Applies globally to every response — research, analysis, problem-solving, code review, Q&A.
 
-## Rules (20 files in `.claude/rules/`)
+## Rules (22 files in `.claude/rules/`)
 
 All Cursor rules synced. Key ones:
 
@@ -54,6 +54,8 @@ All Cursor rules synced. Key ones:
 | `ewm-state-machine.mdc` | EWM state machine rules | context |
 | `sap-odata-handler.mdc` | SAP OData handler rules | context |
 | `vda5050-state-machine.mdc` | VDA5050 state machine rules | context |
+| `gsd-workflow.mdc` | GSD 快速交付工作流 | **true** |
+| `compressed-communication.mdc` | 压缩沟通模式 | **true** |
 
 ## Skills (129 items in `.claude/skills/`)
 
@@ -61,10 +63,9 @@ Full Cursor skills sync. Key custom skills:
 - `SAP_OData_Handler.md` - SAP OData integration (CSRF token, retry, circuit breaker)
 - `VDA5050_State_Machine.md` - AGV state machine (VDA5050 compliance)
 - `Async_Retry_Tester.md` - Async retry testing (pytest-asyncio, mock SAP/AGV)
-- `GSD.md` - Get Shit Done rapid dev workflow
 - `Superpowers.md` - AI-assisted dev checklist
-- `caveman.md` - Compressed communication mode
 - `verify-before-done.md` - Evidence-based completion
+- `GSD.md` + `caveman.md` — 已迁移至 .claude/rules/，**自动生效，无需手动触发**
 
 105 GitHub-sourced skills covering: code review, testing, debugging, CI/CD, Docker, K8s, MQTT, state machines, circuit breakers, security, performance, accessibility, and more.
 

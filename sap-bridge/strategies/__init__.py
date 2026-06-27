@@ -5,14 +5,14 @@ Each brand has its own strategy class handling state mapping,
 action execution, battery normalization, and brand-specific quirks.
 """
 
-from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
-from .registry import StrategyRegistry, get_registry
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .geekplus import GeekPlusStrategy
+from .hairobotics import HaiRoboticsStrategy
 from .kuka import KukaStrategy
 from .mir import MirStrategy
 from .otto import OttoStrategy
-from .geekplus import GeekPlusStrategy
-from .hairobotics import HaiRoboticsStrategy
 from .quicktron import QuicktronStrategy
+from .registry import StrategyRegistry, get_registry
 
 __all__ = [
     "BaseStrategy",
@@ -20,6 +20,7 @@ __all__ = [
     "BatteryInfo",
     "BrandQuirk",
     "StrategyRegistry",
+    "get_registry",
     "KukaStrategy",
     "MirStrategy",
     "OttoStrategy",

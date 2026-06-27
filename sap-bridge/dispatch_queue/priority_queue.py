@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import time
-from typing import Any, Optional
 
 import redis as rd
 
@@ -31,7 +30,7 @@ class PriorityQueue:
 
     # ── Enqueue ──────────────────────────────────────
 
-    def enqueue(self, order_no: str, priority: int = 3, payload: Optional[dict] = None) -> bool:
+    def enqueue(self, order_no: str, priority: int = 3, payload: dict | None = None) -> bool:
         """Push order onto queue. Score = priority + timestamp for FIFO within priority.
 
         BZPOPMIN pops lowest score first, so lower priority number = higher priority.
@@ -47,7 +46,7 @@ class PriorityQueue:
         logger.debug(f"Enqueued order {order_no} (priority={priority}, score={score})")
         return True
 
-    def enqueue_batch(self, items: list[tuple[str, int, Optional[dict]]]) -> int:
+    def enqueue_batch(self, items: list[tuple[str, int, dict | None]]) -> int:
         """Enqueue multiple orders atomically. Returns count."""
         pipe = self._redis.pipeline()
         count = 0
@@ -64,7 +63,7 @@ class PriorityQueue:
 
     # ── Dequeue ──────────────────────────────────────
 
-    def dequeue(self, timeout_ms: int = 5000) -> Optional[dict]:
+    def dequeue(self, timeout_ms: int = 5000) -> dict | None:
         """Blocking dequeue with timeout. Returns item dict or None.
 
         Uses BZPOPMIN for blocking pop with automatic processing set tracking.
@@ -95,17 +94,17 @@ class PriorityQueue:
         return self._redis.zcard(QUEUE_KEY)
 
     def depth_by_priority(self) -> dict[int, int]:
-        """Queue depth grouped by priority level."""
+        """Queue depth grouped by priority level. Uses WITHSCORES for accurate counts."""
         counts = {0: 0, 1: 0, 2: 0, 3: 0}
-        # Sample items to estimate priority distribution
-        items = self._redis.zrange(QUEUE_KEY, 0, -1)
-        for item_json in items:
-            try:
-                item = json.loads(item_json)
-                # Score not available in zrange, estimate from order store
-                counts[3] += 1  # Conservative default
-            except json.JSONDecodeError:
-                pass
+        # zrange with withscores=True returns [(member, score), ...]
+        items = self._redis.zrange(QUEUE_KEY, 0, -1, withscores=True)
+        for _item_json, score in items:
+            # Score format: float(f"{p}{ts:019d}") — extract p as first digit
+            priority = int(score // 10 ** 19)
+            if priority in counts:
+                counts[priority] += 1
+            else:
+                counts[3] += 1  # Fallback for unexpected values
         return counts
 
     def peek(self, n: int = 10) -> list[dict]:

@@ -1,13 +1,29 @@
-"""DeepSeek AI Review for GitHub Actions."""
+"""DeepSeek AI Review for GitHub Actions.
+
+Reads diff from pr_diff.txt, calls DeepSeek API, writes review_output.md.
+"""
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
-DIFF = os.environ.get("DIFF", "")
-if not DIFF:
-    print("No diff found, skipping review")
+# Read diff from file (avoids env var size limits)
+try:
+    with open("pr_diff.txt") as f:
+        diff = f.read()
+except FileNotFoundError:
+    print("No pr_diff.txt found, skipping review")
     sys.exit(0)
+
+if not diff.strip():
+    print("Empty diff, skipping review")
+    sys.exit(0)
+
+api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+if not api_key:
+    print("ERROR: DEEPSEEK_API_KEY not set")
+    sys.exit(1)
 
 payload = json.dumps({
     "model": "deepseek-chat",
@@ -24,7 +40,7 @@ payload = json.dumps({
         },
         {
             "role": "user",
-            "content": f"Review this diff:\n\n{json.dumps(DIFF)}",
+            "content": f"Review this diff:\n\n{diff}",
         },
     ],
     "max_tokens": 4096,
@@ -36,13 +52,22 @@ req = urllib.request.Request(
     data=payload,
     headers={
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}",
+        "Authorization": f"Bearer {api_key}",
     },
 )
-resp = json.loads(
-    urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
-)
-review = resp["choices"][0]["message"]["content"]
-with open("review_output.md", "w", encoding="utf-8") as f:
-    f.write(review)
-print("Review generated")
+
+try:
+    resp = urllib.request.urlopen(req, timeout=120)
+    result = json.loads(resp.read().decode("utf-8"))
+    review = result["choices"][0]["message"]["content"]
+    with open("review_output.md", "w", encoding="utf-8") as f:
+        f.write(review)
+    print("Review generated successfully")
+except urllib.error.HTTPError as e:
+    print(f"HTTP Error: {e.code} {e.reason}")
+    body = e.read().decode("utf-8")
+    print(f"Response: {body[:500]}")
+    sys.exit(1)
+except Exception as e:
+    print(f"Error: {e}")
+    sys.exit(1)

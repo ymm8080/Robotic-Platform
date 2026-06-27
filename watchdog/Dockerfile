@@ -28,13 +28,14 @@ WORKDIR /app
 COPY watchdog.py .
 COPY config.yaml .
 
-RUN mkdir -p /app/logs && chmod 755 /app/logs
+RUN mkdir -p /app/logs
 
 # Non-root
-RUN groupadd -r watchdog && useradd -r -g watchdog watchdog
+RUN groupadd -r watchdog && useradd -r -g watchdog watchdog \
+    && chown watchdog:watchdog /app/logs
 USER watchdog
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import os,sys; sys.exit(0 if os.path.exists('/app/.watchdog.pid') else 1)"
+    CMD python -c "import os,sys; sys.exit(0 if os.path.exists('/app/logs/.watchdog.pid') else 1)"
 
 CMD ["python", "-u", "watchdog.py"]

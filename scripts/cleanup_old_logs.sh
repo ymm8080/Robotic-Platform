@@ -11,7 +11,7 @@ for container in robot-platform-nodered robot-platform-sap-bridge robot-platform
         log_path=$(docker inspect --format='{{.LogPath}}' $container 2>/dev/null)
         if [ -n "$log_path" ] && [ -f "$log_path" ]; then
             echo "  清空 $container 日志"
-            sudo sh -c "> $log_path"
+            sudo sh -c "> \"$log_path\""
         fi
     fi
 done

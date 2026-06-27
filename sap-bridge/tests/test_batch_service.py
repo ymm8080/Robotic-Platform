@@ -3,8 +3,9 @@
 Tests use mocked backends. The backend abstraction means the same BatchService
 code works for both EWM and WM — just mock get_backend_for().
 """
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestBatchService:
@@ -13,8 +14,8 @@ class TestBatchService:
     @pytest.fixture
     def svc(self):
         from services.batch_service import BatchService
-        with patch("services.batch_service.OrderService") as mock_os, \
-             patch("services.batch_service.PriorityQueue") as mock_pq:
+        with patch("services.batch_service.OrderService"), \
+             patch("services.batch_service.PriorityQueue"):
             svc = BatchService()
             svc._orders = MagicMock()
             svc._queue = MagicMock()
@@ -103,6 +104,7 @@ class TestBatchService:
         assert order.priority == 1
 
     def test_task_to_order_move(self, svc):
+        from models.order import OrderType
         from models.warehouse_task import WarehouseTask
         task = WarehouseTask(
             source_system="EWM", warehouse="WM01",
@@ -111,6 +113,8 @@ class TestBatchService:
         )
         order = svc._task_to_order(task, "WM01")
         assert order is not None
+        assert order.order_no == "MOVE-001"
+        assert order.type == OrderType.MOVE
         assert order.priority == 3
 
     def test_metrics_property(self, svc):

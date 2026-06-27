@@ -3,22 +3,35 @@ SAP EWM / WM Robot Dispatch Platform — SAP Bridge Main Application
 Python FastAPI + pyrfc service for multi-warehouse SAP integration.
 Supports both SAP EWM (OData) and SAP Classic WM (RFC) via backend abstraction.
 """
-import os
 import logging
+import os
 from contextlib import asynccontextmanager
 
+# Shared Redis connection (avoid per-request from_url)
+import redis as _redis_module
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
+from metrics import (
+    MetricsMiddleware,
+    deadletter_unresolved,
+    metrics_response,
+    mqtt_connected,
+    orders_completed,
+    orders_created,
+    orders_failed,
+    queue_depth,
+    redis_connected,
+    sap_connected,
+)
 from mqtt_publisher import get_publisher
 from strategies import get_registry
-from dispatch_queue import QueueWorker, DeadLetterHandler, PriorityQueue
-from metrics import (
-    MetricsMiddleware, metrics_response,
-    mqtt_connected, redis_connected, sap_connected,
-    orders_created, orders_completed, orders_failed,
-    queue_depth, deadletter_unresolved,
+
+_redis_client = _redis_module.from_url(
+    os.getenv("REDIS_URL", "redis://redis:6379/1"),
+    decode_responses=True,
 )
 
 # ──────────────────────────────────────────────
@@ -61,13 +74,13 @@ app.add_middleware(MetricsMiddleware)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Log and return server errors for debugging."""
+    """Log full traceback server-side, return generic error to client."""
     import traceback
     tb = traceback.format_exc()
     logger.error(f"Unhandled error on {request.method} {request.url.path}:\n{tb}")
     return JSONResponse(
         status_code=500,
-        content={"error": str(exc), "traceback": tb.split("\n")[-5:] if tb else []},
+        content={"error": "Internal server error"},
     )
 
 
@@ -119,14 +132,13 @@ async def metrics():
 @app.get("/api/v1/robots/status")
 async def robot_status():
     """Return all connected robots' status from Redis, normalized by brand strategy."""
-    import redis
     import json as json_mod
-    r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/1"), decode_responses=True)
-    keys = r.keys("robot:connection:*")
+
+    keys = _redis_client.keys("robot:connection:*")
     registry = get_registry()
     robots = []
     for key in keys:
-        data = r.hgetall(key)
+        data = _redis_client.hgetall(key)
         robot_id = key.replace("robot:connection:", "")
         brand = data.get("brand", "UNKNOWN")
 
@@ -177,8 +189,8 @@ async def list_strategies():
 # Order API (via OrderService + MQTT publish)
 # ──────────────────────────────────────────────
 
+from models.order import OrderStatus, OrderType, WarehouseOrder
 from services import OrderService
-from models.order import WarehouseOrder, OrderType, OrderStatus
 
 _order_service = OrderService()
 
@@ -254,6 +266,16 @@ async def list_orders(status: str = "", brand: str = "", limit: int = 50, offset
     return {"orders": [o.to_dict() for o in orders], "count": len(orders)}
 
 
+@app.get("/api/v1/orders/queue")
+async def order_queue_depth():
+    """Return queue depth grouped by priority level."""
+    all_orders = _order_service.list_orders(status=OrderStatus.CREATED, limit=1000)
+    depth = {0: 0, 1: 0, 2: 0, 3: 0}
+    for o in all_orders:
+        depth[o.priority] = depth.get(o.priority, 0) + 1
+    return {"queue": depth, "total": len(all_orders)}
+
+
 @app.get("/api/v1/orders/{order_no}")
 async def get_order(order_no: str):
     """Get order by order number."""
@@ -299,16 +321,6 @@ async def suspend_order(order_no: str, req: UpdateOrderStatusRequest):
     if order is None:
         return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
     return order.to_dict()
-
-
-@app.get("/api/v1/orders/queue")
-async def order_queue_depth():
-    """Return queue depth grouped by priority level."""
-    all_orders = _order_service.list_orders(status=OrderStatus.CREATED, limit=1000)
-    depth = {0: 0, 1: 0, 2: 0, 3: 0}
-    for o in all_orders:
-        depth[o.priority] = depth.get(o.priority, 0) + 1
-    return {"queue": depth, "total": len(all_orders)}
 
 
 # ──────────────────────────────────────────────
@@ -384,6 +396,37 @@ async def trigger_batch(warehouse: str = "WM01"):
     }
 
 
+# ──────────────────────────────────────────────
+# IDoc listener endpoint
+# ──────────────────────────────────────────────
+
+from services.idoc_listener import IdocListener
+
+_idoc_listener = IdocListener()
+
+
+@app.post("/api/v1/idoc")
+async def receive_idoc(request: Request):
+    """Receive SAP IDoc XML push, parse to warehouse tasks, enqueue."""
+    raw = await request.body()
+    xml_str = raw.decode("utf-8", errors="replace")
+    result = _idoc_listener.process(xml_str)
+    status = 202 if result.get("accepted") else 400
+    return JSONResponse(content=result, status_code=status)
+
+
+@app.get("/api/v1/idoc/stats")
+async def idoc_stats():
+    """IDoc processing statistics."""
+    return {"stats": _idoc_listener.get_stats()}
+
+
+@app.get("/api/v1/idoc/recent")
+async def idoc_recent(n: int = 10):
+    """Recent IDoc log entries."""
+    return {"idocs": _idoc_listener.get_recent(n)}
+
+
 @app.get("/api/v1/orders/batch/metrics")
 async def batch_metrics():
     """Batch service metrics."""
@@ -400,8 +443,6 @@ async def batch_metrics():
 
 
 from backends.factory import get_backend_for, get_factory
-from backends.ewm_backend import EwmBackend
-from models.warehouse_task import WarehouseTask
 from services.inventory_service import InventoryService
 
 _inventory_service = InventoryService()
@@ -530,8 +571,6 @@ def _uptime() -> int:
 
 def _check_redis() -> bool:
     try:
-        import redis
-        r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/1"), decode_responses=True)
-        return r.ping()
+        return _redis_client.ping()
     except Exception:
         return False

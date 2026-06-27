@@ -2,7 +2,7 @@
 KUKA KMR iiwa strategy.
 VDA5050 v2.0.0 — standard behavior with custom lift action.
 """
-from .base import BaseStrategy, RobotState, BatteryInfo, BrandQuirk
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
 
 
 class KukaStrategy(BaseStrategy):
@@ -38,10 +38,7 @@ class KukaStrategy(BaseStrategy):
         elif state.get("actionStates"):
             # Has active actions → EXECUTING
             running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
-            if running:
-                status = "EXECUTING"
-            else:
-                status = "IDLE"
+            status = "EXECUTING" if running else "IDLE"
         else:
             status = "IDLE"
 
