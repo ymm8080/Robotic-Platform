@@ -220,7 +220,7 @@ class IdocListener:
         self._incr_stat("total_idocs")
         if errors:
             self._incr_stat("partial_errors")
-        self._incr_stat(f"tasks_created", len(tasks))
+        self._incr_stat("tasks_created", len(tasks))
 
         result = {
             "accepted": True,
