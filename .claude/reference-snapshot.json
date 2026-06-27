@@ -60,9 +60,19 @@
         "size":  5089
     },
     {
+        "path":  "Design/version-upgrade-verification-v3.4-to-v5.0.md",
+        "mtime":  "2026-06-25T11:25:33.9970385Z",
+        "size":  17751
+    },
+    {
         "path":  "05_reference/protocols/vda5050/vda5050-state-machine.md",
         "mtime":  "2026-06-22T06:23:36.5888933Z",
         "size":  6520
+    },
+    {
+        "path":  "Design/技术栈清单 v3.4.docx",
+        "mtime":  "2026-06-03T01:47:05.5688793Z",
+        "size":  37678
     },
     {
         "path":  "05_reference/README.md",
@@ -100,9 +110,9 @@
         "size":  3117
     },
     {
-        "path":  "Design/技术栈清单 v3.4.docx",
-        "mtime":  "2026-06-03T01:47:05.5688793Z",
-        "size":  37678
+        "path":  "Design/version-upgrade-verification-v3.4-to-v5.0.docx",
+        "mtime":  "2026-06-25T06:26:44.7591269Z",
+        "size":  44754
     },
     {
         "path":  "05_reference/sap/odata-warehouse-task-api.md",
@@ -128,6 +138,11 @@
         "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.35.docx",
         "mtime":  "2026-06-23T15:13:17.8672328Z",
         "size":  52566
+    },
+    {
+        "path":  "Design/新建文本文档.txt",
+        "mtime":  "2026-06-25T05:25:46.5414901Z",
+        "size":  0
     },
     {
         "path":  "CURSOR 3.4 docs/secrets-management.md",
