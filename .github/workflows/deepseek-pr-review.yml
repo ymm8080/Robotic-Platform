@@ -59,38 +59,38 @@ jobs:
 
           # Call DeepSeek API
           python3 -c "
-import json, urllib.request, os
+          import json, urllib.request, os
 
-payload = json.dumps({
-    'model': 'deepseek-chat',
-    'messages': [
-        {
-            'role': 'system',
-            'content': 'You are an expert code reviewer. Analyze the PR diff and provide a concise, actionable review in Chinese. Focus on: 1) bugs and logic errors 2) security issues 3) performance concerns 4) code style best practices. Be specific - reference line numbers and suggest fixes. If the code looks good, say so briefly.'
-        },
-        {
-            'role': 'user',
-            'content': f'Review this diff:\n\n{json.dumps(os.environ[\"DIFF\"])}'
-        }
-    ],
-    'max_tokens': 4096,
-    'temperature': 0.3
-}).encode('utf-8')
+          payload = json.dumps({
+              'model': 'deepseek-chat',
+              'messages': [
+                  {
+                      'role': 'system',
+                      'content': 'You are an expert code reviewer. Analyze the PR diff and provide a concise, actionable review in Chinese. Focus on: 1) bugs and logic errors 2) security issues 3) performance concerns 4) code style best practices. Be specific - reference line numbers and suggest fixes. If the code looks good, say so briefly.'
+                  },
+                  {
+                      'role': 'user',
+                      'content': f'Review this diff:\n\n{json.dumps(os.environ[\"DIFF\"])}'
+                  }
+              ],
+              'max_tokens': 4096,
+              'temperature': 0.3
+          }).encode('utf-8')
 
-req = urllib.request.Request(
-    'https://api.deepseek.com/chat/completions',
-    data=payload,
-    headers={
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {os.environ[\"DEEPSEEK_API_KEY\"]}'
-    }
-)
-resp = json.loads(urllib.request.urlopen(req, timeout=60).read().decode('utf-8'))
-review = resp['choices'][0]['message']['content']
-with open('review_output.md', 'w') as f:
-    f.write(review)
-print('Review generated')
-" 2>&1 || echo "API call failed — check DEEPSEEK_API_KEY secret"
+          req = urllib.request.Request(
+              'https://api.deepseek.com/chat/completions',
+              data=payload,
+              headers={
+                  'Content-Type': 'application/json',
+                  'Authorization': f'Bearer {os.environ[\"DEEPSEEK_API_KEY\"]}'
+              }
+          )
+          resp = json.loads(urllib.request.urlopen(req, timeout=60).read().decode('utf-8'))
+          review = resp['choices'][0]['message']['content']
+          with open('review_output.md', 'w') as f:
+              f.write(review)
+          print('Review generated')
+          " 2>&1 || echo "API call failed — check DEEPSEEK_API_KEY secret"
 
           if [ -f review_output.md ]; then
             REVIEW=$(cat review_output.md)
