@@ -1,7 +1,7 @@
 [run]
 source = .
 omit =
-    # SAP NW RFC SDK required ¡ª cannot be tested in CI
+    # SAP NW RFC SDK required - cannot be tested in CI
     */backends/wm_backend.py
     # Hardware simulators
     */simulators/*
