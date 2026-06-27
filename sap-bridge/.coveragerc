@@ -5,7 +5,10 @@ omit =
     */backends/wm_backend.py
     # Hardware simulators
     */simulators/*
+    # Test files
     */tests/*
+    # Application entrypoint - wires all components, hard to unit test
+    main.py
 
 [report]
 show_missing = true
