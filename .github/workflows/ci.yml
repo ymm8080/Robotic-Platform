@@ -152,22 +152,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Check coverage threshold (80%)
-        run: |
-          python -c "
-            import xml.etree.ElementTree as ET
-            tree = ET.parse('coverage.xml')
-            root = tree.getroot()
-            line_rate = float(root.attrib.get('line-rate', 0))
-            pct = line_rate * 100
-            print(f'Total coverage: {pct:.1f}%')
-            # Per-file breakdown
-            for cls in sorted(root.findall('.//class'), key=lambda c: c.attrib.get('filename','')):
-                fn = cls.attrib.get('filename', '?')
-                clr = float(cls.attrib.get('line-rate', 1))
-                print(f'  {fn:45} {clr*100:5.1f}%')
-            assert line_rate >= 0.80, f'Coverage {pct:.1f}% < 80%'
-            print('OK - Coverage above 80%')
-          "
+        run: python .github/scripts/check_coverage.py coverage.xml 0.80
 
   # ===========================================================================
   # Phase 4: Build

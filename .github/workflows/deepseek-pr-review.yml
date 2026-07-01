@@ -64,14 +64,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          REVIEW=$(cat review_output.md)
-          { echo "## 🤖 AI Code Review"; echo ""; echo "$REVIEW"; echo ""; echo "---"; echo "*Powered by DeepSeek API*"; } > /tmp/comment_body.md
-          COMMENT=$(cat /tmp/comment_body.md)
+          # Build the comment body from a file and pass it via --body-file so the
+          # review markdown (which contains backticks, $, etc.) is never shell-
+          # interpolated. Reading into a shell variable and using --body "$COMMENT"
+          # triggers command substitution on backticks and breaks the step.
+          {
+            printf '## 🤖 AI Code Review\n\n'
+            cat review_output.md
+            printf '\n---\n*Powered by DeepSeek API*\n'
+          } > /tmp/comment_body.md
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT"
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment_body.md
           else
             gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-              --field body="$COMMENT"
+              --field body=@/tmp/comment_body.md
           fi
           echo "Review posted successfully"
