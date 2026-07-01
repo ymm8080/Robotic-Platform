@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import json
+import copy
 import signal
 import logging
 import logging.handlers
@@ -146,7 +147,6 @@ DEFAULT_CONFIG = {
 
 def load_config() -> Dict[str, Any]:
     """加载配置，环境变量覆盖文件配置"""
-    import copy
     config = copy.deepcopy(DEFAULT_CONFIG)
 
     # 尝试读取 config.yaml

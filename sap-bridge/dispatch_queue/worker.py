@@ -7,7 +7,6 @@ Features:
 - Max 5 retries, then deadletter
 - Crash recovery via processing set
 """
-import json
 import logging
 import os
 import threading
