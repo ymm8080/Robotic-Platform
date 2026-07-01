@@ -7,9 +7,13 @@ Features:
 - Max 5 retries, then deadletter
 - Crash recovery via processing set
 """
+import json
 import logging
+import os
 import threading
 import time
+
+import redis as rd
 
 from models.order import OrderStatus, WarehouseOrder
 from mqtt_publisher import get_publisher
@@ -21,6 +25,7 @@ from .priority_queue import PriorityQueue
 
 logger = logging.getLogger(__name__)
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 POLL_INTERVAL = 0.5  # seconds
 MAX_RETRIES = 5
 MAX_BACKOFF = 60  # seconds
@@ -39,6 +44,7 @@ class QueueWorker:
         self._order_service = OrderService()
         self._publisher = get_publisher()
         self._registry = get_registry()
+        self._redis = rd.from_url(REDIS_URL, decode_responses=True)
         self._running = False
         self._thread: threading.Thread | None = None
         self._retry_count: dict[str, int] = {}  # order_no → retry count
@@ -136,15 +142,22 @@ class QueueWorker:
 
     def _dispatch(self, order: WarehouseOrder, queue_item: dict) -> bool:
         """Dispatch an order to the appropriate robot via MQTT."""
-        manufacturer = order.robot_brand or "UNKNOWN"
-        serial = order.robot_serial or "UNKNOWN"
+        manufacturer = order.robot_brand
+        serial = order.robot_serial
 
-        # Build VDA5050 order payload
+        # Auto-resolve brand if not specified (batch orders from SAP may be unassigned)
+        if not manufacturer or manufacturer == "UNKNOWN":
+            manufacturer, serial = self._resolve_robot(order)
+            if manufacturer is None:
+                logger.warning(f"No available robot for order {order.order_no}")
+                return False
+
+        # Build VDA5050 order payload — payload comes first so orderId/orderUpdateId are authoritative
         payload = queue_item.get("payload") or order.payload or {}
         vda5050_payload = {
+            **payload,
             "orderId": order.order_no,
             "orderUpdateId": 0,
-            **payload,
         }
 
         try:
@@ -155,6 +168,9 @@ class QueueWorker:
                 payload=vda5050_payload,
                 qos=1,
             )
+        except Exception as e:
+            logger.error(f"MQTT publish failed for {order.order_no}: {e}")
+            return False
         except Exception as e:
             logger.error(f"MQTT publish failed for {order.order_no}: {e}")
             return False
@@ -175,6 +191,45 @@ class QueueWorker:
 
         logger.info(f"Dispatched {order.order_no} → {manufacturer}/{serial} (mid={mid})")
         return True
+
+    # ── Robot resolution ──────────────────────────
+
+    def _resolve_robot(self, order: WarehouseOrder) -> tuple[str | None, str | None]:
+        """Auto-assign a robot when order has no brand specified.
+
+        Checks Redis for connected robots (ONLINE state), filters to
+        brands registered in the strategy registry, and picks the first
+        available one.
+
+        Returns (manufacturer, serial) or (None, None) if none available.
+        """
+        try:
+            robot_keys = self._redis.keys("robot:connection:*") or []
+        except Exception as e:
+            logger.warning(f"Failed to query Redis for robots: {e}")
+            return None, None
+
+        registered_brands = set(b.lower() for b in self._registry.list_brands())
+
+        for key in robot_keys:
+            data = self._redis.hgetall(key)
+            state = data.get("state", data.get("connectionState", "")).upper()
+            if state not in ("ONLINE", "IDLE", "CHARGING", "MOVING", "IDLE"):
+                continue
+
+            manufacturer = data.get("manufacturer", "")
+            serial = data.get("serialNumber", "")
+
+            # Must be a registered brand
+            if manufacturer.lower() not in registered_brands:
+                continue
+
+            logger.info(f"Auto-assigned order {order.order_no} → {manufacturer}/{serial}")
+            return manufacturer, serial
+
+        logger.warning(f"No available robots found for order {order.order_no} "
+                       f"(checked {len(robot_keys)} connection records)")
+        return None, None
 
     # ── Failure handling ───────────────────────────
 

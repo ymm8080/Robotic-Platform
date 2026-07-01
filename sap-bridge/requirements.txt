@@ -7,7 +7,7 @@ httpx>=0.27.0,<1.0.0
 
 # SAP NW RFC — requires SAP NW RFC SDK installed separately
 # Uncomment for Classic WM backend support:
-pyrfc>=2.7,<3.0
+# pyrfc>=2.7,<3.0
 prometheus-client>=0.20.0,<1.0.0
 
 # Dev

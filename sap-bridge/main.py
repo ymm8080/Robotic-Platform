@@ -5,6 +5,7 @@ Supports both SAP EWM (OData) and SAP Classic WM (RFC) via backend abstraction.
 """
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 # Shared Redis connection (avoid per-request from_url)
@@ -49,14 +50,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: connect MQTT + start queue worker. Shutdown: stop gracefully."""
+    """Startup: connect MQTT + start queue worker + heartbeat monitor. Shutdown: stop gracefully."""
     publisher = get_publisher()
     publisher.connect()
+
+    # Start heartbeat monitor (subscribes to robot connection/state MQTT topics)
+    from heartbeat_monitor import HeartbeatMonitor
+    heartbeat = HeartbeatMonitor()
+    heartbeat.start()
+    app.state.heartbeat = heartbeat
+
     worker = QueueWorker()
     worker.start()
     app.state.worker = worker
-    logger.info("SAP Bridge started (MQTT + queue worker)")
+    logger.info("SAP Bridge started (MQTT + queue worker + heartbeat)")
     yield
+    heartbeat.stop()
     worker.stop()
     publisher.disconnect()
     logger.info("SAP Bridge stopped")
@@ -234,10 +243,17 @@ async def create_order(req: CreateOrderRequest):
         qos=1,
     )
 
+    # Validate order type
+    try:
+        order_type = OrderType(req.orderType.upper())
+    except ValueError:
+        valid = [t.value for t in OrderType]
+        return JSONResponse(status_code=400, content={"error": f"invalid_order_type: {req.orderType}. Valid: {valid}"})
+
     # Persist order to SQLite via OrderService
     order = WarehouseOrder(
         order_no=req.orderId,
-        type=OrderType(req.orderType.upper()),
+        type=order_type,
         priority=min(3, max(0, req.priority)),
         source=req.source or None,
         robot_brand=req.manufacturer,
@@ -256,7 +272,13 @@ async def create_order(req: CreateOrderRequest):
 @app.get("/api/v1/orders")
 async def list_orders(status: str = "", brand: str = "", limit: int = 50, offset: int = 0):
     """List orders with optional filters."""
-    status_enum = OrderStatus(status.upper()) if status else None
+    status_enum = None
+    if status:
+        try:
+            status_enum = OrderStatus(status.upper())
+        except ValueError:
+            valid = [s.value for s in OrderStatus]
+            return JSONResponse(status_code=400, content={"error": f"invalid_status: {status}. Valid: {valid}"})
     orders = _order_service.list_orders(
         status=status_enum,
         brand=brand or None,
@@ -502,12 +524,19 @@ async def get_sap_task(task_id: str, warehouse: str = "WM01"):
 
 
 @app.post("/api/v1/sap/tasks/{task_id}/confirm")
-async def confirm_sap_task(task_id: str, warehouse: str = "WM01"):
-    """Confirm warehouse task completion in SAP."""
+async def confirm_sap_task(task_id: str, warehouse: str = "WM01", qty: float = 0.0):
+    """Confirm warehouse task completion in SAP.
+
+    Args:
+        task_id: SAP warehouse task ID
+        warehouse: Warehouse identifier
+        qty: Confirmed quantity (defaults to 0.0 — use full planned qty)
+    """
     backend = get_backend_for(warehouse)
     if backend is None:
         return JSONResponse(status_code=502, content={"error": f"no_backend_for_{warehouse}"})
-    ok = backend.confirm_task(warehouse, task_id)
+    # If no qty specified, use 0.0 — backends interpret 0.0 as "confirm all"
+    ok = backend.confirm_task(warehouse, task_id, qty)
     if not ok:
         return JSONResponse(status_code=502, content={"error": "sap_confirm_failed"})
     return {"status": "confirmed", "taskId": task_id}
@@ -562,11 +591,11 @@ async def sync_inventory(warehouse: str = "WM01"):
 # Internal helpers
 # ──────────────────────────────────────────────
 
-_start_time = __import__("time").time()
+_start_time = time.time()
 
 
 def _uptime() -> int:
-    return int(__import__("time").time() - _start_time)
+    return int(time.time() - _start_time)
 
 
 def _check_redis() -> bool:

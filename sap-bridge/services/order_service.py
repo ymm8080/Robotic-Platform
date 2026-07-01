@@ -13,7 +13,7 @@ from models.order import OrderStatus, OrderType, WarehouseOrder
 logger = logging.getLogger(__name__)
 
 # SQLite database path (mounted Docker volume path)
-DB_PATH = os.getenv("DB_PATH", "/tmp/robot_platform.db")
+DB_PATH = os.getenv("DB_PATH", "/data/robot_platform.db")
 
 
 class OrderService:

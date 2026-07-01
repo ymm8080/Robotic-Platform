@@ -40,9 +40,9 @@ if command -v aliyun &> /dev/null; then
 fi
 
 # 7. 清理旧备份
-find ${BACKUP_DIR} -name "*.db" -mtime +7 -delete
-find ${BACKUP_DIR} -name "*.rdb" -mtime +7 -delete
-find ${BACKUP_DIR} -name "*.tar.gz" -mtime +7 -delete
-find ${BACKUP_DIR} -name "*.sha256" -mtime +7 -delete
+find ${BACKUP_DIR} -name "*.db" -mtime +${RETENTION_DAYS} -delete
+find ${BACKUP_DIR} -name "*.rdb" -mtime +${RETENTION_DAYS} -delete
+find ${BACKUP_DIR} -name "*.tar.gz" -mtime +${RETENTION_DAYS} -delete
+find ${BACKUP_DIR} -name "*.sha256" -mtime +${RETENTION_DAYS} -delete
 
 echo "[$(date)] 备份完成: ${DATE}"

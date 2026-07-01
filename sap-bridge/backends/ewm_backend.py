@@ -200,8 +200,8 @@ class EwmBackend(WarehouseBackend):
             return self.list_tasks(warehouse, status, top, skip)
         else:
             logger.error(f"SAP error {resp.status_code}: {resp.text[:200]}")
-            resp.raise_for_status()
-            return []
+            resp.raise_for_status()  # raises HTTPStatusError; no return needed
+            return []  # unreachable — keep for type checker
 
     def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
         self._throttle()
