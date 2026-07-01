@@ -2,6 +2,7 @@
 
 Mirrors the design of strategies/registry.py. Backends are registered by type
 name and instantiated per warehouse via the factory.
+Registry uses class-level `backend_type_name` — no instantiation needed.
 """
 
 import logging
@@ -18,6 +19,7 @@ class BackendRegistry:
 
     Backend types are registered by name (e.g. "ewm", "wm").
     The factory selects one per warehouse based on config.
+    Uses class-level `backend_type_name` — no instantiation during registration.
     """
 
     def __init__(self):
@@ -25,18 +27,21 @@ class BackendRegistry:
         self._register_builtin()
 
     def _register_builtin(self):
-        """Register all built-in backend types."""
+        """Register all built-in backend types using class-level attrs."""
         for cls in [EwmBackend, WmBackend]:
-            # Instantiate once to get the type name, then store the class
-            instance = cls()
-            self._backends[instance.backend_type.lower()] = cls
-            logger.info(f"Registered backend type: {instance.backend_type} ({cls.__name__})")
+            type_name = getattr(cls, "backend_type_name", None)
+            if not type_name:
+                logger.warning(f"{cls.__name__} has no backend_type_name — skipping")
+                continue
+            self._backends[type_name.lower()] = cls
+            logger.info(f"Registered backend type: {type_name} ({cls.__name__})")
 
     def register(self, backend_cls: type[WarehouseBackend]):
         """Register a custom backend class (for testing or plugins)."""
-        # Instantiate to verify it works and get type name
-        instance = backend_cls()
-        key = instance.backend_type.lower()
+        type_name = getattr(backend_cls, "backend_type_name", None)
+        if not type_name:
+            raise ValueError(f"{backend_cls.__name__} must define backend_type_name")
+        key = type_name.lower()
         self._backends[key] = backend_cls
         logger.info(f"Registered custom backend: {key} ({backend_cls.__name__})")
 

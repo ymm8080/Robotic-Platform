@@ -1,7 +1,8 @@
-"""SAP Classic WM (LE-WM) backend — RFC/BAPI integration via pyrfc.
+"""SAP Classic WM (LE-WM) backend — RFC/BAPI integration via pyrfc or HTTP.
 
-Classic WM has no standard OData API. All integration is via RFC function
-modules called through pyrfc (SAP NW RFC SDK).
+Dual-mode:
+  mode: rfc   (default) — Real SAP WM via pyrfc (SAP NW RFC SDK required)
+  mode: http           — WM RFC Simulator over HTTP (for dev/test)
 
 References:
   REFERENCE/05_reference/sap/wm-classic-integration.md
@@ -13,10 +14,16 @@ import contextlib
 import logging
 import os
 import time
+from typing import TYPE_CHECKING
 
 from models.warehouse_task import WarehouseTask
 
 from .base import WarehouseBackend
+
+if TYPE_CHECKING:
+    # httpx is an optional dependency (only required for HTTP/simulator mode,
+    # imported lazily at runtime). Imported here solely for type annotations.
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +35,7 @@ DEFAULT_RFC_CLIENT = os.getenv("SAP_CLIENT", "100")
 DEFAULT_RFC_USER = os.getenv("SAP_USER", "")
 DEFAULT_RFC_PASSWORD_FILE = os.getenv("SAP_PASSWORD_FILE", "/run/secrets/sap_password")
 DEFAULT_RFC_LANG = os.getenv("SAP_LANG", "ZH")
+DEFAULT_WM_SIMULATOR_URL = os.getenv("WM_SIMULATOR_URL", "http://wm-simulator:8001")
 
 # Retry settings
 RFC_MAX_RETRIES = 3
@@ -54,14 +62,33 @@ TRANSFER_TYPE_MAP = {
 
 
 class WmBackend(WarehouseBackend):
-    """SAP Classic WM (LE-WM) backend using RFC/BAPI via pyrfc."""
+    """SAP Classic WM (LE-WM) backend.
+
+    Two modes:
+      - mode='rfc' (default): Real SAP WM via pyrfc
+      - mode='http': WM RFC Simulator over HTTP
+    """
+
+    # Class-level identifiers (used by Registry — no __init__ needed)
+    backend_type_name = "wm"
+    display_name_str = "SAP Classic WM (LE-WM)"
 
     def __init__(self, config: dict | None = None):
         self._cfg = config or {}
-        self._conn_params = self._build_conn_params()
+        self._mode = self._cfg.get("mode", "rfc").lower()
+
+        self._http_client: httpx.Client | None = None
         self._last_conn = None
         self._last_conn_time = 0.0
         self._conn_ttl = 300  # Reconnect every 5 min
+
+        if self._mode == "http":
+            self._simulator_url = self._cfg.get(
+                "simulator_url", DEFAULT_WM_SIMULATOR_URL
+            )
+            self.display_name_str = f"SAP WM via Simulator ({self._simulator_url})"
+        else:
+            self._conn_params = self._build_conn_params()
 
     def _build_conn_params(self) -> dict:
         pw_file = self._cfg.get("password_file", DEFAULT_RFC_PASSWORD_FILE)
@@ -90,21 +117,19 @@ class WmBackend(WarehouseBackend):
 
     @property
     def display_name(self) -> str:
-        return "SAP Classic WM (LE-WM)"
+        return self.display_name_str
 
-    # ── Connection management ────────────────────────────
+    # ── Connection (RFC mode) ────────────────────────────
 
     def _get_connection(self):
-        """Get or create RFC connection with TTL-based reconnect."""
         now = time.time()
         if self._last_conn is None or (now - self._last_conn_time) > self._conn_ttl:
-            self._close_connection()
+            self._close_rfc_connection()
             self._last_conn = self._create_connection()
             self._last_conn_time = now
         return self._last_conn
 
     def _create_connection(self):
-        """Create a new pyrfc Connection."""
         try:
             import pyrfc
             conn = pyrfc.Connection(**self._conn_params)
@@ -113,22 +138,42 @@ class WmBackend(WarehouseBackend):
         except ImportError:
             logger.error(
                 "pyrfc not installed. Install with: pip install pyrfc\n"
-                "Requires SAP NW RFC SDK DLLs. See "
-                "REFERENCE/05_reference/sap/rfc-function-module-catalog.md"
+                "Requires SAP NW RFC SDK DLLs."
             )
             raise
         except Exception as e:
             logger.error(f"WM RFC connection failed: {e}")
             raise
 
-    def _close_connection(self):
+    def _close_rfc_connection(self):
         if self._last_conn is not None:
             with contextlib.suppress(Exception):
                 self._last_conn.close()
             self._last_conn = None
 
+    # ── HTTP client (simulator mode) ─────────────────────
+
+    def _get_http_client(self):
+        if self._http_client is None:
+            import httpx
+            self._http_client = httpx.Client(base_url=self._simulator_url, timeout=30.0)
+        return self._http_client
+
+    def _call_http(self, func_name: str, **params) -> dict:
+        """Call an RFC function via HTTP simulator."""
+        client = self._get_http_client()
+        resp = client.post(f"/rfc/{func_name}", json=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── Unified RFC call ─────────────────────────────────
+
     def _call_rfc(self, func_name: str, **params) -> dict:
-        """Call an RFC function module with retry logic."""
+        """Dispatch to RFC or HTTP based on mode."""
+        if self._mode == "http":
+            return self._call_http(func_name, **params)
+
+        # RFC mode with retry
         last_error = None
         for attempt, delay in enumerate(RFC_RETRY_DELAYS):
             try:
@@ -140,13 +185,11 @@ class WmBackend(WarehouseBackend):
                 error_str = str(e)
                 logger.warning(f"RFC {func_name} attempt {attempt + 1} failed: {error_str[:100]}")
 
-                # Non-retryable errors
                 if "not authorized" in error_str.lower() or "permission" in error_str.lower():
                     logger.error(f"WM RFC authorization error on {func_name}")
                     raise
 
-                # Reconnect on connection failure
-                self._close_connection()
+                self._close_rfc_connection()
 
                 if attempt < len(RFC_RETRY_DELAYS) - 1:
                     time.sleep(delay)
@@ -158,30 +201,18 @@ class WmBackend(WarehouseBackend):
 
     def list_tasks(self, warehouse: str = "001", status: str = "0",
                    top: int = 100, skip: int = 0) -> list[WarehouseTask]:
-        """List open transfer orders from WM.
-
-        Uses L_TO_READ to fetch TOs. WM doesn't support bulk query with
-        status filter natively — we read headers and filter.
-        """
-        # Read TO headers for the warehouse
-        # L_TO_READ with I_LGNUM returns all TOs for a warehouse
         try:
-            result = self._call_rfc(
-                "L_TO_READ",
-                I_LGNUM=warehouse,
-            )
+            result = self._call_rfc("L_TO_READ", I_LGNUM=warehouse)
         except Exception as e:
             logger.error(f"Failed to list WM tasks for {warehouse}: {e}")
             return []
 
-        # Parse the response
         tasks = []
         headers = self._extract_table(result, "T_HEADERS", [])
         for hdr in headers:
             tanum = str(hdr.get("TANUM", ""))
             raw_status = str(hdr.get("STATUS", "0"))
 
-            # Filter by status: 0=open, 1=in progress, etc.
             if status and raw_status != status:
                 continue
 
@@ -198,13 +229,8 @@ class WmBackend(WarehouseBackend):
         return tasks[skip:skip + top]
 
     def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
-        """Get a single transfer order by number."""
         try:
-            result = self._call_rfc(
-                "L_TO_READ",
-                I_LGNUM=warehouse,
-                I_TANUM=task_id,
-            )
+            result = self._call_rfc("L_TO_READ", I_LGNUM=warehouse, I_TANUM=task_id)
             items = self._extract_table(result, "T_HEADERS", [])
             if not items:
                 return None
@@ -218,27 +244,25 @@ class WmBackend(WarehouseBackend):
             return None
 
     def create_task(self, task: WarehouseTask) -> WarehouseTask | None:
-        """Create a new transfer order via L_TO_CREATE_SINGLE."""
         bwlvs = task.movement_type or "999"
         trart = task.transfer_type or self._derive_transfer_type(task.task_type)
 
         params = {
             "I_LGNUM": task.warehouse,
-            "I_TANUM": "",                           # Auto-numbering
+            "I_TANUM": "",
             "I_BWLVS": bwlvs,
             "I_TRART": trart,
             "I_MATNR": task.product or "",
             "I_WERKS": task.plant or "",
             "I_LGORT": task.storage_location or "",
-            "I_VLTYP": task._get_source_type_prefix(task.source_bin),
+            "I_VLTYP": self._get_source_type_prefix(task.source_bin),
             "I_VLPLA": task.source_bin or "",
-            "I_NLTYP": task._get_source_type_prefix(task.dest_bin),
+            "I_NLTYP": self._get_source_type_prefix(task.dest_bin),
             "I_NLPLA": task.dest_bin or "",
             "I_ANFME": task.target_qty,
             "I_ALTME": task.uom or "EA",
             "I_CHARG": task.batch or "",
         }
-        # Remove empty string params
         params = {k: v for k, v in params.items() if v != ""}
 
         try:
@@ -257,7 +281,6 @@ class WmBackend(WarehouseBackend):
 
     def confirm_task(self, warehouse: str, task_id: str, qty: float,
                      item_no: str = "0001") -> bool:
-        """Confirm a transfer order via L_TO_CONFIRM."""
         try:
             self._call_rfc(
                 "L_TO_CONFIRM",
@@ -276,7 +299,6 @@ class WmBackend(WarehouseBackend):
             return False
 
     def cancel_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> bool:
-        """Cancel a transfer order via L_TO_CANCEL."""
         try:
             self._call_rfc(
                 "L_TO_CANCEL",
@@ -292,32 +314,77 @@ class WmBackend(WarehouseBackend):
     # ── Health ───────────────────────────────────────────
 
     def check_connection(self) -> dict:
-        """Test WM RFC connectivity using RFC_PING."""
+        if self._mode == "http":
+            try:
+                client = self._get_http_client()
+                resp = client.get("/health")
+                data = resp.json()
+                return {
+                    "connected": resp.status_code == 200,
+                    "backend": self.backend_type,
+                    "mode": "http",
+                    "warehouse_configured": bool(self._simulator_url),
+                    "details": {
+                        "simulator_url": self._simulator_url,
+                        "tos_created": data.get("tos_created", 0),
+                    },
+                }
+            except Exception as e:
+                return {
+                    "connected": False,
+                    "backend": self.backend_type,
+                    "mode": "http",
+                    "warehouse_configured": bool(self._simulator_url),
+                    "error": str(e)[:200],
+                }
+
         try:
             self._call_rfc("RFC_PING")
             return {
                 "connected": True,
                 "backend": self.backend_type,
-                "auth_configured": bool(self._conn_params.get("user")),
-                "host": self._conn_params.get("ashost", ""),
+                "mode": "rfc",
+                "warehouse_configured": bool(self._conn_params.get("user")),
+                "details": {
+                    "host": self._conn_params.get("ashost", ""),
+                    "client": self._conn_params.get("client", ""),
+                },
             }
         except ImportError:
             return {
                 "connected": False,
                 "backend": self.backend_type,
+                "mode": "rfc",
+                "warehouse_configured": bool(self._conn_params.get("user")),
                 "error": "pyrfc not installed — SAP NW RFC SDK required",
-                "auth_configured": bool(self._conn_params.get("user")),
             }
         except Exception as e:
             return {
                 "connected": False,
                 "backend": self.backend_type,
+                "mode": "rfc",
+                "warehouse_configured": bool(self._conn_params.get("user")),
                 "error": str(e)[:200],
-                "auth_configured": bool(self._conn_params.get("user")),
             }
+
+    # ── Lifecycle ────────────────────────────────────────
+
+    def close(self):
+        """Release pyrfc and httpx connections."""
+        if self._http_client is not None:
+            with contextlib.suppress(Exception):
+                self._http_client.close()
+            self._http_client = None
+        self._close_rfc_connection()
+        logger.debug("WmBackend connections closed")
 
     def validate_config(self) -> list[str]:
         errors = []
+        if self._mode == "http":
+            if not self._cfg.get("simulator_url") and not DEFAULT_WM_SIMULATOR_URL:
+                errors.append("WM simulator URL not configured")
+            return errors
+
         if not self._conn_params.get("ashost"):
             errors.append("WM RFC ashost not configured")
         if not self._conn_params.get("user"):
@@ -329,7 +396,6 @@ class WmBackend(WarehouseBackend):
     # ── Helpers ──────────────────────────────────────────
 
     def _get_to_items(self, warehouse: str, tanum: str) -> list[dict]:
-        """Get items for a specific transfer order."""
         try:
             result = self._call_rfc("L_TO_READ", I_LGNUM=warehouse, I_TANUM=tanum)
             return self._extract_table(result, "T_ITEMS", [])
@@ -337,7 +403,6 @@ class WmBackend(WarehouseBackend):
             return []
 
     def _parse_to(self, row: dict, warehouse: str) -> WarehouseTask:
-        """Parse WM transfer order data into canonical WarehouseTask."""
         tanum = str(row.get("TANUM", row.get("I_TANUM", "")))
         tapos = str(row.get("TAPOS", row.get("I_TAPOS", "0001")))
         bwlvs = str(row.get("BWLVS", row.get("I_BWLVS", "999")))
@@ -358,12 +423,14 @@ class WmBackend(WarehouseBackend):
             actual_qty=float(row.get("WSMENG", row.get("I_WSMENG", 0)) or 0),
             uom=row.get("ALTME", row.get("I_ALTME", "EA")),
             status=raw_status,
-            to_number=tanum,
-            movement_type=bwlvs,
-            transfer_type=trart,
-            plant=row.get("WERKS", row.get("I_WERKS")),
-            storage_location=row.get("LGORT", row.get("I_LGORT")),
-            raw=row,
+            vendor_data={
+                "to_number": tanum,
+                "movement_type": bwlvs,
+                "transfer_type": trart,
+                "plant": row.get("WERKS", row.get("I_WERKS")),
+                "storage_location": row.get("LGORT", row.get("I_LGORT")),
+                "raw": row,
+            },
         )
 
     @staticmethod
@@ -373,7 +440,6 @@ class WmBackend(WarehouseBackend):
 
     @staticmethod
     def _extract_table(result: dict, key: str, default: list) -> list:
-        """Extract a table from RFC result (handles pyrfc table format)."""
         table = result.get(key, default)
         if isinstance(table, list):
             return table
@@ -383,10 +449,6 @@ class WmBackend(WarehouseBackend):
 
     @staticmethod
     def _get_source_type_prefix(bin_id: str | None) -> str:
-        """Extract storage type prefix from bin ID (first 3 chars)."""
         if not bin_id or len(bin_id) < 3:
             return "001"
         return bin_id[:3]
-
-    def __del__(self):
-        self._close_connection()

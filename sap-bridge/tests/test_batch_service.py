@@ -135,7 +135,7 @@ class TestBatchService:
                 source_system="WM", warehouse="001",
                 external_id="TO-1000", task_type="MOVE",
                 product="MAT-WM", target_qty=5.0,
-                to_number="TO-1000", movement_type="999",
+                vendor_data={"to_number": "TO-1000", "movement_type": "999"},
             )
         ]
 

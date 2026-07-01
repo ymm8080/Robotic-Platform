@@ -129,6 +129,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # requirements-base.txt excludes pyrfc, which needs the SAP NW RFC SDK
+          # (not available in CI). The Dockerfile does the same via INCLUDE_RFC=false.
           pip install -r sap-bridge/requirements-base.txt
 
       - name: Run pytest with coverage

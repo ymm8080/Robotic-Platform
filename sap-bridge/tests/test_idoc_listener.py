@@ -1,11 +1,47 @@
 """Tests for SAP IDoc listener — XML parse, task extraction, enqueue."""
 import os
 import xml.etree.ElementTree as ET
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from services.idoc_listener import IdocListener, _extract_edi_dc40, _extract_segments, _segment_to_warehouse_task
 
-# Redis (same auth as main redis, use DB 1 for tests)
-REDIS_URL = os.getenv("REDIS_URL_TEST", "redis://:robot-platform-redis@localhost:6379/1")
+# Redis URL for tests: honour REDIS_URL_TEST first (local dev override),
+# then CI's REDIS_URL, then a password‑free localhost default on DB 1.
+_REDIS_BASE = os.getenv("REDIS_URL_TEST") or os.getenv("REDIS_URL", "redis://localhost:6379/1")
+REDIS_URL = _REDIS_BASE
+
+# ── Mock Redis (same pattern as test_worker.py) ────────
+
+_MOCK_REDIS = MagicMock()
+_MOCK_REDIS.ping.return_value = True
+_MOCK_REDIS.zadd.return_value = 1
+_MOCK_REDIS.zcard.return_value = 0
+_MOCK_REDIS.zrange.return_value = []
+_MOCK_REDIS.zrem.return_value = 1
+_MOCK_REDIS.hset.return_value = 1
+_MOCK_REDIS.hgetall.return_value = {}
+_MOCK_REDIS.hdel.return_value = 1
+_MOCK_REDIS.expire.return_value = True
+_MOCK_REDIS.delete.return_value = 1
+_MOCK_REDIS.get.return_value = None
+_MOCK_REDIS.set.return_value = True
+_MOCK_REDIS.setex.return_value = True
+_MOCK_REDIS.incr.return_value = 1
+_MOCK_REDIS.keys.return_value = []
+_MOCK_REDIS.lrange.return_value = []
+_MOCK_REDIS.lpush.return_value = 1
+_MOCK_REDIS.ltrim.return_value = True
+_MOCK_REDIS.pipeline.return_value = _MOCK_REDIS  # pipe is the mock itself
+_MOCK_REDIS.execute.return_value = None
+
+
+@pytest.fixture(autouse=True)
+def _patch_redis():
+    """Patch redis.from_url globally so IdocListener + PriorityQueue use mocks."""
+    with patch("redis.from_url", return_value=_MOCK_REDIS):
+        yield
 
 # ── Sample IDoc payloads ──────────────────────────────
 

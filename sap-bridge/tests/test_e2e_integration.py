@@ -615,4 +615,4 @@ class TestEwmBackendE2E:
         with patch.object(svc, "_get_client", return_value=mock_client):
             status = svc.check_connection()
             assert status["connected"] is True
-            assert status["status_code"] == 200
+            assert status["details"]["status_code"] == 200

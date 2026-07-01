@@ -113,18 +113,21 @@ sap:
       connection_timeout: 30
       odata_service: "/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001"
 
-    # WM warehouse — uncomment when SAP WM is available
-    # WM02:
-    #   backend: wm
-    #   rfc_ashost: "${SAP_WM_ASHOST:-}"
-    #   rfc_sysnr: "${SAP_WM_SYSNR:-00}"
-    #   rfc_client: "${SAP_WM_CLIENT:-800}"
-    #   rfc_user: "${SAP_WM_USER:-}"
-    #   password_file: "${SAP_WM_PASSWORD_FILE:-/run/secrets/sap_wm_password}"
-    #   rfc_lang: "${SAP_LANG:-ZH}"
-    #   rate_limit: 60
-    #   plant: ""
-    #   storage_location: ""
+    # WM warehouse — dev/test mode uses HTTP simulator (no pyrfc needed)
+    WM02:
+      backend: wm
+      mode: http                          # 'http' → WM Simulator; 'rfc' → real SAP via pyrfc
+      simulator_url: "http://wm-simulator:8001"  # only used in http mode
+      # ── RFC mode (uncomment & fill for real SAP WM) ──
+      # rfc_ashost: "${SAP_WM_ASHOST:-}"
+      # rfc_sysnr: "${SAP_WM_SYSNR:-00}"
+      # rfc_client: "${SAP_WM_CLIENT:-800}"
+      # rfc_user: "${SAP_WM_USER:-}"
+      # password_file: "${SAP_WM_PASSWORD_FILE:-/run/secrets/sap_wm_password}"
+      # rfc_lang: "${SAP_LANG:-ZH}"
+      # rate_limit: 60
+      # plant: ""
+      # storage_location: ""
 
   default_warehouse: "WM01"
   rate_limit_per_minute: 80

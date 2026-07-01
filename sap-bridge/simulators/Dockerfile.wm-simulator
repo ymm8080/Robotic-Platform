@@ -1,0 +1,16 @@
+# SAP WM RFC Simulator — standalone FastAPI mock
+# Used for dev/test when no real SAP WM is available.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir fastapi uvicorn httpx
+
+COPY . .
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"
+
+EXPOSE 8001
+
+CMD ["uvicorn", "wm_simulator.main:app", "--host", "0.0.0.0", "--port", "8001"]

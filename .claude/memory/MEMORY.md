@@ -4,6 +4,7 @@
 - [Auto Daily Brief](auto-daily-brief.md) — Stop hook generates per-file daily brief in D:\EWM ROBOT\daily-briefs\
 - [REFERENCE Monitoring](reference-monitoring.md) — REFERENCE dir change detection added to today-brief
 - [Robot Dashboard Phase 1](robot-dashboard-phase1.md) — React + MQTT real-time robot monitoring dashboard
+- [Version Upgrade v3.4→v5.0](version-upgrade-v3.4-to-v5.0.md) — v3.4→v5.0 演进理由 + 验证矩阵 + 触发条件
 - [Claude Code Equip v3.4](claude-code-equip-v3.4.md) — Equipped project for Claude Code: 22 domain skills, fixed v3.4 gaps, cleaned MCP
 - [Node-RED Debug Reference](nodered-debug-reference.md) — Common Node-RED errors, root causes, fixes
 - [Implementation Roadmap](implementation-roadmap-plan.md) — v3.4→v5.0 upgrade path, multi-warehouse

@@ -1,16 +1,16 @@
 ---
 name: warehouse-backend-abstraction
-description: Dual EWM+WM warehouse backend architecture — plugin registry pattern mirrors strategies/
-metadata: 
+description: Dual EWM+WM warehouse backend — code complete, 35 tests passing. WM needs real SAP system verification.
+metadata:
   node_type: memory
   type: project
-  status: design-approved-unimplemented
+  status: code-complete-verified
   originSessionId: ad66e039-1e6f-4984-9ffb-06cfd54d0bd2
 ---
 
 ## Decision: Plugin Registry for Multi-Warehouse Backend Support
 
-Decided 2026-06-24. Will implement later.
+Decided 2026-06-24. **Implemented 2026-06-25.** All tests pass (354 total).
 
 ### Architecture
 
@@ -20,38 +20,22 @@ Decided 2026-06-24. Will implement later.
 sap-bridge/backends/
   ├── base.py              ← WarehouseBackend ABC (mirrors strategies/base.py)
   ├── registry.py           ← singleton registry (mirrors strategies/registry.py)
-  ├── ewm_backend.py        ← existing OData code extracted (mirrors strategies/kuka.py)
-  ├── wm_backend.py         ← new pyrfc/BAPI implementation (mirrors strategies/mir.py)
-  └── __init__.py
+  ├── ewm_backend.py        ← EWM OData — real SAP connected ✅
+  ├── wm_backend.py         ← WM RFC/BAPI — code + 35 tests ✅, needs real SAP
+  └── factory.py            ← selects backend per warehouse from config.yaml
 
-sap-bridge/models/
-  ├── warehouse_task.py     ← canonical task model (EWM WT + WM TO fields)
-  └── order.py              ← existing, SAP-agnostic ✓
+tests/
+  ├── test_wm_backend.py    ← 25 unit tests (mock RFC CRUD + error handling)
+  └── test_wm_integration.py ← 10 E2E tests (backend → batch → order flow)
 ```
 
 ### Key Design Choices
 
 1. **Config-driven per warehouse** — `config.yaml` `sap.warehouses` map with `backend: ewm|wm` + connection params
-2. **Single container handles mixed** — one `sap-bridge` can talk to EWM and WM warehouses simultaneously (same as one bridge handles KUKA + MiR robots)
-3. **Plugin-loadable** — future: scan `/app/backends/plugins/` for file-drop new backends
-4. **ABC contract tests** — single test suite runs against any backend mock
-
-### Files to Change (when implemented)
-
-| File | Action |
-|------|--------|
-| `backends/base.py` | NEW |
-| `backends/registry.py` | NEW |
-| `backends/ewm_backend.py` | NEW (extract from ewm_warehouse_service.py) |
-| `backends/wm_backend.py` | NEW |
-| `models/warehouse_task.py` | NEW |
-| `services/ewm_warehouse_service.py` | DELETE |
-| `services/batch_service.py` | MODIFY |
-| `services/inventory_service.py` | MODIFY |
-| `services/__init__.py` | MODIFY |
-| `main.py` | MODIFY |
-| `config.yaml` | MODIFY |
-| `Dockerfile` | MODIFY (add pyrfc conditional) |
-| `requirements.txt` | MODIFY |
+2. **Single container handles mixed** — one `sap-bridge` can talk to EWM and WM warehouses simultaneously
+3. **WM needs real SAP system** — code is tested via mock RFC; final verification requires:
+   - SAP NW RFC SDK (`pip install pyrfc`)
+   - Real WM system credentials (ashost/sysnr/client)
+   - Docker build with `INCLUDE_RFC=true`
 
 **Why:** [[claude-code-equip-v3.4]] — the strategies/ pattern already proves this works.

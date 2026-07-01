@@ -184,6 +184,44 @@ services:
         max-file: "3"
 
   # ===========================================================================
+  # 3b. WM RFC Simulator (SAP Classic WM mock for dev/test)
+  #     Uses mode:http in config.yaml ← no pyrfc needed.
+  #     For real SAP WM, set mode:rfc in config and remove this service.
+  # ===========================================================================
+  wm-simulator:
+    build:
+      context: ./sap-bridge
+      dockerfile: simulators/Dockerfile.wm-simulator
+    image: robot-platform-wm-simulator:latest
+    container_name: robot-platform-wm-simulator
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
   # 4. Dify LLM 翻译层
   # ===========================================================================
   dify:
