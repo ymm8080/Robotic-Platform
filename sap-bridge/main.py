@@ -55,17 +55,23 @@ async def lifespan(app: FastAPI):
     publisher.connect()
 
     # Start heartbeat monitor (subscribes to robot connection/state MQTT topics)
-    from heartbeat_monitor import HeartbeatMonitor
-    heartbeat = HeartbeatMonitor()
-    heartbeat.start()
-    app.state.heartbeat = heartbeat
+    # Gracefully handles MQTT unavailability (tests, CI) — logs warning and continues
+    try:
+        from heartbeat_monitor import HeartbeatMonitor
+        heartbeat = HeartbeatMonitor()
+        heartbeat.start()
+        app.state.heartbeat = heartbeat
+    except Exception as e:
+        logger.warning(f"Heartbeat monitor failed to start (MQTT unavailable?): {e}")
+        app.state.heartbeat = None
 
     worker = QueueWorker()
     worker.start()
     app.state.worker = worker
     logger.info("SAP Bridge started (MQTT + queue worker + heartbeat)")
     yield
-    heartbeat.stop()
+    if heartbeat is not None:
+        heartbeat.stop()
     worker.stop()
     publisher.disconnect()
     logger.info("SAP Bridge stopped")
