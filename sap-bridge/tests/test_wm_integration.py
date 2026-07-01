@@ -119,8 +119,8 @@ class TestWmE2EFlow:
 
     def test_wm_backend_via_factory(self):
         """Factory should instantiate WmBackend from config."""
-        from backends.wm_backend import WmBackend
         from backends.factory import WarehouseBackendFactory
+        from backends.wm_backend import WmBackend
         with patch.object(WmBackend, "_create_connection") as mock_conn:
             mock_conn.return_value = MagicMock()
             factory = WarehouseBackendFactory()

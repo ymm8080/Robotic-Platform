@@ -164,7 +164,7 @@ def print_report(issues: dict):
         for item in items:
             print(f"    {item}")
 
-    print(f"\n  Summary:")
+    print("\n  Summary:")
     print(f"    {len(issues['errors'])} errors")
     print(f"    {len(issues['warnings'])} warnings")
     print(f"    {len(issues['info'])} items")

@@ -10,6 +10,7 @@ References:
   REFERENCE/05_reference/sap/error-code-matrix.md
 """
 
+import contextlib
 import logging
 import os
 import re
@@ -90,10 +91,8 @@ class CsrfTokenManager:
 
     def close(self):
         """Close Redis connection."""
-        try:
+        with contextlib.suppress(Exception):
             self._redis.close()
-        except Exception:
-            pass
 
 
 # ── EWM Backend ────────────────────────────────────────────
@@ -331,16 +330,12 @@ class EwmBackend(WarehouseBackend):
     def close(self):
         """Release Redis and httpx connections."""
         if self._csrf is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._csrf.close()
-            except Exception:
-                pass
             self._csrf = None
         if self._redis is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._redis.close()
-            except Exception:
-                pass
             self._redis = None
         logger.debug("EwmBackend connections closed")
 

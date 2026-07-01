@@ -14,10 +14,16 @@ import contextlib
 import logging
 import os
 import time
+from typing import TYPE_CHECKING
 
 from models.warehouse_task import WarehouseTask
 
 from .base import WarehouseBackend
+
+if TYPE_CHECKING:
+    # httpx is an optional dependency (only required for HTTP/simulator mode,
+    # imported lazily at runtime). Imported here solely for type annotations.
+    import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +77,7 @@ class WmBackend(WarehouseBackend):
         self._cfg = config or {}
         self._mode = self._cfg.get("mode", "rfc").lower()
 
-        self._http_client: "httpx.Client | None" = None
+        self._http_client: httpx.Client | None = None
         self._last_conn = None
         self._last_conn_time = 0.0
         self._conn_ttl = 300  # Reconnect every 5 min
@@ -366,10 +372,8 @@ class WmBackend(WarehouseBackend):
     def close(self):
         """Release pyrfc and httpx connections."""
         if self._http_client is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._http_client.close()
-            except Exception:
-                pass
             self._http_client = None
         self._close_rfc_connection()
         logger.debug("WmBackend connections closed")

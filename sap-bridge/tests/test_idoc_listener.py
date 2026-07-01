@@ -1,9 +1,6 @@
 """Tests for SAP IDoc listener — XML parse, task extraction, enqueue."""
-import json
 import os
 import xml.etree.ElementTree as ET
-
-import pytest
 
 from services.idoc_listener import IdocListener, _extract_edi_dc40, _extract_segments, _segment_to_warehouse_task
 

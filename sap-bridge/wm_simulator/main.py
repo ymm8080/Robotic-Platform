@@ -14,14 +14,11 @@ Run via Docker Compose:
   docker compose up wm-simulator -d
 """
 
-import enum
 import logging
-import random
 import time
-import uuid
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
