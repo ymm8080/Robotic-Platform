@@ -76,8 +76,13 @@ jobs:
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment_body.md
+            echo "Review posted as PR comment"
           else
-            gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-              --field body=@/tmp/comment_body.md
+            # On push events, posting a commit comment requires `contents: write`
+            # (not granted here, to keep least privilege). A push to a PR branch
+            # also triggers the pull_request event above, which posts the PR
+            # comment — so skipping here avoids both a permission failure and a
+            # duplicate comment. The review is still generated above and visible
+            # in the job log.
+            echo "Push event — review generated, skipping commit comment post."
           fi
-          echo "Review posted successfully"
