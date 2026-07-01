@@ -203,13 +203,15 @@ jobs:
           docker build -t watchdog:ci ./watchdog
 
   # ===========================================================================
-  # Phase 5: Trivy Security Scan (master only)
+  # Phase 5: Trivy Security Scan
   # ===========================================================================
   trivy-scan:
     name: Trivy
-    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -232,7 +234,8 @@ jobs:
           severity: HIGH,CRITICAL
 
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
         with:
           sarif_file: trivy-sap-bridge.sarif
           category: sap-bridge
