@@ -40,6 +40,8 @@ dify-data/
 
 # MQTT 运行时
 mqtt-data/
+mqtt/passwd
+mqtt/passwd
 
 # IDE
 .vscode/
@@ -57,6 +59,8 @@ test/
 __pycache__/
 *.pyc
 .pytest_cache/
+*.coverage
+coverage.xml
 
 # 构建
 node_modules/

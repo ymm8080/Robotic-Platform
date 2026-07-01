@@ -4,7 +4,6 @@ Qoder Skills Setup Verification Script
 Verifies that all required custom skills are properly installed.
 """
 
-import os
 from pathlib import Path
 
 # Define required skills and their key requirements
@@ -63,11 +62,11 @@ def verify_skills():
         
         # Check if file exists
         if not skill_path.exists():
-            print(f"  ❌ FAIL: File not found")
+            print("  ❌ FAIL: File not found")
             all_passed = False
             continue
         
-        print(f"  ✓ File exists")
+        print("  ✓ File exists")
         
         # Read file content
         content = skill_path.read_text(encoding='utf-8')
@@ -82,7 +81,7 @@ def verify_skills():
             print(f"  ⚠️  Missing keywords: {', '.join(missing_keywords)}")
             all_passed = False
         else:
-            print(f"  ✓ All required content present")
+            print("  ✓ All required content present")
         
         # Show file size
         file_size = skill_path.stat().st_size

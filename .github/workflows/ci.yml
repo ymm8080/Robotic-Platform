@@ -1,19 +1,19 @@
 # =============================================================================
 # SAP-EWM 机器人调度平台 CI/CD 流水线 v3.4
-# 触发：push/PR 到 master + 每日定时扫描
+# 触发：push/PR 全分支 + 每日定时扫描
 # 阶段：lint → adr → test → build → trivy scan → docker build (no push)
 # =============================================================================
 name: CI
 
 on:
   push:
-    branches: [master]
+    branches: ['**']
     paths-ignore:
       - "**.md"
       - "docs/**"
       - ".claude/**"
   pull_request:
-    branches: [master]
+    branches: ['**']
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -129,14 +129,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r sap-bridge/requirements.txt
+          pip install -r sap-bridge/requirements-base.txt
 
       - name: Run pytest with coverage
         run: |
           cd sap-bridge
           python -m pytest tests/ \
             --asyncio-mode=auto \
-            --cov=. \
+            --cov=. --cov-config=.coveragerc \
             --cov-report=term-missing \
             --cov-report=xml:../coverage.xml \
             -v
@@ -152,17 +152,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Check coverage threshold (80%)
-        run: |
-          python -c "
-            import xml.etree.ElementTree as ET
-            tree = ET.parse('coverage.xml')
-            root = tree.getroot()
-            line_rate = float(root.attrib.get('line-rate', 0))
-            pct = line_rate * 100
-            print(f'Coverage: {pct:.1f}%')
-            assert line_rate >= 0.80, f'Coverage {pct:.1f}% < 80%'
-            print('✅ Coverage above 80%')
-          "
+        run: python .github/scripts/check_coverage.py coverage.xml 0.80
 
   # ===========================================================================
   # Phase 4: Build
@@ -193,28 +183,7 @@ jobs:
           echo "✅ Docker Compose config valid"
 
       - name: Syntax check all Python files
-        run: |
-          python -c "
-            import ast, glob
-            errors = 0
-            for f in glob.glob('sap-bridge/**/*.py', recursive=True):
-              with open(f) as fh:
-                try:
-                  ast.parse(fh.read())
-                except SyntaxError as e:
-                  print(f'❌ {f}: {e}')
-                  errors += 1
-            for f in glob.glob('scripts/*.py', recursive=True):
-              with open(f) as fh:
-                try:
-                  ast.parse(fh.read())
-                except SyntaxError as e:
-                  print(f'❌ {f}: {e}')
-                  errors += 1
-            if errors:
-              exit(1)
-            print('✅ All Python files syntactically valid')
-          "
+        run: python .github/scripts/syntax_check.py
 
       - name: Build sap-bridge Docker image (no push)
         run: |
