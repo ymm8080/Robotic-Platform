@@ -183,28 +183,7 @@ jobs:
           echo "✅ Docker Compose config valid"
 
       - name: Syntax check all Python files
-        run: |
-          python -c "
-            import ast, glob
-            errors = 0
-            for f in glob.glob('sap-bridge/**/*.py', recursive=True):
-              with open(f) as fh:
-                try:
-                  ast.parse(fh.read())
-                except SyntaxError as e:
-                  print(f'❌ {f}: {e}')
-                  errors += 1
-            for f in glob.glob('scripts/*.py', recursive=True):
-              with open(f) as fh:
-                try:
-                  ast.parse(fh.read())
-                except SyntaxError as e:
-                  print(f'❌ {f}: {e}')
-                  errors += 1
-            if errors:
-              exit(1)
-            print('✅ All Python files syntactically valid')
-          "
+        run: python .github/scripts/syntax_check.py
 
       - name: Build sap-bridge Docker image (no push)
         run: |
