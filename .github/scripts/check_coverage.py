@@ -15,6 +15,8 @@ Usage:
 import sys
 import xml.etree.ElementTree as ET
 
+# Force UTF-8 output so emoji/unicode markers don't crash on non-UTF-8 consoles
+# (harmless on Ubuntu CI, which is already UTF-8).
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         try:
@@ -44,6 +46,7 @@ def main(argv: list[str]) -> int:
 
     print(f"Total coverage: {pct:.1f}%")
 
+    # Per-file breakdown
     classes = sorted(
         root.findall(".//class"),
         key=lambda c: c.attrib.get("filename", ""),
