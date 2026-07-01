@@ -149,20 +149,24 @@ class TestMirStrategy:
 
     def test_waiting_before_idle(self, strategy):
         """MiR sends WAITING before IDLE — grace counter."""
-        # First WAITING report
-        state1 = {
+        state_wa = {
             "driving": False, "paused": False, "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryCharge": 60.0},
             "agvPosition": {"x": 10.0, "y": 10.0, "theta": 0.0, "lastNodeId": "NODE-05", "positionInitialized": True},
             "errors": [],
             "drivingState": "WAITING",
         }
-        result1 = strategy.handle_state(state1)
-        assert result1.status == "IDLE"  # Grace period: treat as IDLE
+        # First WAITING → still in grace period (1 < 2), treated as MOVING
+        result1 = strategy.handle_state(state_wa)
+        assert result1.status == "MOVING"
 
-        # Another round should also be IDLE (we've consumed the counter)
-        result2 = strategy.handle_state(state1)
+        # Second WAITING → grace count reached (2 >= 2), now IDLE
+        result2 = strategy.handle_state(state_wa)
         assert result2.status == "IDLE"
+
+        # Third WAITING → stays IDLE
+        result3 = strategy.handle_state(state_wa)
+        assert result3.status == "IDLE"
 
     def test_mir_battery_percentage(self, strategy):
         """MiR reports percentage directly."""

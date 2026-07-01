@@ -105,11 +105,14 @@ def _segment_to_warehouse_task(segment: dict, dc40: dict) -> WarehouseTask | Non
     """Convert one IDoc data segment to WarehouseTask."""
     seg_type = segment.get("_segment_type", "")
 
-    # Skip non-data segments
-    if not seg_type or seg_type.startswith("E1_"):
+    # Skip non-data segments (only skip the EDI_DC40 control record)
+    if not seg_type or seg_type == "EDI_DC40":
         return None
 
-    task_type = SEGMENT_TASK_TYPES.get(seg_type, "MOVE")
+    task_type = SEGMENT_TASK_TYPES.get(seg_type)
+    if task_type is None:
+        logger.debug(f"Unknown segment type '{seg_type}' — skipping")
+        return None
     product = (segment.get("MATNR", "") or segment.get("MATERIAL", "") or
                segment.get("PRODUCT", "") or "")
     source_bin = (segment.get("VLPLA", "") or segment.get("SOURCE_BIN", "") or

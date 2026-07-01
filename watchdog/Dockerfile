@@ -36,6 +36,6 @@ RUN groupadd -r watchdog && useradd -r -g watchdog watchdog \
 USER watchdog
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import os,sys; sys.exit(0 if os.path.exists('/app/logs/.watchdog.pid') else 1)"
+    CMD curl -f http://localhost:9090/health || exit 1
 
 CMD ["python", "-u", "watchdog.py"]

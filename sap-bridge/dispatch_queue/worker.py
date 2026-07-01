@@ -8,8 +8,11 @@ Features:
 - Crash recovery via processing set
 """
 import logging
+import os
 import threading
 import time
+
+import redis
 
 from models.order import OrderStatus, WarehouseOrder
 from mqtt_publisher import get_publisher
@@ -21,6 +24,7 @@ from .priority_queue import PriorityQueue
 
 logger = logging.getLogger(__name__)
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 POLL_INTERVAL = 0.5  # seconds
 MAX_RETRIES = 5
 MAX_BACKOFF = 60  # seconds
@@ -39,6 +43,7 @@ class QueueWorker:
         self._order_service = OrderService()
         self._publisher = get_publisher()
         self._registry = get_registry()
+        self._redis = redis.from_url(REDIS_URL, decode_responses=True)
         self._running = False
         self._thread: threading.Thread | None = None
         self._retry_count: dict[str, int] = {}  # order_no → retry count
@@ -136,15 +141,22 @@ class QueueWorker:
 
     def _dispatch(self, order: WarehouseOrder, queue_item: dict) -> bool:
         """Dispatch an order to the appropriate robot via MQTT."""
-        manufacturer = order.robot_brand or "UNKNOWN"
-        serial = order.robot_serial or "UNKNOWN"
+        manufacturer = order.robot_brand
+        serial = order.robot_serial
 
-        # Build VDA5050 order payload
+        # Auto-resolve brand if not specified (batch orders from SAP may be unassigned)
+        if not manufacturer or manufacturer == "UNKNOWN":
+            manufacturer, serial = self._resolve_robot(order)
+            if manufacturer is None:
+                logger.warning(f"No available robot for order {order.order_no}")
+                return False
+
+        # Build VDA5050 order payload — payload comes first so orderId/orderUpdateId are authoritative
         payload = queue_item.get("payload") or order.payload or {}
         vda5050_payload = {
+            **payload,
             "orderId": order.order_no,
             "orderUpdateId": 0,
-            **payload,
         }
 
         try:
@@ -175,6 +187,55 @@ class QueueWorker:
 
         logger.info(f"Dispatched {order.order_no} → {manufacturer}/{serial} (mid={mid})")
         return True
+
+    # ── Robot resolution ──────────────────────────
+
+    def _resolve_robot(self, order: WarehouseOrder) -> tuple[str | None, str | None]:
+        """Auto-assign a robot when order has no brand specified.
+
+        Uses SCAN (non-blocking) to find connected robots in ON-line states,
+        filters to brands registered in the strategy registry, and picks the
+        best available one.
+
+        Returns (manufacturer, serial) or (None, None) if none available.
+        """
+        registered_brands = set(b.lower() for b in self._registry.list_brands())
+        candidates: list[tuple[str, str]] = []  # (manufacturer, serial)
+
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = self._redis.scan(
+                    cursor, match="robot:connection:*", count=50,
+                )
+                for key in keys:
+                    data = self._redis.hgetall(key)
+                    state = data.get("state", data.get("connectionState", "")).upper()
+                    if state not in ("ONLINE", "IDLE", "CHARGING", "EXECUTING"):
+                        continue
+
+                    manufacturer = data.get("manufacturer", "")
+                    serial = data.get("serialNumber", "")
+
+                    if manufacturer.lower() not in registered_brands:
+                        continue
+
+                    candidates.append((manufacturer, serial))
+
+                if cursor == 0:
+                    break
+        except Exception as e:
+            logger.warning(f"Failed to scan Redis for robots: {e}")
+            return None, None
+
+        if not candidates:
+            logger.warning(f"No available robots found for order {order.order_no}")
+            return None, None
+
+        # Pick first available — future enhancement: load-based selection
+        manufacturer, serial = candidates[0]
+        logger.info(f"Auto-assigned order {order.order_no} → {manufacturer}/{serial}")
+        return manufacturer, serial
 
     # ── Failure handling ───────────────────────────
 

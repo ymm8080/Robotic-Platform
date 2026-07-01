@@ -83,14 +83,14 @@ class DeadLetterHandler:
         """Mark a deadletter item as resolved."""
         conn = sqlite3.connect(self.db_path)
         try:
-            conn.execute(
+            cur = conn.execute(
                 """UPDATE dead_letter_queue
                    SET status = ?, error_message = error_message || ' | RESOLVED: ' || ?
                    WHERE id = ? AND status = 'UNRESOLVED'""",
                 ("RESOLVED", resolution, dl_id),
             )
             conn.commit()
-            return conn.total_changes > 0
+            return cur.rowcount > 0
         finally:
             conn.close()
 

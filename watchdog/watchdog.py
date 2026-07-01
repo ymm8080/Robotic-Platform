@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import json
+import copy
 import signal
 import logging
 import logging.handlers
@@ -146,7 +147,7 @@ DEFAULT_CONFIG = {
 
 def load_config() -> Dict[str, Any]:
     """加载配置，环境变量覆盖文件配置"""
-    config = DEFAULT_CONFIG.copy()
+    config = copy.deepcopy(DEFAULT_CONFIG)
 
     # 尝试读取 config.yaml
     if Path(CONFIG_PATH).exists():
@@ -1288,6 +1289,46 @@ class WatchdogHTTPHandler(BaseHTTPRequestHandler):
                 snapshots = [json.loads(d) for d in data]
                 self._send_json({'snapshots': snapshots})
             except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+        else:
+            self._send_json({'error': 'not found'}, 404)
+
+    def do_POST(self):
+        """Accept Alertmanager webhook alerts and forward via Feishu/WeCom."""
+        if self.path == '/api/v1/alert/prometheus':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                if content_length == 0:
+                    self._send_json({'error': 'empty body'}, 400)
+                    return
+                body = self.rfile.read(content_length)
+                data = json.loads(body)
+                alerts = data.get('alerts', [])
+                for alert in alerts[:5]:  # Max 5 alerts per webhook to avoid spam
+                    status = alert.get('status', 'firing')
+                    labels = alert.get('labels', {})
+                    annotations = alert.get('annotations', {})
+                    alertname = labels.get('alertname', 'Unknown')
+                    severity = labels.get('severity', 'warning')
+                    summary = annotations.get('summary', 'No summary')
+                    content = f"告警：{alertname}\n严重度：{severity}\n详情：{summary}\n状态：{status}"
+                    level = 'fatal' if severity == 'critical' else 'warning'
+                    alerter.send(
+                        title=f'Prometheus: {alertname}',
+                        content=content,
+                        level=level,
+                        template_key=f'prometheus_{alertname}',
+                    )
+                    wecom_alerter.send(
+                        title=f'Prometheus: {alertname}',
+                        content=content,
+                        level=level,
+                        template_key=f'prometheus_{alertname}',
+                    )
+                logger.info(f'Received {len(alerts)} Prometheus alerts, forwarded {min(len(alerts), 5)}')
+                self._send_json({'status': 'ok', 'alerts_received': len(alerts)})
+            except Exception as e:
+                logger.error(f'Alertmanager webhook error: {e}')
                 self._send_json({'error': str(e)}, 500)
         else:
             self._send_json({'error': 'not found'}, 404)

@@ -27,13 +27,13 @@ app = FastAPI(title="SAP WM RFC Simulator", version="1.0.0")
 
 # ── In-memory TO store ──────────────────────────────────────────
 _tos: dict[str, dict] = {}
-_next_tanum = 1000000
+_next_tanum_counter = 1000000
 
 
-def _next_tanum() -> str:
-    global _next_tanum
-    _next_tanum += 1
-    return str(_next_tanum)
+def _gen_tanum() -> str:
+    global _next_tanum_counter
+    _next_tanum_counter += 1
+    return str(_next_tanum_counter)
 
 
 # ── Data models ─────────────────────────────────────────────────
@@ -226,7 +226,7 @@ async def l_to_read(req: LToReadRequest):
 @app.post("/rfc/L_TO_CREATE_SINGLE")
 async def l_to_create_single(req: LToCreateSingleRequest):
     """Create a new transfer order."""
-    tanum = _next_tanum()
+    tanum = _gen_tanum()
     logger.info(f"L_TO_CREATE_SINGLE: TANUM={tanum} MATNR={req.I_MATNR}")
 
     to_data = {
@@ -317,8 +317,8 @@ async def list_tos():
 async def reset():
     """Reset simulator state (debug endpoint)."""
     _tos.clear()
-    global _next_tanum
-    _next_tanum = 1000000
+    global _next_tanum_counter
+    _next_tanum_counter = 1000000
     return {"status": "reset", "tos_cleared": True}
 
 

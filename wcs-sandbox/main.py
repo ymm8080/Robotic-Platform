@@ -270,8 +270,13 @@ async def stress_test(count: int = 100, brand: str = "geekplus"):
         try:
             req = ZoneLockRequest(zone_id="STRESS_ZONE", robot_id=robot, brand=brand)
             resp = await acquire_zone_lock(req)
-            if resp.get("success"):
-                results["acquired"] += 1
+            # acquire_zone_lock returns a dict (via _make_response) on success/423,
+            # or a JSONResponse on 501 (brand not supporting zone lock).
+            if isinstance(resp, dict):
+                if resp.get("success"):
+                    results["acquired"] += 1
+                else:
+                    results["rejected"] += 1
             else:
                 results["rejected"] += 1
         except Exception:

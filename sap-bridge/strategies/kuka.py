@@ -28,8 +28,8 @@ class KukaStrategy(BaseStrategy):
             status = "ERROR"
         elif state.get("operatingMode", "AUTOMATIC") not in ("AUTOMATIC", "SEMIAUTOMATIC"):
             status = "UNAVAILABLE"
-        elif bool(state.get("batteryState", {}).get("batteryCharge", 0) == 0):
-            # KUKA specific: battery < 5% triggers CHARGING
+        elif state.get("batteryState", {}).get("batteryCharge", 0) <= 5:
+            # KUKA specific: battery at or below 5% triggers CHARGING
             status = "CHARGING"
         elif paused:
             status = "PAUSED"
