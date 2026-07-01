@@ -278,7 +278,8 @@ services:
     #   - "127.0.0.1:9001:9001" # WebSocket 仅本机
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      # 🔐 运行 scripts/setup-mqtt-auth.sh 生成密码后 MQTT 即可接受连接
+      # 🔐 首次部署：务必先运行 scripts/setup-mqtt-auth.sh 生成 passwd/acl 文件，
+      #    否则以下文件不存在会导致 Mosquitto 启动失败或拒绝所有连接。
       - ./mqtt/passwd:/mosquitto/config/passwd:ro
       - ./mqtt/acl:/mosquitto/config/acl:ro
       - mqtt-data:/mosquitto/data

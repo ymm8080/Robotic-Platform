@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 import redis as _redis_module
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from typing import Optional
+
 from pydantic import BaseModel
 
 from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
@@ -250,11 +252,11 @@ async def create_order(req: CreateOrderRequest):
     )
 
     # Validate order type
+    order_type = None
     try:
         order_type = OrderType(req.orderType.upper())
     except ValueError:
-        valid = [t.value for t in OrderType]
-        return JSONResponse(status_code=400, content={"error": f"invalid_order_type: {req.orderType}. Valid: {valid}"})
+        return JSONResponse(status_code=400, content={"error": f"invalid_order_type: {req.orderType}"})
 
     # Persist order to SQLite via OrderService
     order = WarehouseOrder(
@@ -530,18 +532,18 @@ async def get_sap_task(task_id: str, warehouse: str = "WM01"):
 
 
 @app.post("/api/v1/sap/tasks/{task_id}/confirm")
-async def confirm_sap_task(task_id: str, warehouse: str = "WM01", qty: float = 0.0):
+async def confirm_sap_task(task_id: str, warehouse: str = "WM01", qty: Optional[float] = None):
     """Confirm warehouse task completion in SAP.
 
     Args:
         task_id: SAP warehouse task ID
         warehouse: Warehouse identifier
-        qty: Confirmed quantity (defaults to 0.0 — use full planned qty)
+        qty: Confirmed quantity (None = confirm full planned qty)
     """
     backend = get_backend_for(warehouse)
     if backend is None:
         return JSONResponse(status_code=502, content={"error": f"no_backend_for_{warehouse}"})
-    # If no qty specified, use 0.0 — backends interpret 0.0 as "confirm all"
+    # None means "confirm all" — backends handle the interpretation
     ok = backend.confirm_task(warehouse, task_id, qty)
     if not ok:
         return JSONResponse(status_code=502, content={"error": "sap_confirm_failed"})

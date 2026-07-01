@@ -12,7 +12,7 @@ import os
 import threading
 import time
 
-import redis as rd
+import redis
 
 from models.order import OrderStatus, WarehouseOrder
 from mqtt_publisher import get_publisher
@@ -43,7 +43,7 @@ class QueueWorker:
         self._order_service = OrderService()
         self._publisher = get_publisher()
         self._registry = get_registry()
-        self._redis = rd.from_url(REDIS_URL, decode_responses=True)
+        self._redis = redis.from_url(REDIS_URL, decode_responses=True)
         self._running = False
         self._thread: threading.Thread | None = None
         self._retry_count: dict[str, int] = {}  # order_no → retry count
@@ -170,9 +170,6 @@ class QueueWorker:
         except Exception as e:
             logger.error(f"MQTT publish failed for {order.order_no}: {e}")
             return False
-        except Exception as e:
-            logger.error(f"MQTT publish failed for {order.order_no}: {e}")
-            return False
 
         if mid is None:
             return False
@@ -196,39 +193,49 @@ class QueueWorker:
     def _resolve_robot(self, order: WarehouseOrder) -> tuple[str | None, str | None]:
         """Auto-assign a robot when order has no brand specified.
 
-        Checks Redis for connected robots (ONLINE state), filters to
-        brands registered in the strategy registry, and picks the first
-        available one.
+        Uses SCAN (non-blocking) to find connected robots in ON-line states,
+        filters to brands registered in the strategy registry, and picks the
+        best available one.
 
         Returns (manufacturer, serial) or (None, None) if none available.
         """
+        registered_brands = set(b.lower() for b in self._registry.list_brands())
+        candidates: list[tuple[str, str]] = []  # (manufacturer, serial)
+
         try:
-            robot_keys = self._redis.keys("robot:connection:*") or []
+            cursor = 0
+            while True:
+                cursor, keys = self._redis.scan(
+                    cursor, match="robot:connection:*", count=50,
+                )
+                for key in keys:
+                    data = self._redis.hgetall(key)
+                    state = data.get("state", data.get("connectionState", "")).upper()
+                    if state not in ("ONLINE", "IDLE", "CHARGING", "EXECUTING"):
+                        continue
+
+                    manufacturer = data.get("manufacturer", "")
+                    serial = data.get("serialNumber", "")
+
+                    if manufacturer.lower() not in registered_brands:
+                        continue
+
+                    candidates.append((manufacturer, serial))
+
+                if cursor == 0:
+                    break
         except Exception as e:
-            logger.warning(f"Failed to query Redis for robots: {e}")
+            logger.warning(f"Failed to scan Redis for robots: {e}")
             return None, None
 
-        registered_brands = set(b.lower() for b in self._registry.list_brands())
+        if not candidates:
+            logger.warning(f"No available robots found for order {order.order_no}")
+            return None, None
 
-        for key in robot_keys:
-            data = self._redis.hgetall(key)
-            state = data.get("state", data.get("connectionState", "")).upper()
-            if state not in ("ONLINE", "IDLE", "CHARGING", "MOVING", "IDLE"):
-                continue
-
-            manufacturer = data.get("manufacturer", "")
-            serial = data.get("serialNumber", "")
-
-            # Must be a registered brand
-            if manufacturer.lower() not in registered_brands:
-                continue
-
-            logger.info(f"Auto-assigned order {order.order_no} → {manufacturer}/{serial}")
-            return manufacturer, serial
-
-        logger.warning(f"No available robots found for order {order.order_no} "
-                       f"(checked {len(robot_keys)} connection records)")
-        return None, None
+        # Pick first available — future enhancement: load-based selection
+        manufacturer, serial = candidates[0]
+        logger.info(f"Auto-assigned order {order.order_no} → {manufacturer}/{serial}")
+        return manufacturer, serial
 
     # ── Failure handling ───────────────────────────
 

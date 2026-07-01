@@ -41,41 +41,38 @@ class MirStrategy(BaseStrategy):
         error_levels = {e["errorLevel"] for e in errors}
         serial = state.get("serialNumber", "unknown")
 
-        # Helper to get/reset per-robot counter
-        def _counter(reset=False):
-            if reset or serial not in self._waiting_counters:
-                self._waiting_counters[serial] = 0
-            return self._waiting_counters
-
         # The MiR-specific state fields
         mir_driving_state = state.get("drivingState", "")
 
         if "FATAL" in error_levels:
             status = "ERROR"
-            _counter(reset=True)
+            self._waiting_counters[serial] = 0
         elif state.get("operatingMode", "AUTOMATIC") not in ("AUTOMATIC", "SEMIAUTOMATIC"):
             status = "UNAVAILABLE"
-            _counter(reset=True)
+            self._waiting_counters[serial] = 0
         elif paused:
             status = "PAUSED"
         elif mir_driving_state == "DRIVING" or driving:
             # Quirk: MiR says DRIVING not MOVING — we normalize to MOVING
             status = "MOVING"
-            _counter(reset=True)
+            self._waiting_counters[serial] = 0
         elif mir_driving_state == "WAITING":
-            # Quirk: MiR sends WAITING before IDLE after job complete
+            # Quirk: MiR sends WAITING before IDLE after job complete.
+            # Apply a grace counter: the first N WAITING reports are treated
+            # as the robot's last known state (MOVING), after which we
+            # transition to IDLE.
             self._waiting_counters[serial] = self._waiting_counters.get(serial, 0) + 1
             if self._waiting_counters[serial] >= self._WAITING_GRACE_COUNT:
                 status = "IDLE"
             else:
-                status = "IDLE"  # Treat as IDLE since action is done
+                status = "MOVING"  # Still in grace — robot likely finishing last action
         elif state.get("actionStates"):
             running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
             status = "EXECUTING" if running else "IDLE"
-            _counter(reset=True)
+            self._waiting_counters[serial] = 0
         else:
             status = "IDLE"
-            _counter(reset=True)
+            self._waiting_counters[serial] = 0
 
         battery_raw = state.get("batteryState", {})
         return RobotState(
