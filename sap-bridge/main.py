@@ -12,8 +12,6 @@ from contextlib import asynccontextmanager
 import redis as _redis_module
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from typing import Optional
-
 from pydantic import BaseModel
 
 from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
@@ -532,7 +530,7 @@ async def get_sap_task(task_id: str, warehouse: str = "WM01"):
 
 
 @app.post("/api/v1/sap/tasks/{task_id}/confirm")
-async def confirm_sap_task(task_id: str, warehouse: str = "WM01", qty: Optional[float] = None):
+async def confirm_sap_task(task_id: str, warehouse: str = "WM01", qty: float | None = None):
     """Confirm warehouse task completion in SAP.
 
     Args:
