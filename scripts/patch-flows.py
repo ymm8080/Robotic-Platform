@@ -102,7 +102,7 @@ def patch_flows(path):
     # 5. Remove hardcoded URL warnings — replace with env var patterns
     for node in nodes:
         if node.get("type") in ("http in",):
-            # Only flag — we keep them since Node-RED uses routes, not env vars for endpoints
+            # Keep them — Node-RED uses routes, not env vars for endpoints
             pass
 
     # 6. Check inject nodes have correct onceDelay
