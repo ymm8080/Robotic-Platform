@@ -25,26 +25,34 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- 订单表 v2 (current — OrderService + optimistic locking)
 CREATE TABLE IF NOT EXISTS orders_v2 (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_no TEXT NOT NULL,
-    type TEXT NOT NULL,
-    priority INTEGER DEFAULT 3,
+    id INTEGER PRIMARY KEY,
+    order_no TEXT NOT NULL UNIQUE,
+    type TEXT NOT NULL DEFAULT 'MOVE'
+        CHECK(type IN ('PICK', 'PUT', 'MOVE', 'CHARGE')),
+    priority INTEGER NOT NULL DEFAULT 3
+        CHECK(priority >= 0 AND priority <= 3),
     source TEXT,
     robot_brand TEXT,
     robot_serial TEXT,
-    status TEXT DEFAULT 'CREATED',
+    status TEXT NOT NULL DEFAULT 'CREATED'
+        CHECK(status IN (
+            'CREATED', 'ASSIGNED', 'IN_PROGRESS',
+            'COMPLETED', 'FAILED', 'CANCELLED',
+            'SUSPENDED', 'DIFF_SUSPENDED'
+        )),
     payload TEXT,
     zone_id TEXT,
+    zone_token TEXT,
     location TEXT,
     weight REAL,
-    env_tag TEXT,
+    env_tag TEXT DEFAULT 'PROD',
     expected_qty INTEGER,
     assigned_rule_id INTEGER,
     error_message TEXT,
-    version INTEGER DEFAULT 1,
-    created_at REAL,
-    updated_at REAL,
-    completed_at REAL
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    version INTEGER DEFAULT 1
 );
 
 -- Outbox 事件表（穷人的 Saga）
