@@ -203,11 +203,10 @@ jobs:
           docker build -t watchdog:ci ./watchdog
 
   # ===========================================================================
-  # Phase 5: Trivy Security Scan (master only)
+  # Phase 5: Trivy Security Scan
   # ===========================================================================
   trivy-scan:
     name: Trivy
-    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
     steps:
