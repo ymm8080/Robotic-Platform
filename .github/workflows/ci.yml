@@ -1,19 +1,19 @@
 # =============================================================================
 # SAP-EWM 机器人调度平台 CI/CD 流水线 v3.4
-# 触发：push/PR 到 master + 每日定时扫描
+# 触发：push/PR 全分支 + 每日定时扫描
 # 阶段：lint → adr → test → build → trivy scan → docker build (no push)
 # =============================================================================
 name: CI
 
 on:
   push:
-    branches: [master]
+    branches: ['**']
     paths-ignore:
       - "**.md"
       - "docs/**"
       - ".claude/**"
   pull_request:
-    branches: [master]
+    branches: ['**']
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -129,8 +129,6 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # requirements-base.txt excludes pyrfc, which needs the SAP NW RFC SDK
-          # (not available in CI). The Dockerfile does the same via INCLUDE_RFC=false.
           pip install -r sap-bridge/requirements-base.txt
 
       - name: Run pytest with coverage
@@ -138,7 +136,7 @@ jobs:
           cd sap-bridge
           python -m pytest tests/ \
             --asyncio-mode=auto \
-            --cov=. \
+            --cov=. --cov-config=.coveragerc \
             --cov-report=term-missing \
             --cov-report=xml:../coverage.xml \
             -v
