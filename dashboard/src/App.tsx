@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useMqtt } from './hooks/useMqtt'
 import { RobotList } from './components/RobotList'
 import { RobotDetail } from './components/RobotDetail'
@@ -7,9 +7,12 @@ import { TaskList } from './components/TaskList'
 import { EmergencyStop } from './components/EmergencyStop'
 import { WarehouseMap } from './components/WarehouseMap'
 import { BatteryPanel } from './components/BatteryPanel'
+import { SystemHealth } from './components/SystemHealth'
+import { CommandPanel } from './components/CommandPanel'
+import { AlertPanel } from './components/AlertPanel'
 import { CONFIG } from './config'
 
-type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks'
+type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks' | 'system' | 'commands' | 'alerts'
 
 interface RobotApiStatus {
   id: string
@@ -26,6 +29,7 @@ export default function App() {
   const [showEStop, setShowEStop] = useState(false)
   const [apiRobots, setApiRobots] = useState<RobotApiStatus[]>([])
   const [apiConnected, setApiConnected] = useState(false)
+  const pollRef = useRef<() => Promise<void>>(async () => {})
 
   // Poll REST API as fallback when MQTT unavailable
   useEffect(() => {
@@ -44,9 +48,15 @@ export default function App() {
         if (active) setApiConnected(false)
       }
     }
+    pollRef.current = poll
     poll()
     const id = setInterval(poll, 15000)
     return () => { active = false; clearInterval(id) }
+  }, [])
+
+  // Called after any command — immediately refresh robot data across all tabs
+  const refreshRobots = useCallback(() => {
+    pollRef.current()
   }, [])
 
   const mqttRobotCount = mqtt.robots.size
@@ -60,6 +70,9 @@ export default function App() {
     { key: 'battery', label: '🔋 Battery' },
     { key: 'orders', label: '📦 Order' },
     { key: 'tasks', label: '📋 Tasks' },
+    { key: 'system', label: '💚 System' },
+    { key: 'commands', label: '🎮 Commands' },
+    { key: 'alerts', label: '🚨 Alerts' },
   ]
 
   return (
@@ -156,10 +169,13 @@ export default function App() {
           {mqtt.connected ? 'Waiting for robot data…' : 'Connecting to backend…'}
         </div>
       )}
-      {tab === 'map' && <WarehouseMap mqtt={mqtt} />}
-      {tab === 'battery' && <BatteryPanel mqtt={mqtt} />}
+      {tab === 'map' && <WarehouseMap mqtt={mqtt} apiRobots={apiRobots} />}
+      {tab === 'battery' && <BatteryPanel mqtt={mqtt} apiRobots={apiRobots} />}
       {tab === 'orders' && <OrderForm onCreated={() => setTab('tasks')} />}
       {tab === 'tasks' && <TaskList />}
+      {tab === 'system' && <SystemHealth />}
+      {tab === 'commands' && <CommandPanel onRefresh={refreshRobots} />}
+      {tab === 'alerts' && <AlertPanel />}
     </div>
   )
 }

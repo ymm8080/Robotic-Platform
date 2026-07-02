@@ -1,57 +1,79 @@
 import { useState, useEffect } from 'react'
 import { CONFIG } from '../config'
 
-const DEFAULT_BRANDS = ['KUKA', 'MIR', 'OTTO', 'GeekPlus', 'HaiRobotics', 'Quicktron']
+interface RobotInfo {
+  id: string
+  brand: string
+  state: string
+  battery: string
+}
 
 export function EmergencyStop() {
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [targetBrand, setTargetBrand] = useState('*')
-  const [brands, setBrands] = useState<string[]>(DEFAULT_BRANDS)
+  const [robots, setRobots] = useState<RobotInfo[]>([])
+  const [targetRobotId, setTargetRobotId] = useState('*')
+  const [loadingRobots, setLoadingRobots] = useState(true)
 
-  // Fetch live brand list from API
+  // Fetch live robot list
   useEffect(() => {
-    fetch(`${CONFIG.apiBase}/v1/strategies`)
-      .then(r => r.json())
+    fetch(`${CONFIG.apiBase}/v1/robots/status`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject('unavailable'))
       .then(data => {
-        if (data.strategies?.length) {
-          setBrands(data.strategies.map((s: { brand: string }) => s.brand))
+        if (data.robots?.length) {
+          setRobots(data.robots)
         }
       })
-      .catch(() => {})  // Fall back to defaults
+      .catch(() => {})
+      .finally(() => setLoadingRobots(false))
   }, [])
 
   async function handleEStop() {
     setSending(true)
     setResult(null)
 
+    const targets = targetRobotId === '*'
+      ? robots
+      : robots.filter(r => r.id === targetRobotId)
+
+    if (targets.length === 0) {
+      setResult({ ok: false, msg: 'No robots to stop' })
+      setSending(false)
+      return
+    }
+
     try {
-      const selectedBrands = targetBrand === '*' ? brands : [targetBrand]
       const results = await Promise.allSettled(
-        selectedBrands.map(brand =>
-          fetch(`${CONFIG.apiBase}/v1/orders`, {
+        targets.map(robot =>
+          fetch(`${CONFIG.apiBase}/v1/robots/${encodeURIComponent(robot.id)}/command`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              manufacturer: brand,
-              serialNumber: 'ESTOP-ALL',
-              orderId: `ESTOP-${Date.now()}`,
-              orderType: 'MOVE',
-              priority: 0,
-              nodes: [],
-              edges: [],
-              source: 'emergency-stop',
-            }),
-          }).then(r => r.json())
+            body: JSON.stringify({ action: 'stop' }),
+          }).then(async r => {
+            const body = await r.json()
+            if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
+            return { robotId: robot.id, ok: true }
+          })
         )
       )
 
-      const success = results.filter(r => r.status === 'fulfilled').length
-      setResult({
-        ok: success > 0,
-        msg: `E-Stop sent (${success}/${selectedBrands.length} brands)`,
-      })
+      const succeeded = results.filter(r => r.status === 'fulfilled').length
+      const failed = results.filter(r => r.status === 'rejected').length
+
+      if (targetRobotId !== '*') {
+        setResult({
+          ok: succeeded > 0,
+          msg: succeeded > 0
+            ? `E-Stop sent to ${targetRobotId}`
+            : `E-Stop failed for ${targetRobotId}`,
+        })
+      } else {
+        setResult({
+          ok: succeeded > 0,
+          msg: `E-Stop sent to ${succeeded} robot(s)${failed > 0 ? `, ${failed} failed` : ''}`,
+        })
+      }
     } catch (err) {
       setResult({ ok: false, msg: `Send failed: ${(err as Error).message}` })
     } finally {
@@ -74,6 +96,9 @@ export function EmergencyStop() {
     )
   }
 
+  const onlineRobots = robots.filter(r => r.state !== 'UNAVAILABLE')
+  const hasRobots = onlineRobots.length > 0
+
   return (
     <div style={{
       background: '#fef2f2', border: '3px solid #dc2626', borderRadius: 12, padding: 20,
@@ -82,26 +107,40 @@ export function EmergencyStop() {
         ⚠️ Confirm Emergency Stop
       </h3>
       <p style={{ fontSize: 14, color: '#7f1d1d', marginBottom: 12 }}>
-        This will cancel all current robot tasks. Moving robots will stop at next node.
+        This sends an instant emergency stop command (VDA5050 instantAction). The robot will halt immediately.
       </p>
 
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
-          Target Brand (* = all)
-        </label>
-        <select value={targetBrand} onChange={e => setTargetBrand(e.target.value)}
-          style={{ width: '100%', padding: '8px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4 }}>
-          <option value="*">All brands ({brands.length})</option>
-          {brands.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
-      </div>
+      {loadingRobots ? (
+        <div style={{ textAlign: 'center', padding: 12, color: '#9ca3af', fontSize: 13 }}>
+          Loading robot list…
+        </div>
+      ) : !hasRobots ? (
+        <div style={{ textAlign: 'center', padding: 12, color: '#991b1b', fontSize: 13 }}>
+          No online robots available
+        </div>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
+            Target Robot
+          </label>
+          <select value={targetRobotId} onChange={e => setTargetRobotId(e.target.value)}
+            style={{ width: '100%', padding: '8px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 4 }}>
+            <option value="*">All robots ({onlineRobots.length})</option>
+            {onlineRobots.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.id} — {r.brand} [{r.state}] {r.battery}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={handleEStop} disabled={sending}
+        <button onClick={handleEStop} disabled={sending || !hasRobots}
           style={{
             flex: 1, padding: '12px', fontSize: 16, fontWeight: 700,
-            background: sending ? '#9ca3af' : '#dc2626', color: '#fff',
-            border: 'none', borderRadius: 8, cursor: sending ? 'not-allowed' : 'pointer',
+            background: sending || !hasRobots ? '#9ca3af' : '#dc2626', color: '#fff',
+            border: 'none', borderRadius: 8, cursor: sending || !hasRobots ? 'not-allowed' : 'pointer',
           }}>
           {sending ? 'Sending…' : 'Confirm Stop'}
         </button>

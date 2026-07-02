@@ -6,10 +6,22 @@
   "autoMemoryEnabled": true,
   "autoMemoryDirectory": "D:/EWM ROBOT/ROBOTIC PLATFORM CODES/.claude/memory",
   "autoDreamEnabled": true,
+  "env": {
+    "NO_COLOR": "1",
+    "FORCE_COLOR": "0",
+    "TERM": "dumb"
+  },
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": ["-ExecutionPolicy", "Bypass", "-File", "D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\ensure-today-brief.ps1"],
+            "timeout": 20,
+            "statusMessage": "📝 Ensuring today's brief exists..."
+          },
           {
             "type": "command",
             "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\show-session-brief.ps1\"",
@@ -50,29 +62,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\transcript-logger.ps1\" -EventName Stop",
-            "timeout": 10,
-            "shell": "powershell"
+            "command": "powershell",
+            "args": ["-ExecutionPolicy", "Bypass", "-File", "D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\transcript-logger.ps1", "-EventName", "Stop"],
+            "timeout": 10
           },
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\update-session-status.ps1\"",
+            "command": "powershell",
+            "args": ["-ExecutionPolicy", "Bypass", "-File", "D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\update-session-status.ps1"],
             "timeout": 10,
-            "shell": "powershell",
             "statusMessage": "Saving session state..."
           },
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\append-today-brief.ps1\"",
-            "timeout": 15,
-            "shell": "powershell",
+            "command": "powershell",
+            "args": ["-ExecutionPolicy", "Bypass", "-File", "D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\append-today-brief.ps1"],
+            "timeout": 30,
             "statusMessage": "📝 Updating daily brief..."
           },
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\generate-codebase-overview.ps1\"",
+            "command": "powershell",
+            "args": ["-ExecutionPolicy", "Bypass", "-File", "D:\\EWM ROBOT\\ROBOTIC PLATFORM CODES\\scripts\\generate-codebase-overview.ps1"],
             "timeout": 30,
-            "shell": "powershell",
             "statusMessage": "📊 Generating codebase overview..."
           }
         ]

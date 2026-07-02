@@ -85,6 +85,16 @@ module.exports = defineConfig({
       testIgnore: [/api-.*\.spec\.js/, /rescue-dashboard\.spec\.js/],
     },
 
+    // ── Robot Dashboard (React Vite app) ─────────────────────────────
+    {
+      name: 'dashboard-chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.DASHBOARD_BASE_URL || 'http://localhost:5173',
+      },
+      testMatch: /dashboard-platform\.spec\.js/,
+    },
+
     // ── Rescue Dashboard (Nginx static page) ──────────────────────────
     // Runs against port 8080 — uses a dedicated test file
     {
@@ -108,21 +118,15 @@ module.exports = defineConfig({
   ],
 
   // =========================================================================
-  // Global setup / teardown
+  // Local dev server — auto-start Dashboard Vite dev server
   // =========================================================================
-  // globalSetup: require.resolve('./e2e/global-setup'),
-  // globalTeardown: require.resolve('./e2e/global-teardown'),
-
-  // =========================================================================
-  // Local dev server (optional — start containers before running tests)
-  // =========================================================================
-  // Uncomment and adjust for CI/pipeline to auto-start services:
-  // webServer: [
-  //   {
-  //     command: 'docker compose up -d nodered nginx',
-  //     port: 1880,
-  //     timeout: 120000,
-  //     reuseExistingServer: !process.env.CI,
-  //   },
-  // ],
+  webServer: [
+    {
+      command: 'npm run dev -- --port 5173 --host 127.0.0.1',
+      cwd: './dashboard',
+      port: 5173,
+      timeout: 30000,
+      reuseExistingServer: true,
+    },
+  ],
 });

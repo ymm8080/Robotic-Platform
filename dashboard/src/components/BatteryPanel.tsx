@@ -3,15 +3,22 @@ import type { MqttState } from '../hooks/useMqtt'
 import { toRobotSummary } from '../types/vda5050'
 import type { RobotDisplayState } from '../types/vda5050'
 import { batteryColor, displayStateLabel, relativeTime, displayStateColor } from '../utils/format'
+import { apiRobotsToDisplay, type ApiRobot } from '../utils/api-adapter'
 
 type SortField = 'battery' | 'state' | 'id' | 'updated'
 type SortDir = 'asc' | 'desc'
 
-export function BatteryPanel({ mqtt }: { mqtt: MqttState }) {
+interface Props {
+  mqtt: MqttState
+  apiRobots?: ApiRobot[]
+}
+
+export function BatteryPanel({ mqtt, apiRobots }: Props) {
   const [sortField, setSortField] = useState<SortField>('battery')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const robots = useMemo(() => {
+    const seen = new Set<string>()
     const list: {
       id: string
       battery: number
@@ -20,9 +27,11 @@ export function BatteryPanel({ mqtt }: { mqtt: MqttState }) {
       connected: boolean
     }[] = []
 
+    // 1. MQTT data first (real-time, higher fidelity)
     mqtt.robots.forEach((stream, id) => {
       const [mfr, sn] = id.split('/')
       const summary = toRobotSummary(mfr, sn, stream.state, stream.connection)
+      seen.add(id)
       list.push({
         id,
         battery: Math.round(summary.battery),
@@ -31,6 +40,16 @@ export function BatteryPanel({ mqtt }: { mqtt: MqttState }) {
         connected: summary.connected,
       })
     })
+
+    // 2. API data as fallback (REST, available without MQTT broker)
+    if (apiRobots) {
+      for (const r of apiRobotsToDisplay(apiRobots)) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id)
+          list.push(r)
+        }
+      }
+    }
 
     list.sort((a, b) => {
       let cmp = 0
@@ -42,7 +61,7 @@ export function BatteryPanel({ mqtt }: { mqtt: MqttState }) {
     })
 
     return list
-  }, [mqtt.robots, sortField, sortDir])
+  }, [mqtt.robots, apiRobots, sortField, sortDir])
 
   const lowBattery = robots.filter(r => r.battery < 20 && r.connected).length
   const charging = robots.filter(r => r.state === 'CHARGING').length

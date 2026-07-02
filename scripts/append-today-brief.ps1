@@ -10,6 +10,8 @@ $refSnapFile = Join-Path $R ".claude\reference-snapshot.json"
 
 $SC=$null; $HC=$false
 if (Test-Path $ctxFile) { try { $SC=(Get-Content $ctxFile -Raw -Encoding UTF8)|ConvertFrom-Json; $HC=$true } catch {} }
+# Validate context is from today — ignore stale data from previous sessions
+if ($HC -and $SC.date -and $SC.date -ne $DS) { $HC = $false; $SC = $null }
 
 $FE=New-Object System.Collections.ArrayList; $seen=@{}; $ct=""
 if (Test-Path $trFile) {
@@ -28,18 +30,28 @@ $uf = git ls-files --others --exclude-standard 2>$null
 if ($uf) { foreach ($u in ($uf -split "`n")) { $u=$u.Trim(); if ($u -and -not $seen.ContainsKey($u)) { $seen[$u]=$true; [void]$FE.Add((New-Object PSObject -Property @{T="";P=($u -replace '\\','/');A="CREATE"})) } } }
 Pop-Location
 
-# Filter: skip deleted files (check disk existence)
+# Filter: skip deleted files, non-today files, and trivial files
+$todayStart = (Get-Date).Date
 $sigFE=New-Object System.Collections.ArrayList; $trimmed=New-Object System.Collections.ArrayList
+$staleFE=New-Object System.Collections.ArrayList
 foreach ($fe in $FE) {
     $isTrivial = $fe.A -eq "DELETE" -or $fe.P -match '\.gitkeep|erl_crash\.dump|package-lock'
     # Files recorded as CREATE/MODIFY that no longer exist on disk were deleted by later operations — skip entirely
     if (-not $isTrivial -and $fe.A -ne "DELETE") {
         $resolved = if ([System.IO.Path]::IsPathRooted($fe.P)) { $fe.P } else { Join-Path $R $fe.P }
         if (-not (Test-Path $resolved)) { continue }
+        # Date filter: files from git diff (no transcript timestamp) must be modified today
+        if (-not $fe.T) {
+            $mtime = (Get-Item $resolved).LastWriteTime
+            if ($mtime -lt $todayStart) {
+                [void]$staleFE.Add($fe)
+                continue
+            }
+        }
     }
     if ($isTrivial) { [void]$trimmed.Add($fe) } else { [void]$sigFE.Add($fe) }
 }
-$cnt=$sigFE.Count; $trivialCnt=$trimmed.Count
+$cnt=$sigFE.Count; $trivialCnt=$trimmed.Count; $staleCnt=$staleFE.Count
 
 # === REFERENCE DIRECTORY CHANGE DETECTION ===
 $refFE = New-Object System.Collections.ArrayList
@@ -83,7 +95,19 @@ if ($refChangedCnt -gt 0) {
     foreach ($refFe in $refFE) { [void]$sigFE.Add($refFe) }
     $cnt = $sigFE.Count
 }
-if ($cnt -eq 0 -and $refChangedCnt -eq 0) { exit 0 }
+if ($cnt -eq 0 -and $refChangedCnt -eq 0) {
+    # Always generate a minimal brief — never exit silently when there are no changes
+    $O=New-Object System.Collections.Generic.List[string]
+    $O.Add("# Claude Code 今日工作简报"); $O.Add("")
+    $O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.4")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** 0 个")); $O.Add("")
+    $O.Add("---"); $O.Add("")
+    $O.Add("## 今日无文件变更"); $O.Add("")
+    $O.Add("本日无文件修改或新建记录（git diff 无变更 + transcript 无记录）。"); $O.Add("")
+    $O.Add("> 若您确实进行了开发工作，请检查："); $O.Add("> 1. transcript-logger 是否正常记录（SessionStart / PostToolUse hook）"); $O.Add("> 2. git 仓库是否正确跟踪变更文件"); $O.Add("> 3. 文件是否在 .gitignore 中被排除"); $O.Add("")
+    $O.Add("---"); $O.Add(""); $O.Add(("*文档生成：{0} {1} | 由 Claude Code 自动汇总*" -f $DF, $TS)); $O.Add("")
+    $nl=[System.Environment]::NewLine; [System.IO.File]::WriteAllText($brFile, ($O -join $nl), [System.Text.Encoding]::UTF8)
+    exit 0
+}
 
 # Helpers
 function gDetail($p,$a) {
@@ -164,13 +188,38 @@ function gDetail($p,$a) {
                             }
                         }
                         if (-not $desc) {
+                            # Semantic component name analysis: derive meaning from PascalCase/camelCase names
+                            $compName = $null
                             $members = @()
                             foreach ($ln in $lines) {
-                                if ($ln -match '^\s*export\s+(default\s+)?(function|class|const|let|var)\s+(\w+)') { $members += "导出:$($Matches[3])" }
+                                if ($ln -match '^\s*export\s+default\s+(function|class)\s+(\w+)') {
+                                    $compName = $Matches[2]; $members += "导出:$compName"
+                                }
+                                elseif ($ln -match '^\s*export\s+(default\s+)?(function|class|const|let|var)\s+(\w+)') {
+                                    if (-not $compName) { $compName = $Matches[3] }
+                                    $members += "导出:$($Matches[3])"
+                                }
                                 elseif ($ln -match '^\s*(async\s+)?function\s+(\w+)') { $members += "函:$($Matches[2])()" }
                                 elseif ($ln -match '^\s*class\s+(\w+)') { $members += "类:$($Matches[1])" }
                             }
-                            if ($members.Count -gt 0) {
+                            # Build semantic description from component name
+                            if ($compName) {
+                                $words = $compName -creplace '([a-z])([A-Z])', '$1 $2' -creplace '([A-Z]+)([A-Z][a-z])', '$1 $2'
+                                $dirCtx = ""
+                                if ($p -match '/components/') { $dirCtx = "UI 面板" }
+                                elseif ($p -match '/hooks/') { $dirCtx = "React Hook" }
+                                elseif ($p -match '/pages/') { $dirCtx = "页面" }
+                                elseif ($p -match '/utils/') { $dirCtx = "工具函数" }
+                                elseif ($p -match '/types/') { $dirCtx = "类型定义" }
+                                $semantic = if ($dirCtx) { "${ext}: $words — $dirCtx" } else { "${ext}: $words" }
+                                if ($members.Count -gt 0) {
+                                    $mStr = ($members -join ', ')
+                                    if ($mStr.Length -gt 150) { $mStr = $mStr.Substring(0,147) + '...' }
+                                    $desc = "${semantic}（$mStr）"
+                                } else {
+                                    $desc = $semantic
+                                }
+                            } elseif ($members.Count -gt 0) {
                                 $mStr = ($members -join ', ')
                                 if ($mStr.Length -gt 200) { $mStr = $mStr.Substring(0,197) + '...' }
                                 $desc = "${ext}: $mStr"
@@ -382,13 +431,16 @@ function gDetail($p,$a) {
     if ($p -match 'nodered/settings\.js') { return "Node-RED 配置：认证、存储、流路径" }
     if ($p -match 'nodered/flows\.json') { return "Node-RED 流：可视化编排逻辑" }
     if ($p -match 'watchdog/watchdog\.py') { return "健康监控：容器检查+自动恢复+告警" }
-    if ($p -match 'dashboard/src/App\.tsx') { return "React 主应用：路由+状态管理" }
+    if ($p -match 'dashboard/src/App\.tsx') { return "React 主应用：路由+布局编排，集成监控/告警/指令三大功能面板构成用户操作平台" }
     if ($p -match 'dashboard/src/config\.ts') { return "Dashboard 配置：MQTT/API 端点" }
     if ($p -match 'dashboard/src/components/RobotCard') { return "机器人卡片：实时状态+位置+电池" }
     if ($p -match 'dashboard/src/components/RobotList') { return "机器人列表：多品牌概览" }
     if ($p -match 'dashboard/src/components/RobotDetail') { return "机器人详情：深度展示" }
     if ($p -match 'dashboard/src/components/TaskList') { return "任务列表：订单执行追踪" }
     if ($p -match 'dashboard/src/components/OrderForm') { return "订单表单：新任务创建" }
+    if ($p -match 'dashboard/src/components/SystemHealth') { return "系统健康监控面板：CPU/内存/Redis/MQTT 组件状态实时展示、阈值告警" }
+    if ($p -match 'dashboard/src/components/AlertPanel') { return "异常告警与错误追踪面板：P0/P1/P2 分级告警、确认/静默操作、历史回溯" }
+    if ($p -match 'dashboard/src/components/CommandPanel') { return "机器人指令下发控制台：急停/模式切换/任务指派/批量操作" }
     if ($p -match 'dashboard/src/hooks/useMqtt') { return "MQTT Hook：实时订阅+状态同步" }
     if ($p -match 'dashboard/src/types/vda5050') { return "VDA5050 类型：消息接口+枚举" }
     if ($p -match 'dashboard/src/utils/format') { return "工具函数：坐标/时间格式化" }
@@ -450,6 +502,7 @@ function gLabel($a) { switch ($a) { "CREATE" { "新建" } "REWRITE" { "重写" }
 # Map files to functional areas
 function gArea($p) {
     if ($p -match '^docs/|^01_architecture|^05_reference|^03_operations|docker-compose|^\.env|^PLAN\.md|^\.claude/settings\.json|^\.gitignore|^sap-bridge/|^scripts/backup|^scripts/restore') { return @{K="A";N="项目规划与基础设施"} }
+    if ($p -match '^dashboard/') { return @{K="F";N="Dashboard 用户平台"} }
     if ($p -match '^\.claude/rules/|^\.claude/skills/|^\.claude/agents/|^\.cursor/rules/|^CLAUDE\.md|^\.clinerules|^\.claude/mcp\.json') { return @{K="B";N="Claude/Cursor 配置同步"} }
     if ($p -match '^e2e/|^playwright|^package\.json|^docs/playwright') { return @{K="C";N="测试框架搭建"} }
     if ($p -match '^\.claude/memory|^scripts/transcript|^scripts/update-session|^scripts/load-transcript|^scripts/append-today|^scripts/show-session|^\.claude/today-session|^\.claude/settings\.local|^SESSION_STATUS') { return @{K="D";N="记忆系统与开发流程"} }
@@ -457,7 +510,7 @@ function gArea($p) {
     return @{K="Z";N="其他"}
 }
 
-$areaOrder = @("A","B","C","D","E","Z")
+$areaOrder = @("A","F","B","C","D","E","Z")
 
 # Build functional groups
 $areaGroups = @{}
@@ -474,6 +527,7 @@ function MapPhase($path) {
     if ($path -match '^\.claude/settings\.json') { return @{P="Phase 0";L="工作区加固";S="0.1 项目根配置"} }
     if ($path -match '^docs/|^01_architecture|^05_reference|^03_operations|^scripts/backup|^scripts/restore|^PLAN\.md|docker-compose|^\.env') { return @{P="Phase 1";L="核心稳定性";S="1.1 基础设施"} }
     if ($path -match '^sap-bridge/') { return @{P="Phase 1";L="核心稳定性";S="1.4 SAP Bridge"} }
+    if ($path -match '^dashboard/') { return @{P="Phase 2";L="功能完整性";S="2.3 Dashboard 用户平台"} }
     if ($path -match '^\.claude/rules/|^\.claude/skills/|^\.claude/agents/|^\.cursor/rules/') { return @{P="Phase 4";L="持续优化";S="4.2 AI 配置同步"} }
     if ($path -match '^CLAUDE\.md|^\.clinerules|^\.claude/mcp|^\.claude/settings') { return @{P="Phase 4";L="持续优化";S="4.1 Claude 配置"} }
     if ($path -match '^e2e/|^playwright|^package\.json') { return @{P="Phase 3";L="生产就绪";S="3.1 测试框架"} }
