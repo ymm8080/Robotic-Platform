@@ -2,23 +2,24 @@ import { useState, useEffect } from 'react'
 import { CONFIG } from '../config'
 
 interface AlertEntry {
+  id: string
   timestamp?: string
   level: 'P0' | 'P1' | 'P2'
   service: string
   message: string
-  acknowledged: boolean
 }
 
-const MOCK_ALERTS: AlertEntry[] = []  // Populated from API when available
-
 type SeverityFilter = 'ALL' | 'P0' | 'P1' | 'P2'
+
+let alertSeq = 0
+function nextAlertId(): string { return `alert-${Date.now()}-${++alertSeq}` }
 
 export function AlertPanel() {
   const [alerts, setAlerts] = useState<AlertEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<SeverityFilter>('ALL')
-  const [acknowledged, setAcknowledged] = useState<Set<number>>(new Set())
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let active = true
@@ -36,48 +37,42 @@ export function AlertPanel() {
         // Derive alerts from system health data
         if (health.resources?.safeMode) {
           entries.push({
-            level: 'P0', service: 'watchdog',
+            id: `alert-safe-mode`, level: 'P0', service: 'watchdog',
             message: 'SAFE MODE ACTIVE — all new orders rejected. Check Node-RED or Redis health.',
-            acknowledged: false,
           })
         }
         if (health.resources?.throttleActive) {
           entries.push({
-            level: 'P1', service: 'watchdog',
+            id: `alert-throttle`, level: 'P1', service: 'watchdog',
             message: 'Throttle active — order dispatch rate reduced. CPU or checkpoint threshold exceeded.',
-            acknowledged: false,
           })
         }
         if (health.resources?.errorRatePercent != null && health.resources.errorRatePercent > 5) {
           entries.push({
-            level: health.resources.errorRatePercent > 10 ? 'P0' : 'P1',
+            id: `alert-error-rate`, level: health.resources.errorRatePercent > 10 ? 'P0' : 'P1',
             service: 'sap-bridge',
             message: `Error rate at ${health.resources.errorRatePercent.toFixed(1)}% (threshold: 5%). Check services.`,
-            acknowledged: false,
           })
         }
         if (health.resources?.cpuPercent != null && health.resources.cpuPercent > 80) {
           entries.push({
-            level: health.resources.cpuPercent > 90 ? 'P1' : 'P2',
+            id: `alert-cpu`, level: health.resources.cpuPercent > 90 ? 'P1' : 'P2',
             service: 'nodered',
             message: `CPU at ${health.resources.cpuPercent.toFixed(0)}%. Consider scaling.`,
-            acknowledged: false,
           })
         }
         if (health.resources?.memoryPercent != null && health.resources.memoryPercent > 85) {
           entries.push({
-            level: health.resources.memoryPercent > 95 ? 'P1' : 'P2',
+            id: `alert-memory`, level: health.resources.memoryPercent > 95 ? 'P1' : 'P2',
             service: 'nodered',
             message: `Memory at ${health.resources.memoryPercent.toFixed(0)}%. Risk of OOM.`,
-            acknowledged: false,
           })
         }
         if (health.fleet?.error > 0) {
           entries.push({
-            level: health.fleet.error > 2 ? 'P1' : 'P2',
+            id: `alert-fleet-error`, level: health.fleet.error > 2 ? 'P1' : 'P2',
             service: 'fleet',
             message: `${health.fleet.error} robot(s) in ERROR state. Check robot detail for diagnostics.`,
-            acknowledged: false,
           })
         }
 
@@ -88,10 +83,9 @@ export function AlertPanel() {
               mqtt: 'MQTT Broker', redis: 'Redis', database: 'Database', watchdog: 'Watchdog',
             }
             entries.push({
-              level: name === 'mqtt' || name === 'redis' ? 'P0' : 'P1',
+              id: `alert-svc-${name}`, level: name === 'mqtt' || name === 'redis' ? 'P0' : 'P1',
               service: name,
               message: `${svcNames[name] || name} is disconnected. Robot communication may be affected.`,
-              acknowledged: false,
             })
           }
         }
@@ -111,8 +105,8 @@ export function AlertPanel() {
     return () => { active = false; clearInterval(id) }
   }, [])
 
-  const ack = (idx: number) => {
-    setAcknowledged(prev => new Set(prev).add(idx))
+  const ack = (alertId: string) => {
+    setAcknowledged(prev => new Set(prev).add(alertId))
   }
 
   const filtered = filter === 'ALL' ? alerts : alerts.filter(a => a.level === filter)
@@ -150,11 +144,10 @@ export function AlertPanel() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {filtered.map((alert, idx) => {
-            const globalIdx = alerts.indexOf(alert)
-            const isAcked = acknowledged.has(globalIdx)
+          {filtered.map((alert) => {
+            const isAcked = acknowledged.has(alert.id)
             return (
-              <div key={idx} style={{
+              <div key={alert.id} style={{
                 background: isAcked ? '#f9fafb' : levelBg(alert.level),
                 border: `1px solid ${isAcked ? '#e5e7eb' : levelBorder(alert.level)}`,
                 borderRadius: 8, padding: '10px 14px',
@@ -174,7 +167,7 @@ export function AlertPanel() {
                     <div style={{ fontSize: 13, color: '#374151' }}>{alert.message}</div>
                   </div>
                   {!isAcked && (
-                    <button onClick={() => ack(globalIdx)}
+                    <button onClick={() => ack(alert.id)}
                       style={{
                         padding: '3px 8px', fontSize: 11, fontWeight: 600,
                         background: '#fff', color: '#374151', border: '1px solid #d1d5db',
@@ -197,7 +190,7 @@ export function AlertPanel() {
 
       {/* Summary */}
       <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af', textAlign: 'right' }}>
-        {alerts.filter(a => !acknowledged.has(alerts.indexOf(a))).length} unacknowledged
+        {alerts.filter(a => !acknowledged.has(a.id)).length} unacknowledged
         &nbsp;·&nbsp; updated every 10s
       </div>
     </div>

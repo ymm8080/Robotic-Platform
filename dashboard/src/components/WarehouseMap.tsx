@@ -52,6 +52,17 @@ export function WarehouseMap({ mqtt, apiRobots }: Props) {
     }
   }
 
+  // Zone placement fallback for robots without position data
+  function stateToZone(state: RobotDisplayState): Zone {
+    switch (state) {
+      case 'CHARGING': return ZONES.find(z => z.id === 'CHARGING') || ZONES[5]
+      case 'ERROR': return ZONES.find(z => z.id === 'PICKING') || ZONES[3]
+      case 'MOVING':
+      case 'EXECUTING': return ZONES.find(z => z.id === 'STORAGE-A') || ZONES[1]
+      default: return ZONES.find(z => z.id === 'STORAGE-B') || ZONES[2]
+    }
+  }
+
   const { displayRobots, stations } = useMemo(() => {
     const seen = new Set<string>()
     const list: MapRobot[] = []
@@ -70,17 +81,6 @@ export function WarehouseMap({ mqtt, apiRobots }: Props) {
         })
       }
     })
-
-    // Zone placement fallback for robots without position data
-    function stateToZone(state: RobotDisplayState): Zone {
-      switch (state) {
-        case 'CHARGING': return ZONES.find(z => z.id === 'CHARGING') || ZONES[5]
-        case 'ERROR': return ZONES.find(z => z.id === 'PICKING') || ZONES[3]
-        case 'MOVING':
-        case 'EXECUTING': return ZONES.find(z => z.id === 'STORAGE-A') || ZONES[1]
-        default: return ZONES.find(z => z.id === 'STORAGE-B') || ZONES[2]
-      }
-    }
 
     // 2. API robots — use real position if available, else zone-based
     const csMap: { id: string; x: number; y: number; assignedRobot: string | null; occupied: boolean }[] = []

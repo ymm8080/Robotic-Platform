@@ -715,17 +715,20 @@ async def system_health():
     except Exception:
         pass
 
-    # Try to reach Watchdog for extra metrics (optional)
+    # Try to reach Watchdog for extra metrics (optional, non-blocking)
     watchdog_ok = False
     watchdog_metrics = {}
     try:
-        import urllib.request
+        import asyncio
         wd_url = f"http://watchdog:9090/metrics"
-        req = urllib.request.Request(wd_url)
-        resp = urllib.request.urlopen(req, timeout=3)
-        wd_data = json_mod.loads(resp.read().decode())
+        # Run sync HTTP in thread pool to avoid blocking FastAPI event loop
+        def _fetch_watchdog():
+            import urllib.request
+            req = urllib.request.Request(wd_url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                return json_mod.loads(resp.read().decode())
+        wd_data = await asyncio.to_thread(_fetch_watchdog)
         watchdog_ok = True
-        # Extract key fields
         watchdog_metrics = {
             "safeMode": wd_data.get("safe_mode", False),
             "throttleActive": wd_data.get("throttle_active", False),

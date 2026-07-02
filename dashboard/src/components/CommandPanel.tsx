@@ -31,7 +31,7 @@ export function CommandPanel({ onRefresh }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState<string | null>(null)
-  const [results, setResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+  const [results, setResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({})
   const pollRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export function CommandPanel({ onRefresh }: Props) {
   }, [])
   async function sendCommand(robotId: string, action: CommandAction) {
     setSending(`${robotId}:${action}`)
-    setResults(prev => ({ ...prev, [robotId]: undefined as any }))
+    setResults(prev => ({ ...prev, [robotId]: null }))
     try {
       const res = await fetch(`${CONFIG.apiBase}/v1/robots/${encodeURIComponent(robotId)}/command`, {
         method: 'POST',
@@ -65,9 +65,11 @@ export function CommandPanel({ onRefresh }: Props) {
       const data = await res.json()
       if (res.ok) {
         setResults(prev => ({ ...prev, [robotId]: { ok: true, msg: `Command "${action}" sent` } }))
-        // Immediately refresh: this panel + all other tabs
-        pollRef.current()
-        onRefresh?.()
+        // Brief delay to let backend process before refreshing state
+        setTimeout(() => {
+          pollRef.current()
+          onRefresh?.()
+        }, action === 'reboot' ? 1500 : 300)
       } else {
         setResults(prev => ({ ...prev, [robotId]: { ok: false, msg: data.error || 'Failed' } }))
       }
