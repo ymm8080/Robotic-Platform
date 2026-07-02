@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 # Shared Redis connection (avoid per-request from_url)
 import redis as _redis_module
@@ -720,7 +720,7 @@ async def system_health():
     watchdog_metrics = {}
     try:
         import asyncio
-        wd_url = f"http://watchdog:9090/metrics"
+        wd_url = "http://watchdog:9090/metrics"
         # Run sync HTTP in thread pool to avoid blocking FastAPI event loop
         def _fetch_watchdog():
             import urllib.request
