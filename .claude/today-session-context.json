@@ -1,148 +1,108 @@
 {
+  "date": "20260702",
+  "generated": "2026-07-02 07:03:00",
   "phases": [
     {
-      "name": "Phase 4 — 持续优化",
-      "timeRange": "14:25-15:30",
-      "summary": "AI 规则迁移：22 skills → rules/memory/skills 分层、CLAUDE.md 更新、日报增强",
-      "fileCount": 12,
-      "files": [".claude/rules/010-nodered-core.mdc", ".claude/rules/030-robot-device.mdc", ".claude/rules/060-db-and-outbox.mdc", ".claude/rules/080-enterprise-policies.mdc", ".claude/rules/090-operational-limits.mdc", ".claude/memory/nodered-debug-reference.md", ".claude/memory/implementation-roadmap-plan.md", ".claude/memory/rescue-dashboard-architecture.md", ".claude/memory/MEMORY.md", "CLAUDE.md", "scripts/append-today-brief.ps1", ".claude/mcp.json"],
-      "highlights": ["3 existing rule files updated with missing rules", "2 new rule files created", "3 memory files created for reference knowledge", "CLAUDE.md rules table updated"],
-      "subSections": [
-        {
-          "title": "规则迁移：skills → rules (8 rulesets)",
-          "timeRange": "15:00-15:25",
-          "summary": "8 个技能文件中的强制规则提取到 .mdc 规则文件，确保每次会话自动加载",
-          "files": [".claude/rules/010-nodered-core.mdc", ".claude/rules/030-robot-device.mdc", ".claude/rules/060-db-and-outbox.mdc", ".claude/rules/080-enterprise-policies.mdc", ".claude/rules/090-operational-limits.mdc"],
-          "nextActions": []
-        },
-        {
-          "title": "知识迁移：skills → memory (3 files)",
-          "timeRange": "15:20-15:25",
-          "summary": "Node-RED 调试速查表、实施路线图、Rescue Dashboard 架构",
-          "files": [".claude/memory/nodered-debug-reference.md", ".claude/memory/implementation-roadmap-plan.md", ".claude/memory/rescue-dashboard-architecture.md", ".claude/memory/MEMORY.md"],
-          "nextActions": []
-        },
-        {
-          "title": "CLAUDE.md 同步",
-          "timeRange": "15:25",
-          "summary": "新增 080/090 规则条目",
-          "files": ["CLAUDE.md"],
-          "nextActions": []
-        },
-        {
-          "title": "简报增强 (areaOrder + Z)",
-          "timeRange": "14:45-14:50",
-          "summary": "修复今日工作总览缺少 Z 分区、新增工具变更摘要",
-          "files": ["scripts/append-today-brief.ps1"],
-          "nextActions": []
-        }
+      "name": "Phase A — 日报系统可靠性修复",
+      "timeRange": "06:19-07:02",
+      "summary": "诊断并修复每日简报三大根因：脚本早退无输出、上下文跨会话污染、Stop hook 可靠性",
+      "fileCount": 5,
+      "files": [
+        "scripts/append-today-brief.ps1",
+        ".claude/settings.json",
+        "scripts/ensure-today-brief.ps1",
+        ".claude/today-session-context.json"
+      ],
+      "highlights": [
+        "脚本早退 exit 0 改为最小化简报生成（无变更时也产出文件）",
+        "上下文日期校验：date 不匹配则自动忽略旧数据",
+        "git diff 文件添加 mtime 日期过滤，只保留今日修改的文件",
+        "Stop hooks 从 shell form 改为 exec form（消除双重 shell 引用）",
+        "SessionStart 兜底脚本：自动重置旧上下文 + 补生成缺失简报",
+        "JSON 模板改用手工格式化，替换 PowerShell ConvertTo-Json 乱码输出",
+        "Dashboard 组件添加 path 匹配 + 语义命名分析 + Phase 2 分类"
       ],
       "nextActions": [
-        "继续 Phase 2 功能完整性开发"
+        "验证 Stop hook 在本次会话结束时正常生成简报",
+        "确认明天 SessionStart 时上下文自动重置 + 兜底补生成"
+      ]
+    },
+    {
+      "name": "Phase B — 用户平台 Dashboard 开发",
+      "timeRange": "02:29-02:31",
+      "summary": "构建机器人监控与操作平台三大模块：系统监控、错误追踪、指令下发",
+      "fileCount": 4,
+      "files": [
+        "dashboard/src/components/SystemHealth.tsx",
+        "dashboard/src/components/AlertPanel.tsx",
+        "dashboard/src/components/CommandPanel.tsx",
+        "dashboard/src/App.tsx"
+      ],
+      "highlights": [
+        "SystemHealth — 监控面板：服务状态网格 + CPU/内存/错误率仪表盘 + 车队概览 + 安全模式指示器",
+        "AlertPanel — 错误追踪：P0/P1/P2 分级告警、确认/静默操作、API 健康数据自动衍生告警",
+        "CommandPanel — 指令控制台：急停/恢复、模式切换、任务指派、批量操作，预留 VDA5050 对接",
+        "App.tsx — 平台集成：路由 + 布局编排，三大面板组合为完整用户操作平台"
+      ],
+      "nextActions": [
+        "接入真实 MQTT 数据源替换 mock 数据",
+        "添加用户权限控制（操作员 vs 只读）",
+        "编写仪表板功能测试"
       ]
     }
   ],
   "files": {
-    ".claude/rules/010-nodered-core.mdc": {
-      "action": "MODIFY",
-      "brief": "Node-RED 铁律扩展",
-      "purpose": "集中管理 Node-RED 流开发约束，自动触发",
-      "detail": "新增：跨语言边界契约、预部署完整性检查 5 项、LLM 异常降噪、safeLoop 阈值",
-      "functions": []
-    },
-    ".claude/rules/030-robot-device.mdc": {
-      "action": "MODIFY",
-      "brief": "机器人适配规则扩展",
-      "purpose": "机器人交互约束，自动触发",
-      "detail": "新增：weight=0 拒收、急停互锁、偏差 3/10 自愈阈值、HTTP 超时总控 10000ms",
-      "functions": []
-    },
-    ".claude/rules/060-db-and-outbox.mdc": {
-      "action": "MODIFY",
-      "brief": "状态机+安全模式+Outbox",
-      "purpose": "状态转移约束 + 安全模式 + 数据判空 + 投递规则",
-      "detail": "新增 Outbox 投递铁律：写入顺序、指数退避 1s→16s×5、DLQ、order_id+event_type 幂等",
-      "functions": []
-    },
-    ".claude/rules/080-enterprise-policies.mdc": {
-      "action": "CREATE",
-      "brief": "通知优先级矩阵 + 安全合规",
-      "purpose": "P0/P1/P2 通知策略、审批双通道、密码/2FA/审计合规",
-      "detail": "P0 立即→MQTT→飞书→短信→电话4层降解、P1 5分聚合、P2 10分聚合；密码12字符、2FA、180天审计日志",
-      "functions": []
-    },
-    ".claude/rules/090-operational-limits.mdc": {
-      "action": "CREATE",
-      "brief": "Node-RED 限流 + Docker 资源 + 成本哨兵",
-      "purpose": "运维限流阈值、Docker 资源上限、告警频率控制",
-      "detail": "CPU>80%+checkpoint>5000ms→限流30%、WAL>100MB→checkpoint、Redis 256MB、日志10MB×3、每日100短信上限",
-      "functions": []
-    },
-    ".claude/memory/nodered-debug-reference.md": {
-      "action": "CREATE",
-      "brief": "Node-RED 调试速查表",
-      "purpose": "常见错误模式根因与修复，按需搜索",
-      "detail": "8 种常见错误的根因分析、修复步骤、生产调试配置",
-      "functions": []
-    },
-    ".claude/memory/implementation-roadmap-plan.md": {
-      "action": "CREATE",
-      "brief": "实施路线图参考",
-      "purpose": "平台版本规划、多仓库部署架构",
-      "detail": "v3.4 栈、多仓库隔离设计、v4.0→PG迁移、v5.0→K8s 规划",
-      "functions": []
-    },
-    ".claude/memory/rescue-dashboard-architecture.md": {
-      "action": "CREATE",
-      "brief": "Rescue Dashboard 架构参考",
-      "purpose": "离线容灾架构设计文档",
-      "detail": "独立 Nginx 8080、安全模式触发条件、E-Stop 设计、Service Worker 离线",
-      "functions": []
-    },
-    ".claude/memory/MEMORY.md": {
-      "action": "MODIFY",
-      "brief": "记忆索引更新",
-      "purpose": "新增 3 个记忆文件指针",
-      "detail": "新增 nodered-debug-reference、implementation-roadmap、rescue-dashboard-architecture",
-      "functions": []
-    },
-    "CLAUDE.md": {
-      "action": "MODIFY",
-      "brief": "AI 项目配置更新",
-      "purpose": "注册 080/090 新规则文件",
-      "detail": "规则表格增加 2 行：080-enterprise-policies、090-operational-limits",
-      "functions": []
-    },
     "scripts/append-today-brief.ps1": {
       "action": "MODIFY",
-      "brief": "简报脚本修复",
-      "purpose": "修复 Z 分区缺失、新增工具变更摘要",
-      "detail": "areaOrder 加入 Z；新增 requests 字段渲染工具变更摘要",
-      "functions": []
+      "brief": "日报脚本可靠性修复",
+      "detail": "四改：早退→最小化简报、上下文日期校验、git diff mtime 日期过滤、Dashboard path 匹配 + 语义命名分析"
     },
-    ".claude/rules/000-global-iron-rules.mdc": {
+    ".claude/settings.json": {
       "action": "MODIFY",
-      "brief": "全局铁律扩展",
-      "purpose": "新增文件放置决策树、创建检查清单、脚本防御性编程铁律",
-      "detail": "§13 文件放置决策树：rules/memory/skills 精确分类；§14 文件创建完成检查清单 6 项；§15 脚本防御性编程：必须覆盖已跟踪+未跟踪文件",
-      "functions": []
+      "brief": "Stop hooks exec form + SessionStart 兜底",
+      "detail": "Stop 四个 hook 从 shell form 改为 exec form（command: powershell, args: [...]），timeout 增至 30s；SessionStart 新增 ensure-today-brief.ps1"
     },
-    ".claude/memory/file-placement-lessons.md": {
+    "scripts/ensure-today-brief.ps1": {
       "action": "CREATE",
-      "brief": "文件放置教训记录",
-      "purpose": "根因分析和系统级预防措施，供未来会话学习",
-      "detail": "4 个根因、修复措施、key pattern 总结",
-      "functions": []
+      "brief": "SessionStart 兜底脚本",
+      "detail": "两步：(1) 上下文日期非今日则重置为干净 JSON 模板；(2) 当天简报缺失则补生成。JSON 模板用手工格式化替代 ConvertTo-Json"
+    },
+    ".claude/today-session-context.json": {
+      "action": "MODIFY",
+      "brief": "上下文重置 + 当天开发记录",
+      "detail": "清空 6/27 残留数据，写入今天日报修复 + Dashboard 平台开发完整记录"
+    },
+    "dashboard/src/components/SystemHealth.tsx": {
+      "action": "CREATE",
+      "brief": "系统健康监控面板",
+      "detail": "用户平台模块一 — 监控。服务状态网格（5 服务）、CPU/内存/错误率仪表盘、车队统计、安全模式/限流指示器、10s 轮询"
+    },
+    "dashboard/src/components/AlertPanel.tsx": {
+      "action": "CREATE",
+      "brief": "异常告警与错误追踪面板",
+      "detail": "用户平台模块二 — 告警。P0/P1/P2 三级筛选、确认/静默操作、从 health API 自动衍生告警（安全模式、错误率、CPU/内存、服务断开、机器人异常）"
+    },
+    "dashboard/src/components/CommandPanel.tsx": {
+      "action": "CREATE",
+      "brief": "机器人指令下发控制台",
+      "detail": "用户平台模块三 — 指令。急停/恢复、模式切换（自动/手动）、任务指派、充电调度、单+批量操作、预留 VDA5050 标准指令集对接"
+    },
+    "dashboard/src/App.tsx": {
+      "action": "MODIFY",
+      "brief": "平台主应用集成",
+      "detail": "路由 + 布局编排，集成 SystemHealth、AlertPanel、CommandPanel 三大面板，构建监控+告警+控制的完整用户操作平台"
     }
   },
   "requests": [
-    { "title": "规则迁移：skills 中 8 个规则集→.claude/rules/", "detail": "skills/ 中的强制约束提取到 .mdc 文件，确保每次会话自动加载。5 个 .mdc（含 3 个扩写 + 2 个新建）覆盖：language-boundary、flow-integrity、outbox-retry、enterprise-policies、operational-limits、robot-device 扩充" },
-    { "title": "知识迁移：skills 中参考知识→.claude/memory/", "detail": "3 个记忆文件：nodered-debug-reference（错误速查）、implementation-roadmap（版本规划）、rescue-dashboard-architecture（离线架构）" },
-    { "title": "修复：简报 Z 分区缺失 + 工具变更摘要 section", "detail": "见前两个 commit" },
-    { "title": "根因分析 + 系统级预防：为何文件总放错位置", "detail": "4个根因：无决策树、无检查清单、脚本盲区、不验证。修复：000-global-iron-rules.mdc §13-15；记忆文件 file-placement-lessons.md 记录教训供未来参考" }
+    {
+      "title": "日报系统可靠性全面修复",
+      "detail": "诊断三个根因 + 实施 7 项修复：早退→最小化简报、日期校验过滤旧上下文、git mtime 过滤旧文件、exec form 转换、SessionStart 兜底、JSON 模板清理、Dashboard 组件分类与语义描述增强"
+    }
   ],
   "leftovers": [],
   "nextActions": [
-    "继续 Phase 2 功能完整性开发"
+    "验证 Stop hook 在会话结束时正常生成简报",
+    "确认明天 SessionStart 时上下文自动重置",
+    "测试 Dashboard 三大平台模块功能并报告结果"
   ]
 }

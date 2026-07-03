@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 # Shared Redis connection (avoid per-request from_url)
 import redis as _redis_module
@@ -591,6 +592,177 @@ async def sync_inventory(warehouse: str = "WM01"):
     _inventory_service.clear_cache(warehouse)
     _inventory_service.mark_synced()
     return {"status": "synced", "warehouse": warehouse}
+
+
+# ──────────────────────────────────────────────
+# Robot Command API
+# ──────────────────────────────────────────────
+
+
+class RobotCommandRequest(BaseModel):
+    action: str  # pause, resume, cancel_order, reboot
+    orderId: str = ""
+
+
+VALID_COMMANDS = {"pause", "resume", "cancel_order", "reboot"}
+
+# Map commands to VDA5050 instantActions
+COMMAND_ACTIONS: dict[str, dict] = {
+    "pause": {
+        "actionType": "startPause",
+        "actionId": "pause-cmd",
+        "blockingType": "HARD",
+        "actionParameters": [{"key": "reason", "value": "operator_command"}],
+    },
+    "resume": {
+        "actionType": "stopPause",
+        "actionId": "resume-cmd",
+        "blockingType": "HARD",
+        "actionParameters": [],
+    },
+    "cancel_order": {
+        "actionType": "cancelOrder",
+        "actionId": "cancel-cmd",
+        "blockingType": "HARD",
+        "actionParameters": [],
+    },
+    "reboot": {
+        "actionType": "startPause",
+        "actionId": "reboot-cmd",
+        "blockingType": "HARD",
+        "actionParameters": [{"key": "reason", "value": "SERVICE_RESTART"}],
+    },
+}
+
+
+@app.post("/api/v1/robots/{robot_id}/command")
+async def robot_command(robot_id: str, req: RobotCommandRequest):
+    """Send a command (pause/resume/cancel_order/reboot) to a robot via MQTT instantActions."""
+    if req.action not in VALID_COMMANDS:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"invalid_action: {req.action}. Valid: {sorted(VALID_COMMANDS)}"},
+        )
+
+    if not get_publisher().is_connected:
+        return JSONResponse(status_code=503, content={"error": "mqtt_disconnected"})
+
+    # robot_id format: "manufacturer/serialNumber" or "manufacturer-serialNumber"
+    if "/" in robot_id:
+        manufacturer, serial_number = robot_id.split("/", 1)
+    elif "-" in robot_id:
+        manufacturer, serial_number = robot_id.split("-", 1)
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "invalid_robot_id: use format 'manufacturer/serialNumber'"},
+        )
+
+    # Build instantActions payload
+    action_template = COMMAND_ACTIONS.get(req.action, COMMAND_ACTIONS["pause"])
+    instant_actions = [dict(action_template)]
+
+    # Attach orderId to cancel_order if provided
+    if req.action == "cancel_order" and req.orderId:
+        instant_actions[0]["actionParameters"] = [
+            {"key": "orderId", "value": req.orderId},
+        ]
+
+    mid = get_publisher().publish(
+        manufacturer=manufacturer,
+        serial_number=serial_number,
+        topic_suffix="instantActions",
+        payload={"instantActions": instant_actions},
+        qos=1,
+    )
+
+    logger.info(f"Command '{req.action}' → {manufacturer}/{serial_number} (mid={mid})")
+    return {
+        "status": "sent",
+        "robotId": robot_id,
+        "action": req.action,
+        "mqttMid": mid,
+    }
+
+
+@app.get("/api/v1/system/health")
+async def system_health():
+    """Aggregated system health — all services, resources, fleet summary."""
+    import json as json_mod
+
+    # SAP Bridge self-check
+    mqtt_ok = get_publisher().is_connected
+    redis_ok = _check_redis()
+
+    # Fleet summary from Redis
+    fleet = {"total": 0, "online": 0, "error": 0, "moving": 0, "idle": 0, "charging": 0}
+    try:
+        keys = _redis_client.keys("robot:connection:*")
+        fleet["total"] = len(keys)
+        for key in keys:
+            data = _redis_client.hgetall(key)
+            state = data.get("state", "").upper()
+            if state == "ONLINE" and data.get("lastSeen"):
+                fleet["online"] += 1
+            if state in ("MOVING", "EXECUTING"):
+                fleet["moving"] += 1
+            elif state == "ERROR":
+                fleet["error"] += 1
+            elif state in ("CHARGING",):
+                fleet["charging"] += 1
+            elif state in ("IDLE", "ONLINE", "PAUSED"):
+                fleet["idle"] += 1
+    except Exception:
+        pass
+
+    # Try to reach Watchdog for extra metrics (optional, non-blocking)
+    watchdog_ok = False
+    watchdog_metrics = {}
+    try:
+        import asyncio
+        wd_url = "http://watchdog:9090/metrics"
+        # Run sync HTTP in thread pool to avoid blocking FastAPI event loop
+        def _fetch_watchdog():
+            import urllib.request
+            req = urllib.request.Request(wd_url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                return json_mod.loads(resp.read().decode())
+        wd_data = await asyncio.to_thread(_fetch_watchdog)
+        watchdog_ok = True
+        watchdog_metrics = {
+            "safeMode": wd_data.get("safe_mode", False),
+            "throttleActive": wd_data.get("throttle_active", False),
+            "cpuPercent": wd_data.get("cpu_percent"),
+            "memoryPercent": wd_data.get("memory_percent"),
+            "errorRatePercent": wd_data.get("error_rate_percent"),
+            "noderedStatus": wd_data.get("nodered_status"),
+            "sapBridgeStatus": wd_data.get("sap_bridge_status"),
+            "mqttStatus": wd_data.get("mqtt_status"),
+        }
+    except Exception:
+        pass
+
+    # DB health (SQLite check)
+    db_ok = False
+    try:
+        _order_service.list_orders(limit=1)
+        db_ok = True
+    except Exception:
+        pass
+
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "services": {
+            "sapBridge": {"status": "healthy", "uptimeSeconds": _uptime()},
+            "mqtt": {"status": "connected" if mqtt_ok else "disconnected", "connected": mqtt_ok},
+            "redis": {"status": "connected" if redis_ok else "disconnected", "connected": redis_ok},
+            "database": {"status": "connected" if db_ok else "error", "connected": db_ok},
+            "watchdog": {"status": "reachable" if watchdog_ok else "unreachable", "connected": watchdog_ok},
+        },
+        "resources": watchdog_metrics,
+        "fleet": fleet,
+        "version": os.getenv("RUNTIME_VERSION", "v3.4"),
+    }
 
 
 # ──────────────────────────────────────────────

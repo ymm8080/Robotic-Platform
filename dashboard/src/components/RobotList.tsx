@@ -12,6 +12,8 @@ interface RobotApiStatus {
   state: string
   battery: string
   lastSeen: string
+  position?: { x: number; y: number }
+  orderId?: string | null
 }
 
 export function RobotList({ mqtt, apiRobots, onRobotClick }: {
@@ -48,8 +50,8 @@ export function RobotList({ mqtt, apiRobots, onRobotClick }: {
         connected: true,
         driving: r.state === 'MOVING',
         paused: false,
-        position: null,
-        orderId: null,
+        position: r.position ? { ...r.position, theta: 0 } : null,
+        orderId: r.orderId || null,
         errors: [],
         operatingMode: 'AUTOMATIC',
         safetyState: { eStop: false },
