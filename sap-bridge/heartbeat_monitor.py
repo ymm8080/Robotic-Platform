@@ -56,7 +56,7 @@ class HeartbeatMonitor:
 
     # ── Callbacks ──────────────────────────────
 
-    def _on_connect(self, client, userdata, flags, rc):
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
         if rc == 0:
             logger.info("Heartbeat monitor connected to MQTT")
             client.subscribe(TOPIC_CONNECTION, qos=1)
