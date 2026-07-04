@@ -30,7 +30,7 @@ class OrderService:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS orders_v2 (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    order_no TEXT NOT NULL,
+                    order_no TEXT NOT NULL UNIQUE,
                     type TEXT NOT NULL,
                     priority INTEGER DEFAULT 3,
                     source TEXT,
@@ -41,13 +41,18 @@ class OrderService:
                     zone_id TEXT,
                     location TEXT,
                     weight REAL,
-                    env_tag TEXT,
+                    env_tag TEXT DEFAULT 'PROD',
                     expected_qty INTEGER,
+                    assigned_rule_id INTEGER,
+                    error_message TEXT,
+                    version INTEGER DEFAULT 1,
                     created_at REAL,
-                    updated_at REAL
+                    updated_at REAL,
+                    completed_at REAL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_v2_status ON orders_v2(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_v2_order_no ON orders_v2(order_no)")
             conn.commit()
         finally:
             conn.close()

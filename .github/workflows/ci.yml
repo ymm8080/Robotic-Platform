@@ -176,7 +176,11 @@ jobs:
       - name: Build dashboard (Vite + TypeScript)
         run: |
           cd dashboard
-          npm ci
+          # Lock file generated on Windows omits Linux platform binaries
+          # (e.g. @rollup/rollup-linux-x64-gnu). Remove it so npm install
+          # resolves all platform packages fresh on the CI runner.
+          rm -f package-lock.json
+          npm install
           npm run build
 
       - name: Verify Docker Compose config

@@ -129,6 +129,7 @@ Full Cursor skills sync. Key custom skills:
 - ADR required for architecture changes (see `10_adr/`)
 - Runbooks updated before deployment
 - Memory files updated every session
+- Project design files are in d:\ewm robot\Reference
 
 ## Memory Hierarchy
 

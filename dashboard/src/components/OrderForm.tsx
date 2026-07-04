@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { CONFIG } from '../config'
+import { useAreaAccess } from '../hooks/useAreaAccess'
 
 interface RobotOption { id: string; brand: string; state: string }
 
@@ -14,21 +15,23 @@ export function OrderForm({ onCreated }: { onCreated: () => void }) {
   const [targetY, setTargetY] = useState('')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const { isAdmin, canViewRobot } = useAreaAccess()
 
   // Fetch available robots (free ones first)
   useEffect(() => {
     fetch(`${CONFIG.apiBase}/v1/robots/status`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
-        const list = (data.robots || []).map((r: any) => ({ id: r.id, brand: r.brand, state: r.state }))
-        // Sort: free robots first, then busy ones
-        list.sort((a: RobotOption, b: RobotOption) => {
+        const list: RobotOption[] = (data.robots || []).map((r: any) => ({ id: r.id, brand: r.brand, state: r.state }))
+        // Filter by area access, then sort: free robots first
+        const filtered: RobotOption[] = isAdmin ? list : list.filter(r => canViewRobot(r.id))
+        filtered.sort((a: RobotOption, b: RobotOption) => {
           const aBusy = a.state === 'MOVING' || a.state === 'EXECUTING'
           const bBusy = b.state === 'MOVING' || b.state === 'EXECUTING'
           return Number(aBusy) - Number(bBusy)
         })
-        setRobots(list)
-        if (!robotId && list.length > 0) setRobotId(list[0].id)
+        setRobots(filtered)
+        if (!robotId && filtered.length > 0) setRobotId(filtered[0].id)
       })
       .catch(() => {})
   }, [])
