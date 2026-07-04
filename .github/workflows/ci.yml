@@ -177,6 +177,10 @@ jobs:
         run: |
           cd dashboard
           npm ci
+          # Workaround: npm 10 on Windows may omit Linux platform binaries
+          # from lock file when optional peer deps are involved. Force
+          # install to ensure all platform packages are present.
+          npm install --force
           npm run build
 
       - name: Verify Docker Compose config
