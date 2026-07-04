@@ -150,6 +150,7 @@ Full Cursor skills sync. Key custom skills:
 1. Read this CLAUDE.md (project context)
 2. Read MEMORY.md (cross-session learnings)
 3. Check for relevant patterns/pitfalls
+4. **Git sync check**: When user asks to pull/update/sync repo, ALWAYS `git fetch --all --prune` first, then check ALL tracking branches (especially `master`) — never stop after confirming only the current branch is up to date. Auto-cd lands on `feature/*`, so `git pull` on the current branch doesn't mean master is current.
 
 ### During
 1. Follow verification-before-done rules

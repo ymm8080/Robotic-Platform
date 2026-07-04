@@ -28,6 +28,10 @@ if ($gd) { foreach ($ln in $gd) { if ($ln -match "^([AMDR])\s+(.+)$") { $p=$Matc
 # Also capture untracked files (?? in git status) — git diff HEAD misses these entirely
 $uf = git ls-files --others --exclude-standard 2>$null
 if ($uf) { foreach ($u in ($uf -split "`n")) { $u=$u.Trim(); if ($u -and -not $seen.ContainsKey($u)) { $seen[$u]=$true; [void]$FE.Add((New-Object PSObject -Property @{T="";P=($u -replace '\\','/');A="CREATE"})) } } }
+# Also capture today committed changes (any IDE: Claude Code, CatPaw, Cursor)
+$todayStartGit = (Get-Date).ToString("yyyy-MM-dd") + "T00:00:00"
+$gc = git log --since="$todayStartGit" --name-only --pretty=format:"" 2>$null
+if ($gc) { foreach ($u in ($gc -split "`n")) { $u=$u.Trim() -replace '\\','/'.Trim(); if ($u -and -not $seen.ContainsKey($u)) { $seen[$u]=$true; [void]$FE.Add((New-Object PSObject -Property @{T="committed";P=$u;A="MODIFY"})) } } }
 Pop-Location
 
 # Filter: skip deleted files, non-today files, and trivial files
@@ -41,7 +45,7 @@ foreach ($fe in $FE) {
         $resolved = if ([System.IO.Path]::IsPathRooted($fe.P)) { $fe.P } else { Join-Path $R $fe.P }
         if (-not (Test-Path $resolved)) { continue }
         # Date filter: files from git diff (no transcript timestamp) must be modified today
-        if (-not $fe.T) {
+        if (-not $fe.T -or $fe.T -eq "committed") {
             $mtime = (Get-Item $resolved).LastWriteTime
             if ($mtime -lt $todayStart) {
                 [void]$staleFE.Add($fe)
@@ -555,57 +559,116 @@ $O.Add("# Claude Code 今日工作简报"); $O.Add("")
 $O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.4")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** {0} 个（新建 + 修改）" -f ($cnt+$trivialCnt))); $O.Add("")
 $O.Add("---"); $O.Add("")
 
-# Compute global time range from all entries with timestamps
-$globalTimes=@(); foreach ($fe in $FE) { if ($fe.T -and $fe.T -ne "") { $globalTimes+=$fe.T } }
+# Compute global time range: prefer git commit times, fallback to transcript timestamps, then script time
+$gitCommitTimes = @()
+Push-Location $R
+$todayStartGit2 = (Get-Date).ToString("yyyy-MM-dd") + "T00:00:00"
+$gitTimesRaw = git log --since="$todayStartGit2" --format="%ai" 2>$null
+Pop-Location
+if ($gitTimesRaw) {
+    foreach ($gt in $gitTimesRaw) { $gt=$gt.Trim(); if ($gt) { $gitCommitTimes += $gt.Substring(11,5) } }
+}
 $globalTimeRange = "—"
-if ($globalTimes.Count -gt 0) {
+if ($gitCommitTimes.Count -gt 0) {
+    $sortedT = $gitCommitTimes | Sort-Object
+    $globalTimeRange = "{0}-{1}" -f $sortedT[0], $sortedT[-1]
+} elseif ($globalTimes.Count -gt 0) {
     $sortedT = $globalTimes | Sort-Object
     $globalTimeRange = "{0}-{1}" -f $sortedT[0], $sortedT[-1]
 } else {
     $globalTimeRange = $TS
 }
 
-# Overview: functional summary with file lists and time range
+# Overview: functional summary with business-oriented descriptions
 $O.Add("## 今日工作总览"); $O.Add("")
-$O.Add("| 时间 | 功能领域 | 主要变更 | 文件数 |"); $O.Add("|------|----------|----------|--------|")
+$O.Add("| 时间 | 功能领域 | 功能简述 |"); $O.Add("|------|----------|----------|")
+# Build area-to-phase mapping via file overlap
+$areaPhaseBriefs = @{}
+if ($script:HC -and $script:SC -and $script:SC.phases) {
+    foreach ($ph in $script:SC.phases) {
+        if (-not $ph.files) { continue }
+        foreach ($ak2 in $areaGroups.Keys) {
+            $ag2 = $areaGroups[$ak2]
+            $areaPaths = @(); foreach ($ff in $ag2.F) { $areaPaths += $ff.P }
+            $overlap = $false
+            foreach ($pf in $ph.files) {
+                $pfN = $pf -replace '\\','/'.Trim()
+                foreach ($ap in $areaPaths) {
+                    if ($ap -eq $pfN -or $ap -like "$pfN/*" -or $pfN -like "$ap/*") { $overlap = $true; break }
+                }
+                if ($overlap) { break }
+            }
+            if ($overlap) {
+                if (-not $areaPhaseBriefs.ContainsKey($ak2)) { $areaPhaseBriefs[$ak2] = New-Object System.Collections.ArrayList }
+                if ($areaPhaseBriefs[$ak2] -notcontains $ph.summary) { [void]$areaPhaseBriefs[$ak2].Add($ph.summary) }
+            }
+        }
+    }
+}
+# Also check requests array for business-oriented briefs
+$areaReqBriefs = @{}
+if ($script:HC -and $script:SC -and $script:SC.requests) {
+    foreach ($req in $script:SC.requests) {
+        $t = $req.title; $d = $req.detail
+        # Match requests to areas by keyword
+        if ($t -match 'CI|PR' -and $t -match '#6') { $key = "F" }
+        elseif ($t -match 'CI|PR' -and $t -match '#7') { $key = "Z" }
+        elseif ($t -match '权限|RBAC|管控') { $key = "F" }
+        elseif ($t -match '测试|Mock|模拟') { $key = "F" }
+        else { $key = "Z" }
+        if (-not $areaReqBriefs.ContainsKey($key)) { $areaReqBriefs[$key] = New-Object System.Collections.ArrayList }
+        [void]$areaReqBriefs[$key].Add("$t")
+    }
+}
 foreach ($ak in $areaOrder) {
     if (-not $areaGroups.ContainsKey($ak)) { continue }
-    $ag = $areaGroups[$ak]; $fc = $ag.F.Count
-    # Collect time range (use global fallback if no per-area timestamps)
-    $times=@(); foreach ($ff in $ag.F) { if ($ff.T) { $times+=$ff.T } }
+    $ag = $areaGroups[$ak]
+    $times=@(); foreach ($ff in $ag.F) { if ($ff.T -and $ff.T -ne "committed") { $times+=$ff.T } }
     $timeRange = $globalTimeRange
-    if ($times.Count -gt 0) {
-        $sorted2 = $times | Sort-Object
-        $timeRange = "{0}-{1}" -f $sorted2[0], $sorted2[-1]
+    if ($times.Count -gt 0) { $sorted2 = $times | Sort-Object; $timeRange = "{0}-{1}" -f $sorted2[0], $sorted2[-1] }
+    $brief = ""
+    # Try phase summaries first
+    if ($areaPhaseBriefs.ContainsKey($ak)) { $brief = $areaPhaseBriefs[$ak] -join "；" }
+    # Then try requests
+    if (-not $brief -and $areaReqBriefs.ContainsKey($ak)) { $brief = $areaReqBriefs[$ak] -join "；" }
+    # Fallback: use file briefs from context JSON (max 3 unique)
+    if (-not $brief) {
+        $briefs=@{}; $cnt2=0; foreach ($ff in $ag.F) {
+            $p=$ff.P
+            if ($script:HC -and $script:SC -and $script:SC.files -and $script:SC.files.$p -and $script:SC.files.$p.brief) { $br=$script:SC.files.$p.brief; if (-not $briefs.ContainsKey($br) -and $cnt2 -lt 3) { $briefs[$br]=$true; $cnt2++ } }
+        }
+        if ($briefs.Count -gt 0) { $brief = ($briefs.Keys -join "；") }
+        else { $brief = $ag.N }
     }
-    # Collect unique file names
-    $fileNames=@{}; $fileBriefs=@{}
-    foreach ($ff in $ag.F) {
-        $fname = [System.IO.Path]::GetFileName($ff.P)
-        if (-not $fileNames.ContainsKey($fname)) { $fileNames[$fname]=$true; $fileBriefs[$fname]=$ff.D }
-    }
-    $nameList = @(); $count=0
-    foreach ($fn in $fileNames.Keys) {
-        $br = $fileBriefs[$fn]
-        if ($br.Length -gt 25) { $br = $br.Substring(0,22)+"..." }
-        $nameList += ("{0}" -f $fn)
-        $count++
-    }
-    $summary = $ag.N
-    if ($nameList.Count -gt 0) {
-        $fileStr = $nameList -join "、"
-        if ($fileStr.Length -gt 80) { $fileStr = $fileStr.Substring(0,77)+"..." }
-        $summary += "（{0}）" -f $fileStr
-    }
-    $O.Add(("| {0} | **{1}** | {2} | {3} |" -f $timeRange, $ag.N, $summary, $fc))
+    if ($brief.Length -gt 100) { $brief = $brief.Substring(0,97)+"..." }
+    $O.Add(("| {0} | **{1}** | {2} |" -f $timeRange, $ag.N, $brief))
 }
-if ($trivialCnt -gt 0) { $O.Add(("| — | 清理维护 | 删除废弃/冗余文件 | {0} |" -f $trivialCnt)) }
-$O.Add(("| **合计** | — | **{0}** |" -f ($cnt+$trivialCnt)))
+if ($trivialCnt -gt 0) { $O.Add("| — | 清理维护 | 删除废弃/冗余文件 |") }
+$O.Add(("| **合计** | — | **{0} 个文件变更** |" -f ($cnt+$trivialCnt)))
 $O.Add(""); $O.Add("---"); $O.Add("")
 
-# Change summary by PLAN.md phase
+# Change summary by PLAN.md phase — business-oriented
 $O.Add("## 各阶段变更概要"); $O.Add("")
 $phaseDesc = @{"Phase 0"="工作区加固：项目根配置、文档基线、卫生清理"; "Phase 1"="核心稳定性：基础设施加固、备份恢复、SAP Bridge、密钥审计"; "Phase 2"="功能完整性：多品牌策略、订单管理、SAP 深度集成、Dashboard"; "Phase 3"="生产就绪：测试框架、CI/CD、监控与可观测性"; "Phase 4"="持续优化：AI 配置同步、记忆系统、开发脚本"}
+# Build phase-subsection to context-phase summary mapping via file overlap
+$subPhaseSummary = @{}
+if ($script:HC -and $script:SC -and $script:SC.phases) {
+    foreach ($ph in $script:SC.phases) {
+        if (-not $ph.files -or -not $ph.summary) { continue }
+        foreach ($pp2 in $uniq) {
+            $fgrp = $phaseGroups[$pp2.K]
+            $overlap = $false
+            foreach ($pf in $ph.files) {
+                $pfN = $pf -replace '\\','/'.Trim()
+                foreach ($ff2 in $fgrp) {
+                    if ($ff2.P -eq $pfN -or $ff2.P -like "$pfN/*" -or $pfN -like "$($ff2.P)/*") { $overlap = $true; break }
+                }
+                if ($overlap) { break }
+            }
+            if ($overlap) { $subPhaseSummary[$pp2.K] = $ph.summary }
+        }
+    }
+}
 $prevPhase = ""
 foreach ($pp in $uniq) {
     $files=$phaseGroups[$pp.K]; $fc=$files.Count
@@ -614,24 +677,45 @@ foreach ($pp in $uniq) {
         $desc = if ($phaseDesc.ContainsKey($pp.P)) { $phaseDesc[$pp.P] } else { "" }
         if ($desc) { $O.Add(("**{0}**：{1}" -f $pp.P, $desc)) }
     }
-    $briefSet=@{}; foreach ($ff in $files) { $briefSet[$ff.D]=$true }; $briefArr=@(); foreach ($bd in $briefSet.Keys) { $briefArr+=$bd }
-    $brief = $briefArr -join "；"
+    $brief = ""
+    if ($subPhaseSummary.ContainsKey($pp.K)) { $brief = $subPhaseSummary[$pp.K] }
+    else {
+        $briefSet=@{}; $cnt3=0; foreach ($ff in $files) {
+$p=$ff.P
+            if ($script:HC -and $script:SC -and $script:SC.files -and $script:SC.files.$p -and $script:SC.files.$p.brief) { if (-not $briefSet.ContainsKey($script:SC.files.$p.brief) -and $cnt3 -lt 3) { $briefSet[$script:SC.files.$p.brief]=$true; $cnt3++ } }
+        }
+        if ($briefSet.Count -gt 0) { $brief = ($briefSet.Keys -join "；") }
+        else { $brief = $pp.S }
+    }
     if ($brief.Length -gt 100) { $brief = $brief.Substring(0,97)+"..." }
     $O.Add(("  - {0}（{1} 文件）：{2}" -f $pp.S, $fc, $brief))
 }
 $O.Add("")
 $O.Add("---"); $O.Add("")
 
-# Phase detail sections
+# Phase detail sections — all phases use grouped function summaries with details
 $curP=""
 foreach ($pp in $uniq) {
     $files=$phaseGroups[$pp.K]
     if ($pp.P -ne $curP) { $curP=$pp.P; $O.Add(("## {0} — {1}" -f $pp.P, $pp.L)); $O.Add("") }
     $O.Add(("### {0}" -f $pp.S)); $O.Add("")
-    $O.Add("| 时间 | 文件路径 | 类型 | 说明 |"); $O.Add("|------|----------|------|------|")
+    $grouped=@{}
     foreach ($ff in $files) {
-        $tm=if ($ff.T){$ff.T}else{"—"}; $icon=gIcon $ff.A; $label=gLabel $ff.A; $desc=$ff.D
-        $O.Add(("| {0} | ``{1}`` | {2} {3} | {4} |" -f $tm, $ff.P, $icon, $label, $desc))
+        $br = ""; $dt = ""
+        if ($script:HC -and $script:SC -and $script:SC.files -and $script:SC.files.$($ff.P)) {
+            $br = $script:SC.files.$($ff.P).brief
+            $dt = $script:SC.files.$($ff.P).detail
+        }
+        if (-not $br) { $br = gBrief $ff.P }
+        if (-not $grouped.ContainsKey($br)) { $grouped[$br]=@{Files=New-Object System.Collections.ArrayList; Detail=$dt} }
+        [void]$grouped[$br].Files.Add($ff.P)
+        if ($dt -and -not $grouped[$br].Detail) { $grouped[$br].Detail = $dt }
+    }
+    foreach ($br in $grouped.Keys) {
+        $fileList = $grouped[$br].Files -join "、"
+        $dt = $grouped[$br].Detail
+        if ($dt) { $O.Add(("- **{0}**：{1}" -f $br, $dt)) }
+        else { $O.Add(("- **{0}**：{1}" -f $br, $fileList)) }
     }
     $O.Add("")
 }
@@ -658,7 +742,7 @@ if ($trivialCnt -gt 0) {
     $O.Add("## 清理维护"); $O.Add("")
     $O.Add("| 时间 | 文件路径 | 操作 | 说明 |"); $O.Add("|------|----------|------|------|")
     foreach ($fe in $trimmed) {
-        $tm2=if ($fe.T){$fe.T}else{"—"}; $icon2=gIcon $fe.A; $label2=gLabel $fe.A
+        $tm2=if ($fe.T -and $fe.T -ne "committed"){$fe.T}else{"—"}; $icon2=gIcon $fe.A; $label2=gLabel $fe.A
         $O.Add(("| {0} | ``{1}`` | {2} {3} | 清理废弃文件 |" -f $tm2, $fe.P, $icon2, $label2))
     }
     $O.Add("")
@@ -697,9 +781,9 @@ $hasStrategyDir = Test-Path (Join-Path $R "sap-bridge\strategies")
 $hasNginxSW = Test-Path (Join-Path $R "nginx\sw.js")
 
 # Phase 0 remaining — workspace hardening
-if (-not $hasDotEnv) { [void]$naList.Add("【Phase 0】创建 .env 文件（从 .env.example 复制），配置 SAP/REDIS/MQTT 凭据") }
-if (-not $hasSecrets) { [void]$naList.Add("【Phase 0】创建 secrets/sap_password.txt 并加入 .gitignore，完善密钥管理") }
-if (-not $hasNodeModulesGitignored) { [void]$naList.Add("【Phase 0】将 node_modules/ 加入 .gitignore，清理版本跟踪") }
+# .env already exists
+# secrets already exist
+# node_modules already gitignored
 
 # Phase 1 remaining — core stability
 [void]$naList.Add("【Phase 1】验证 SAP Bridge OData 连接：curl http://localhost:1880/sap-bridge/health")
@@ -708,26 +792,20 @@ if (-not $hasNodeModulesGitignored) { [void]$naList.Add("【Phase 0】将 node_m
 [void]$naList.Add("【Phase 1】配置 Watchdog 告警阈值：CPU >80%、Redis >75%、错误率 >5%")
 
 # Phase 2 remaining — feature completeness (next major milestone)
-if (-not $hasStrategyDir) {
-    [void]$naList.Add("【Phase 2】搭建机器人品牌策略框架：创建 strategy.ts 接口与品牌注册表")
-    [void]$naList.Add("【Phase 2】开发订单管理服务：Redis 优先级队列 + outbox 持久化")
-}
+# strategy dir already exists — skip
 [void]$naList.Add("【Phase 2】实现 SAP EWM 深度集成：OData CRUD、库存同步、IDoc 监听")
 [void]$naList.Add("【Phase 2】优化 Rescue Dashboard：离线架构、实时位置、E-Stop、电池概览")
-
 # Phase 3 remaining — production readiness
-[void]$naList.Add("【Phase 3】运行 Playwright 测试套件：npm run test:e2e，确认 63 用例通过")
-if (-not $hasCIDeploy) { [void]$naList.Add("【Phase 3】配置 CI/CD 流水线：GitHub Actions → lint → test → build") }
+[void]$naList.Add("【Phase 3】运行 Playwright 测试套件：npm run test:e2e，确认用例通过")
+# CI/CD already configured
 [void]$naList.Add("【Phase 3】配置 Prometheus + Grafana 监控大盘")
-if (-not $hasNginxSW) { [void]$naList.Add("【Phase 3】实现 Nginx Rescue Dashboard 离线 Service Worker") }
-
+# nginx sw.js already exists
 # Phase 4 remaining — continuous
-if (-not $hasADRs) { [void]$naList.Add("【Phase 4】编写 ADR 记录关键架构决策（策略模式、订单设计）") }
-[void]$naList.Add("【Phase 4】执行 git commit 提交变更并推送")
-
+# ADRs already exist (5 files)
+$uncommitted = git -C $R status --porcelain 2>$null
+if ($uncommitted) { [void]$naList.Add("【Phase 4】提交未提交的变更并推送到远程仓库") }
 # Always
 [void]$naList.Add("更新 SESSION_STATUS.md 记录当前阶段与完成项")
-
 $i=1; foreach ($item in $naList) { $O.Add(("{0}. {1}" -f $i, $item)); $i++ }
 $O.Add("")
 

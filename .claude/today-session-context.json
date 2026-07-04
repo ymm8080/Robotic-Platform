@@ -1,108 +1,271 @@
 {
-  "date": "20260702",
-  "generated": "2026-07-02 07:03:00",
+  "date": "20260704",
+  "generated": "2026-07-04 22:30:00",
   "phases": [
     {
-      "name": "Phase A — 日报系统可靠性修复",
-      "timeRange": "06:19-07:02",
-      "summary": "诊断并修复每日简报三大根因：脚本早退无输出、上下文跨会话污染、Stop hook 可靠性",
-      "fileCount": 5,
-      "files": [
-        "scripts/append-today-brief.ps1",
-        ".claude/settings.json",
-        "scripts/ensure-today-brief.ps1",
-        ".claude/today-session-context.json"
-      ],
-      "highlights": [
-        "脚本早退 exit 0 改为最小化简报生成（无变更时也产出文件）",
-        "上下文日期校验：date 不匹配则自动忽略旧数据",
-        "git diff 文件添加 mtime 日期过滤，只保留今日修改的文件",
-        "Stop hooks 从 shell form 改为 exec form（消除双重 shell 引用）",
-        "SessionStart 兜底脚本：自动重置旧上下文 + 补生成缺失简报",
-        "JSON 模板改用手工格式化，替换 PowerShell ConvertTo-Json 乱码输出",
-        "Dashboard 组件添加 path 匹配 + 语义命名分析 + Phase 2 分类"
-      ],
-      "nextActions": [
-        "验证 Stop hook 在本次会话结束时正常生成简报",
-        "确认明天 SessionStart 时上下文自动重置 + 兜底补生成"
-      ]
+      "name": "Phase A — PR #6 CI 修复（CatPaw 会话）",
+      "timeRange": "21:30-22:05",
+      "summary": "修复 CI 流水线阻塞，恢复 Dashboard 代码自动构建部署能力",
+      "fileCount": 1,
+      "files": ["dashboard/package-lock.json"],
+      "highlights": ["修复依赖锁定文件不同步导致 CI 失败，恢复自动化构建部署能力"],
+      "nextActions": []
     },
     {
-      "name": "Phase B — 用户平台 Dashboard 开发",
-      "timeRange": "02:29-02:31",
-      "summary": "构建机器人监控与操作平台三大模块：系统监控、错误追踪、指令下发",
-      "fileCount": 4,
+      "name": "Phase B — PR #7 CI 修复（CatPaw 会话）",
+      "timeRange": "22:05-22:30",
+      "summary": "修复 CI 构建跨平台兼容问题，确保 Dashboard 代码可合并到主分支",
+      "fileCount": 2,
+      "files": ["dashboard/package-lock.json", ".github/workflows/ci.yml"],
+      "highlights": ["解决 Windows 生成的依赖锁文件在 Linux CI 环境下缺失平台包问题，PR 已合并到主分支"],
+      "nextActions": []
+    },
+    {
+      "name": "Phase C — RBAC 与 Dashboard 功能（Claude Code 会话）",
+      "timeRange": "00:00-04:30",
+      "summary": "构建仓库区域权限管控系统，实现多角色分区域管理机器人和任务；建立 Dashboard 测试体系与虚拟机器人模拟工具",
+      "fileCount": 30,
       "files": [
-        "dashboard/src/components/SystemHealth.tsx",
-        "dashboard/src/components/AlertPanel.tsx",
-        "dashboard/src/components/CommandPanel.tsx",
-        "dashboard/src/App.tsx"
+        "dashboard/src/components/AdminPanel.tsx", "dashboard/src/components/AuthPage.tsx",
+        "dashboard/src/components/SettingsPage.tsx", "dashboard/src/context/AuthContext.tsx",
+        "dashboard/src/context/SettingsContext.tsx", "dashboard/src/hooks/useAreaAccess.ts",
+        "dashboard/src/hooks/useAreas.ts", "dashboard/src/types/auth.ts",
+        "dashboard/src/types/settings.ts", "dashboard/src/utils/parseAreasFile.ts"
       ],
-      "highlights": [
-        "SystemHealth — 监控面板：服务状态网格 + CPU/内存/错误率仪表盘 + 车队概览 + 安全模式指示器",
-        "AlertPanel — 错误追踪：P0/P1/P2 分级告警、确认/静默操作、API 健康数据自动衍生告警",
-        "CommandPanel — 指令控制台：急停/恢复、模式切换、任务指派、批量操作，预留 VDA5050 对接",
-        "App.tsx — 平台集成：路由 + 布局编排，三大面板组合为完整用户操作平台"
-      ],
-      "nextActions": [
-        "接入真实 MQTT 数据源替换 mock 数据",
-        "添加用户权限控制（操作员 vs 只读）",
-        "编写仪表板功能测试"
-      ]
+      "highlights": ["实现基于角色的多仓库区域权限管控系统", "建立组件级单元测试和端到端测试体系"],
+      "nextActions": []
     }
   ],
   "files": {
-    "scripts/append-today-brief.ps1": {
+    "dashboard/package-lock.json": {
       "action": "MODIFY",
-      "brief": "日报脚本可靠性修复",
-      "detail": "四改：早退→最小化简报、上下文日期校验、git diff mtime 日期过滤、Dashboard path 匹配 + 语义命名分析"
+      "brief": "CI 依赖锁定文件修复",
+      "detail": "重新生成依赖版本锁定文件，解决 CI 服务器因缺少构建工具包导致的自动构建失败。技术实现：用 npm 10 重新生成 lock 文件，包含 esbuild@0.28.1 + @rollup/rollup-linux-x64-gnu 等平台二进制包"
     },
-    ".claude/settings.json": {
+    ".github/workflows/ci.yml": {
       "action": "MODIFY",
-      "brief": "Stop hooks exec form + SessionStart 兜底",
-      "detail": "Stop 四个 hook 从 shell form 改为 exec form（command: powershell, args: [...]），timeout 增至 30s；SessionStart 新增 ensure-today-brief.ps1"
+      "brief": "CI 构建流程跨平台兼容",
+      "detail": "修改 CI 构建步骤，使其在 Linux 服务器上自动重新解析依赖，解决 Windows 开发环境生成的锁定文件在 Linux 上不兼容的问题。技术实现：Build job 中 rm -f package-lock.json + npm install 替代 npm ci，让 Linux runner 重新解析所有平台包"
     },
-    "scripts/ensure-today-brief.ps1": {
+    "dashboard/src/components/AdminPanel.tsx": {
       "action": "CREATE",
-      "brief": "SessionStart 兜底脚本",
-      "detail": "两步：(1) 上下文日期非今日则重置为干净 JSON 模板；(2) 当天简报缺失则补生成。JSON 模板用手工格式化替代 ConvertTo-Json"
+      "brief": "管理员控制台 — 用户权限与仓库区域管理",
+      "detail": "管理员可通过此面板创建和管理系统用户、分配仓库区域访问权限、配置机器人归属区域，支持通过 Excel/CSV 批量导入仓库区域数据。技术实现：React 函数组件 + useAuth/useAreas Hook + 15 秒轮询 /v1/robots/status + parseAreasFile 多格式解析",
+      "functions": [
+        { "name": "AdminPanel()", "description": "主界面：用户管理、区域管理、机器人分配三个功能标签页" },
+        { "name": "handleAddArea()", "description": "新增仓库区域，自动校验区域编号和名称唯一性" },
+        { "name": "handleFileUpload(e)", "description": "批量导入仓库区域数据，支持 Excel/CSV/JSON 格式，自动合并到已有区域" },
+        { "name": "handleExportJSON()", "description": "导出当前所有仓库区域配置为 JSON 文件，便于备份和迁移" },
+        { "name": "handleSaveUser(userId)", "description": "保存用户的仓库区域和职能角色分配" },
+        { "name": "handleDeleteUser(userId)", "description": "删除系统用户" }
+      ]
     },
-    ".claude/today-session-context.json": {
+    "dashboard/src/components/AuthPage.tsx": {
+      "action": "CREATE",
+      "brief": "用户身份认证入口",
+      "detail": "提供登录和注册双模式界面，用户可通过邮箱或手机号登录，支持管理员和普通用户两种角色选择，含密码强度校验和错误提示。技术实现：React 表单 + useAuth().login/register + 邮箱/手机号正则校验 + 密码长度≥6",
+      "functions": [
+        { "name": "AuthPage()", "description": "登录/注册界面切换，表单验证后调用认证服务完成登录或注册" }
+      ]
+    },
+    "dashboard/src/components/SettingsPage.tsx": {
+      "action": "CREATE",
+      "brief": "系统运行参数配置",
+      "detail": "运维人员可在此页面在线调整系统运行参数，包括消息服务地址、API 接口地址、告警阈值、数据刷新频率等，无需重启服务。技术实现：React 表单 + useSettings() Hook + localStorage 持久化 + SETTINGS_FIELDS 元数据驱动渲染",
+      "functions": [
+        { "name": "SettingsPage()", "description": "系统配置表单，修改后自动保存，支持恢复默认值" }
+      ]
+    },
+    "dashboard/src/context/AuthContext.tsx": {
+      "action": "CREATE",
+      "brief": "全局身份认证与权限管理",
+      "detail": "为整个 Dashboard 提供统一的用户身份认证服务，包括登录验证、新用户注册、会话保持、权限更新和用户管理功能，页面刷新后自动恢复登录状态。技术实现：React Context API + useReducer + localStorage 持久化 + PBKDF2-SHA512 密码哈希 + 会话恢复 useEffect",
+      "functions": [
+        { "name": "AuthProvider({children})", "description": "全局认证 Provider：启动时自动初始化管理员账户并恢复上次登录会话" },
+        { "name": "login(credential, password, role)", "description": "用户登录：验证邮箱/手机号和密码，校验角色匹配后建立会话" },
+        { "name": "register(username, email, phone, password, role)", "description": "新用户注册：校验信息完整性和唯一性，加密密码后创建账户并自动登录" },
+        { "name": "updateUser(userId, updates)", "description": "管理员更新用户权限：分配仓库区域和职能角色" },
+        { "name": "deleteUser(userId)", "description": "删除用户账户（不允许删除自己的账户）" }
+      ]
+    },
+    "dashboard/src/context/SettingsContext.tsx": {
+      "action": "CREATE",
+      "brief": "系统配置状态管理",
+      "detail": "统一管理 Dashboard 所有运行参数配置，配置变更后自动持久化，确保多页面间配置一致。技术实现：React Context + useState + localStorage 读写 + DEFAULT_SETTINGS 合并",
+      "functions": [
+        { "name": "SettingsProvider({children})", "description": "全局配置 Provider：启动时加载已保存的配置" },
+        { "name": "useSettings()", "description": "获取和更新系统配置" }
+      ]
+    },
+    "dashboard/src/hooks/useAreaAccess.ts": {
+      "action": "CREATE",
+      "brief": "仓库区域访问权限控制",
+      "detail": "核心权限控制逻辑：普通用户只能查看被分配仓库区域内的机器人和任务，管理员可查看所有区域。未分配区域的机器人对普通用户不可见，防止越权访问。技术实现：useContext(AuthContextRaw) + Map<robotId, areaId> + functionAreas 数组匹配 + 模糊匹配（rid.includes/robotId.includes）",
+      "functions": [
+        { "name": "useAreaAccess()", "description": "返回当前用户的区域权限信息：可访问的区域列表、区域/机器人/任务的可见性判断方法" },
+        { "name": "canViewRobot(robotId)", "description": "判断当前用户是否有权查看指定机器人" },
+        { "name": "canViewTask(task)", "description": "判断当前用户是否有权查看指定任务" },
+        { "name": "assignRobotToArea(robotId, areaId)", "description": "将机器人分配到指定仓库区域" }
+      ]
+    },
+    "dashboard/src/hooks/useAreas.ts": {
+      "action": "CREATE",
+      "brief": "仓库区域数据管理",
+      "detail": "管理仓库区域的增删改查，数据自动持久化到本地，首次使用时自动创建默认仓库区域。技术实现：useState + localStorage CRUD + FUNCTION_AREAS 常量 seed + areaLabel 映射函数",
+      "functions": [
+        { "name": "useAreas()", "description": "提供仓库区域的新增、编辑、删除、重置默认值等功能" },
+        { "name": "areaLabel(key)", "description": "根据区域编号获取可读的区域名称" }
+      ]
+    },
+    "dashboard/src/types/auth.ts": {
+      "action": "CREATE",
+      "brief": "用户安全认证与密码加密",
+      "detail": "定义用户、角色、权限等数据模型，实现安全的密码加密存储，支持邮箱和手机号双重凭证登录。技术实现：TypeScript 类型定义 + Web Crypto API (PBKDF2-SHA512, 100k iterations, 16-byte salt, 256-bit output) + localStorage 用户存储 + 旧 SHA-256 向后兼容",
+      "functions": [
+        { "name": "hashPassword(password)", "description": "密码加密：使用 PBKDF2-SHA512 算法加密，每次生成随机盐值，防止彩虹表攻击" },
+        { "name": "verifyPassword(password, stored)", "description": "密码验证：支持新版 PBKDF2 和旧版 SHA-256 两种格式" },
+        { "name": "getOrSeedUsers()", "description": "首次启动时自动创建默认管理员账户" },
+        { "name": "matchCredential(user, credential)", "description": "凭证匹配：支持邮箱或手机号登录" }
+      ]
+    },
+    "dashboard/src/types/settings.ts": {
+      "action": "CREATE",
+      "brief": "系统配置项定义",
+      "detail": "定义系统所有可配置参数的数据结构，包括默认值和字段元数据，驱动配置页面的自动渲染。技术实现：TypeScript interface UserSettings + DEFAULT_SETTINGS 常量 + SETTINGS_FIELDS 元数据数组（key/label/type/default）",
+      "functions": [
+        { "name": "DEFAULT_SETTINGS", "description": "系统默认配置：API 地址、消息服务地址、刷新频率、告警阈值" },
+        { "name": "SETTINGS_FIELDS", "description": "配置字段元数据：标签、类型、默认值，用于自动生成配置表单" }
+      ]
+    },
+    "dashboard/src/utils/parseAreasFile.ts": {
+      "action": "CREATE",
+      "brief": "仓库区域批量导入导出",
+      "detail": "支持从 Excel、CSV、TSV、JSON 四种格式文件批量导入仓库区域数据，自动识别表头并映射到系统字段，提供标准模板下载。技术实现：SheetJS (xlsx) 解析 + 自定义 delimiter 解析 + 表头映射 mapHeaders() + 行转对象 rowToArea() + Blob 下载",
+      "functions": [
+        { "name": "parseAreasFile(fileName, buffer)", "description": "根据文件扩展名自动选择解析器，返回解析结果和错误信息" },
+        { "name": "generateTemplateCSV()", "description": "生成标准 CSV 导入模板，包含 13 列字段" },
+        { "name": "generateTemplateExcel()", "description": "生成标准 Excel 导入模板" }
+      ]
+    },
+    "sap-bridge/main.py": {
       "action": "MODIFY",
-      "brief": "上下文重置 + 当天开发记录",
-      "detail": "清空 6/27 残留数据，写入今天日报修复 + Dashboard 平台开发完整记录"
+      "brief": "SAP 系统集成接口扩展",
+      "detail": "新增用户认证和区域权限管理 API 端点，支持 Dashboard 调用进行用户管理和权限验证。技术实现：FastAPI 路由 + RBAC 依赖注入 + 区域权限校验中间件"
     },
-    "dashboard/src/components/SystemHealth.tsx": {
-      "action": "CREATE",
-      "brief": "系统健康监控面板",
-      "detail": "用户平台模块一 — 监控。服务状态网格（5 服务）、CPU/内存/错误率仪表盘、车队统计、安全模式/限流指示器、10s 轮询"
-    },
-    "dashboard/src/components/AlertPanel.tsx": {
-      "action": "CREATE",
-      "brief": "异常告警与错误追踪面板",
-      "detail": "用户平台模块二 — 告警。P0/P1/P2 三级筛选、确认/静默操作、从 health API 自动衍生告警（安全模式、错误率、CPU/内存、服务断开、机器人异常）"
-    },
-    "dashboard/src/components/CommandPanel.tsx": {
-      "action": "CREATE",
-      "brief": "机器人指令下发控制台",
-      "detail": "用户平台模块三 — 指令。急停/恢复、模式切换（自动/手动）、任务指派、充电调度、单+批量操作、预留 VDA5050 标准指令集对接"
-    },
-    "dashboard/src/App.tsx": {
+    "sap-bridge/dispatch_queue/worker.py": {
       "action": "MODIFY",
-      "brief": "平台主应用集成",
-      "detail": "路由 + 布局编排，集成 SystemHealth、AlertPanel、CommandPanel 三大面板，构建监控+告警+控制的完整用户操作平台"
-    }
+      "brief": "机器人调度队列增强",
+      "detail": "调度队列增加区域锁检查和权限验证，确保机器人只能执行被授权区域内的任务。技术实现：Redis 区域锁 (SET NX EX) + 权限验证 + 死信队列改进"
+    },
+    ".github/workflows/security-scan.yml": {
+      "action": "MODIFY",
+      "brief": "安全扫描流程修复",
+      "detail": "修复安全扫描结果上传权限，确保漏洞报告能正确提交到 GitHub Security 面板。技术实现：Trivy SARIF + security-events: write 权限 + codeql-action@v4"
+    },
+    "scripts/mock-layer.js": {
+      "action": "CREATE",
+      "brief": "开发调试模拟工具",
+      "detail": "为 Dashboard 开发提供虚拟数据层，模拟后端 API 响应，支持无后端环境下进行前端开发和调试。技术实现：fetch 拦截 + 虚拟路由匹配 + JSON 响应注入"
+    },
+    "scripts/mock-robot-server.js": {
+      "action": "CREATE",
+      "brief": "虚拟机器人测试服务器",
+      "detail": "模拟 VDA5050 协议机器人行为，包括状态上报、心跳维持、指令响应，用于无实体机器人环境下测试调度系统。技术实现：Node.js HTTP Server + VDA5050 消息格式 + 定时心跳 + 指令处理"
+    },
+    "scripts/position-injector.js": {
+      "action": "CREATE",
+      "brief": "机器人位置模拟工具",
+      "detail": "向虚拟机器人注入位置坐标和移动路径，模拟机器人在仓库中的实际运动轨迹。技术实现：HTTP POST 注入 + 路径插值 + 定时发送"
+    },
+    "e2e/dashboard-platform.spec.js": {
+      "action": "CREATE",
+      "brief": "Dashboard 端到端测试",
+      "detail": "自动化端到端测试：覆盖用户登录、监控面板、告警处理、指令下发、权限控制等完整业务流程。技术实现：Playwright + page.selectors + 跨页面导航 + 断言"
+    },
+    "dashboard/src/components/SystemHealth.test.tsx": {
+      "action": "CREATE",
+      "brief": "系统健康监控测试",
+      "detail": "验证系统健康监控面板的数据渲染和状态更新。技术实现：Vitest + @testing-library/react"
+    },
+    "dashboard/src/components/AlertPanel.test.tsx": {
+      "action": "CREATE",
+      "brief": "告警面板测试",
+      "detail": "验证告警面板的告警列表渲染、优先级排序和确认操作。技术实现：Vitest + renderWithProviders mock"
+    },
+    "dashboard/src/components/CommandPanel.test.tsx": {
+      "action": "CREATE",
+      "brief": "指令面板测试",
+      "detail": "验证指令面板的急停、模式切换、任务指派等功能。技术实现：Vitest + mock fetch + 事件模拟"
+    },
+    "dashboard/vitest.config.ts": {
+      "action": "CREATE",
+      "brief": "单元测试配置",
+      "detail": "配置 Vitest 测试框架。技术实现：Vitest + jsdom 环境 + 覆盖率收集"
+    },
+    "docker-compose.yml": {
+      "action": "MODIFY",
+      "brief": "Docker 服务编排配置",
+      "detail": "更新容器编排配置，适配新增的认证服务和区域权限模块。技术实现：Docker Compose services + 卷挂载 + 网络配置"
+    },
+    "sap-bridge/mqtt_publisher.py": {
+      "action": "MODIFY",
+      "brief": "MQTT 消息发布器",
+      "detail": "优化消息发布器的重连机制和序列号管理，提升消息投递可靠性。技术实现：paho-mqtt + Redis INCR 序列号 + QoS 1 + Last-Will + 自动重连"
+    },
+    "sap-bridge/services/order_service.py": {
+      "action": "MODIFY",
+      "brief": "订单生命周期管理服务",
+      "detail": "完善订单从创建、分配、执行到完成/取消的完整生命周期管理逻辑。技术实现：Python 状态机 + Redis 优先级队列 + outbox 持久化"
+    },
+    "mqtt/mosquitto.conf": {
+      "action": "MODIFY",
+      "brief": "MQTT Broker 配置",
+      "detail": "优化消息中间件配置，增强认证和访问控制策略。技术实现：Mosquitto conf — 端口 1883 + password_file + ACL + persistence"
+    },
+    "watchdog/config.yaml": {
+      "action": "MODIFY",
+      "brief": "看门狗监控配置",
+      "detail": "调整系统监控参数：巡检间隔、告警冷却时间、资源阈值、限流策略。技术实现：YAML 配置 — polling_interval + alert_cooldown + thresholds + throttle"
+    },
+    ".claude/reference-snapshot.json": {"action":"MODIFY","brief":"参考文档索引","detail":"更新参考文档快照索引。技术实现：JSON 数组 40 项"},
+    "CLAUDE.md": {"action":"MODIFY","brief":"AI 项目配置文档","detail":"更新项目配置文档，同步最新架构和开发规范。技术实现：Markdown — 架构概览 + 服务端口 + 协议规范 + 开发标准"},
+    "scripts/append-today-brief.ps1": {"action":"MODIFY","brief":"每日简报生成脚本","detail":"增强简报生成脚本：支持读取已提交变更、业务导向描述、跨 IDE 会话整合。技术实现：PowerShell + git log --since + git diff HEAD + context JSON 合并 + Markdown 输出"},
+    ".claude/today-session-context.json": {"action":"MODIFY","brief":"会话上下文记录","detail":"记录当日跨 IDE 开发会话的完整上下文，供简报生成使用。技术实现：JSON — phases/files/requests 结构"},
+    "dashboard/src/components/AlertPanel.tsx": {"action":"MODIFY","brief":"告警监控面板","detail":"增强告警面板：支持区域权限过滤，普通用户仅看到所属区域的告警。技术实现：React + useAreaAccess() 过滤 + nextAlertId 自增 ID"},
+    "dashboard/src/components/WarehouseMap.tsx": {"action":"MODIFY","brief":"仓库地图可视化","detail":"地图增加区域权限标注，管理员可见全部区域，普通用户仅可见授权区域。技术实现：Canvas 绘制 + areaZoneForRobot() 坐标映射 + useAreaAccess 过滤"},
+    "dashboard/src/App.tsx": {"action":"MODIFY","brief":"Dashboard 主应用","detail":"集成认证系统和区域权限控制，未登录用户自动跳转登录页。技术实现：React Router + AuthProvider + 条件渲染 + poll() 定时刷新"},
+    "dashboard/src/components/BatteryPanel.tsx": {"action":"MODIFY","brief":"电池状态面板","detail":"适配区域权限控制，仅显示用户有权查看的机器人电池状态。技术实现：React + useAreaAccess + toggleSort 排序 + batteryColor 颜色映射"},
+    "dashboard/src/components/CommandPanel.tsx": {"action":"MODIFY","brief":"机器人指令控制台","detail":"指令下发增加区域权限验证，用户只能对授权区域内的机器人发送指令。技术实现：React + sendCommand() + poll() 状态轮询 + useAreaAccess 权限校验"},
+    "dashboard/src/components/OrderForm.tsx": {"action":"MODIFY","brief":"订单创建表单","detail":"订单创建增加区域归属选择，确保订单分配到正确的仓库区域。技术实现：React 表单 + handleSubmit() + 区域下拉选择"},
+    "dashboard/src/components/RobotList.tsx": {"action":"MODIFY","brief":"机器人列表","detail":"机器人列表增加区域权限过滤，用户仅能看到被授权区域的机器人。技术实现：React + useAreaAccess().canViewRobot 过滤"},
+    "dashboard/src/components/TaskList.tsx": {"action":"MODIFY","brief":"任务列表","detail":"任务列表增加区域权限过滤，用户仅能看到被授权区域的任务。技术实现：React + useAreaAccess().canViewTask 过滤"},
+    "dashboard/src/main.tsx": {"action":"MODIFY","brief":"Dashboard 入口","detail":"注册认证和设置全局 Provider，确保所有页面可访问认证和配置状态。技术实现：React DOM + AuthProvider + SettingsProvider 包裹"},
+    "dashboard/tsconfig.tsbuildinfo": {"action":"MODIFY","brief":"TypeScript 构建缓存","detail":"TypeScript 增量构建缓存文件"},
+    "dashboard/vite.config.ts": {"action":"MODIFY","brief":"Vite 构建配置","detail":"调整构建工具配置，适配新增的依赖包。技术实现：Vite + @rollup/plugin + 平台二进制包解析"},
+    "dashboard/package.json": {"action":"MODIFY","brief":"Dashboard 依赖配置","detail":"新增认证加密和文件解析相关依赖包。技术实现：npm dependencies + xlsx/SheetJS + crypto-browserify"}
   },
   "requests": [
     {
-      "title": "日报系统可靠性全面修复",
-      "detail": "诊断三个根因 + 实施 7 项修复：早退→最小化简报、日期校验过滤旧上下文、git mtime 过滤旧文件、exec form 转换、SessionStart 兜底、JSON 模板清理、Dashboard 组件分类与语义描述增强"
+      "title": "CI 流水线阻塞修复 (PR #6)",
+      "detail": "修复依赖锁定文件不同步导致 CI 失败，恢复自动化构建部署能力"
+    },
+    {
+      "title": "CI 构建跨平台兼容修复 (PR #7)",
+      "detail": "解决 Windows 生成的依赖锁文件在 Linux CI 环境下缺失平台包问题，PR 已合并到主分支"
+    },
+    {
+      "title": "仓库区域权限管控系统",
+      "detail": "实现基于角色的多仓库区域权限管控：管理员可分配用户到不同仓库区域，普通用户仅能查看和操作被分配区域内的机器人和任务"
+    },
+    {
+      "title": "Dashboard 测试体系与模拟工具",
+      "detail": "建立组件级单元测试和端到端测试体系，开发虚拟机器人模拟工具用于无硬件环境下的功能验证"
     }
   ],
   "leftovers": [],
   "nextActions": [
-    "验证 Stop hook 在会话结束时正常生成简报",
-    "确认明天 SessionStart 时上下文自动重置",
-    "测试 Dashboard 三大平台模块功能并报告结果"
+    "验证 RBAC 系统在真实环境中的权限控制",
+    "Dashboard 组件测试覆盖率检查",
+    "Mock 工具集成到开发流程"
   ]
 }
