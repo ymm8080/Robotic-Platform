@@ -144,6 +144,7 @@ export function AlertPanel({ mqtt, apiRobots }: Props) {
       }
       return true // non-robot alerts always visible
     })
+  // mqtt.robots Map ref changes on each state push — intentional, alerts must react to live robot state changes
   }, [mqtt?.robots, apiRobots, settings.batteryThreshold, settings.offlineAlertEnabled, settings.robotErrorAlertEnabled, isAdmin, canViewRobot])
 
   // ── Task-level alerts: poll every 30s ──

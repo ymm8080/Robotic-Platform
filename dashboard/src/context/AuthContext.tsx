@@ -4,6 +4,7 @@ import {
   type UserRole,
   type AuthState,
   hashPassword,
+  verifyPassword,
   generateId,
   safeUser,
   isValidPhone,
@@ -129,10 +130,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (credential: string, password: string, role: UserRole) => {
     const all = readUsers()
-    const h = await hashPassword(password)
 
-    // Find user by email or phone matching the credential
-    const found = all.find(u => matchCredential(u, credential) && u.passwordHash === h)
+    // Find user by credential, then verify password with PBKDF2
+    let found: User | undefined
+    for (const u of all) {
+      if (matchCredential(u, credential) && await verifyPassword(password, u.passwordHash)) {
+        found = u
+        break
+      }
+    }
 
     if (!found) {
       setState(prev => ({ ...prev, error: 'Invalid credentials' }))

@@ -27,8 +27,7 @@ export function WarehouseMap({ mqtt, apiRobots }: Props) {
   const [selectedRobot, setSelectedRobot] = useState<MapRobot | null>(null)
   const { isAdmin, userAreaIds, canViewRobot, canViewArea, robotAreaId } = useAreaAccess()
 
-  // Load dynamic warehouse areas — re-read from localStorage every render
-  // so changes in AdminPanel are immediately reflected on the map
+  // Load warehouse areas → zones. O(areas) is cheap (typically 2-10 items).
   const allZones = loadAreas().map((area: WareArea) => ({
     id: area.id,
     label: area.name,

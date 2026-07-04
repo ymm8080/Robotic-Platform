@@ -103,9 +103,8 @@ export function useAreaAccess(): AreaAccess {
         return userAreaIds.includes(aid)
       }
     }
-    // If no assignment exists, non-admin users with ANY area assignment see nothing
-    // (prevents data leak for unassigned robots)
-    return userAreaIds.length === 0
+    // Unassigned robot → non-admin users never see it (prevents data leak)
+    return false
   }
 
   function canViewTask(task: { orderId?: string; manufacturer?: string; serialNumber?: string; robotId?: string }): boolean {
@@ -114,8 +113,8 @@ export function useAreaAccess(): AreaAccess {
     const rid = task.robotId
       || (task.manufacturer && task.serialNumber ? `${task.manufacturer}/${task.serialNumber}` : undefined)
     if (rid) return canViewRobot(rid)
-    // Tasks without robot association: visible only if user has no area restrictions
-    return userAreaIds.length === 0
+    // Tasks without robot association: non-admin never sees them
+    return false
   }
 
   function robotAreaId(robotId: string): string | undefined {

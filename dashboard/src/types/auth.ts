@@ -82,13 +82,47 @@ export function getDefaultAdmin(): User {
   }
 }
 
-/** Hash a password string using SHA-256 via Web Crypto API */
+/** Hash a password using PBKDF2 (SHA-512, 100k iterations) via Web Crypto API.
+ *  Returns "salt:hash" format — salt is stored alongside the hash. */
 export async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder()
-  const data = encoder.encode(password)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'],
+  )
+  const derived = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100_000, hash: 'SHA-512' },
+    keyMaterial, 256,
+  )
+  const hashHex = Array.from(new Uint8Array(derived)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('')
+  return `${saltHex}:${hashHex}`
+}
+
+/** Verify a password against a PBKDF2 hash (in "salt:hash" format).
+ *  Falls back to SHA-256 comparison for legacy hashes (no colon = old format). */
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (!stored.includes(':')) {
+    // Legacy SHA-256 hash — re-hash and compare
+    const encoder = new TextEncoder()
+    const data = encoder.encode(password)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    const legacyHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    return legacyHash === stored
+  }
+  const [saltHex, hashHex] = stored.split(':')
+  const salt = new Uint8Array(saltHex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
+  const encoder = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'],
+  )
+  const derived = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100_000, hash: 'SHA-512' },
+    keyMaterial, 256,
+  )
+  const derivedHex = Array.from(new Uint8Array(derived)).map(b => b.toString(16).padStart(2, '0')).join('')
+  return derivedHex === hashHex
 }
 
 /** Generate a simple unique ID */
