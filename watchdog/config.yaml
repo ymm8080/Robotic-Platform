@@ -36,7 +36,7 @@ recovery:
 safe_mode:
   redis_oom: true
   redis_evicted_keys_threshold: 100
-  nodered_unhealthy: true
+  nodered_unhealthy: false
   nodered_cpu_fatal: false  # 默认不触发，避免误杀
 
 # 错误率阈值（滑动窗口 5 分钟）

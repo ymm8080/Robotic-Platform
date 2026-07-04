@@ -4,6 +4,7 @@ import { toRobotSummary } from '../types/vda5050'
 import type { RobotDisplayState } from '../types/vda5050'
 import { batteryColor, displayStateLabel, relativeTime, displayStateColor } from '../utils/format'
 import { apiRobotsToDisplay, type ApiRobot } from '../utils/api-adapter'
+import { useAreaAccess } from '../hooks/useAreaAccess'
 
 type SortField = 'battery' | 'state' | 'id' | 'updated'
 type SortDir = 'asc' | 'desc'
@@ -16,6 +17,7 @@ interface Props {
 export function BatteryPanel({ mqtt, apiRobots }: Props) {
   const [sortField, setSortField] = useState<SortField>('battery')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const { isAdmin, canViewRobot } = useAreaAccess()
 
   const robots = useMemo(() => {
     const seen = new Set<string>()
@@ -51,7 +53,10 @@ export function BatteryPanel({ mqtt, apiRobots }: Props) {
       }
     }
 
-    list.sort((a, b) => {
+    // Filter by area access (admin sees all)
+    const filtered = isAdmin ? list : list.filter(r => canViewRobot(r.id))
+
+    filtered.sort((a, b) => {
       let cmp = 0
       if (sortField === 'battery') cmp = a.battery - b.battery
       else if (sortField === 'state') cmp = a.state.localeCompare(b.state)
@@ -60,8 +65,8 @@ export function BatteryPanel({ mqtt, apiRobots }: Props) {
       return sortDir === 'asc' ? cmp : -cmp
     })
 
-    return list
-  }, [mqtt.robots, apiRobots, sortField, sortDir])
+    return filtered
+  }, [mqtt.robots, apiRobots, sortField, sortDir, isAdmin, canViewRobot])
 
   const lowBattery = robots.filter(r => r.battery < 20 && r.connected).length
   const charging = robots.filter(r => r.state === 'CHARGING').length

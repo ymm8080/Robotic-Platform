@@ -78,7 +78,7 @@ describe('CommandPanel — 指令下发控制台', () => {
     })
   })
 
-  it('disables all buttons while sending command', async () => {
+  it('disables only the clicked button while sending command', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch')
     // First call: robot list
     fetchSpy.mockResolvedValueOnce({
@@ -93,15 +93,18 @@ describe('CommandPanel — 指令下发控制台', () => {
       expect(screen.getByText('RBT-001')).toBeInTheDocument()
     })
 
-    // Click Pause on first robot
+    // Click Pause on first robot (RBT-001)
     const pauseBtns = screen.getAllByRole('button', { name: /Pause/ })
     fireEvent.click(pauseBtns[0])
 
-    // All buttons should be disabled while sending
+    // Only the clicked Pause button on RBT-001 should be disabled; all other buttons stay enabled
     await waitFor(() => {
       const allBtns = screen.getAllByRole('button')
-      for (const btn of allBtns) {
-        expect(btn).toBeDisabled()
+      // The first button (Pause on RBT-001) should be disabled
+      expect(allBtns[0]).toBeDisabled()
+      // All other 23 buttons should remain enabled
+      for (let i = 1; i < allBtns.length; i++) {
+        expect(allBtns[i]).not.toBeDisabled()
       }
     })
   })

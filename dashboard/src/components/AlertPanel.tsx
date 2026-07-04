@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { CONFIG } from '../config'
+import { useSettings } from '../context/SettingsContext'
+import type { MqttState } from '../hooks/useMqtt'
+import { toRobotSummary } from '../types/vda5050'
+import { useAreaAccess } from '../hooks/useAreaAccess'
 
 interface AlertEntry {
   id: string
@@ -14,13 +18,186 @@ type SeverityFilter = 'ALL' | 'P0' | 'P1' | 'P2'
 let alertSeq = 0
 function nextAlertId(): string { return `alert-${Date.now()}-${++alertSeq}` }
 
-export function AlertPanel() {
+interface RobotApiStatus {
+  id: string
+  brand: string
+  state: string
+  battery: string
+  lastSeen: string
+  position?: { x: number; y: number }
+  orderId?: string | null
+}
+
+interface Props {
+  mqtt?: MqttState
+  apiRobots?: RobotApiStatus[]
+}
+
+interface TaskApiResponse {
+  orderNo: string
+  type?: string
+  priority?: number
+  robotBrand?: string | null
+  robotSerial?: string | null
+  status: string
+  errorMessage?: string | null
+  createdAt?: string
+  completedAt?: string | null
+}
+
+export function AlertPanel({ mqtt, apiRobots }: Props) {
+  const { settings } = useSettings()
+  const { isAdmin, canViewRobot } = useAreaAccess()
   const [alerts, setAlerts] = useState<AlertEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<SeverityFilter>('ALL')
   const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set())
+  const [taskAlerts, setTaskAlerts] = useState<AlertEntry[]>([])
 
+  // ── Robot-level alerts derived from MQTT/API data + user thresholds ──
+  const robotAlerts = useMemo<AlertEntry[]>(() => {
+    const entries: AlertEntry[] = []
+    const seen = new Set<string>()
+
+    // From MQTT data
+    if (mqtt) {
+      mqtt.robots.forEach((stream, id) => {
+        const [mfr, sn] = id.split('/')
+        const summary = toRobotSummary(mfr, sn, stream.state, stream.connection)
+
+        // Battery below threshold
+        if (summary.battery < settings.batteryThreshold) {
+          entries.push({
+            id: `robot-batt-${id}`,
+            level: summary.battery < (settings.batteryThreshold / 2) ? 'P0' : 'P1',
+            service: 'robot',
+            message: `🤖 ${id}: Battery at ${Math.round(summary.battery)}% (threshold: ${settings.batteryThreshold}%)`,
+          })
+        }
+
+        // Robot in ERROR state
+        if (settings.robotErrorAlertEnabled && summary.displayState === 'ERROR') {
+          const errMsgs = summary.errors.map(e => e.errorDescription).filter(Boolean).join('; ')
+          entries.push({
+            id: `robot-err-${id}`,
+            level: 'P1',
+            service: 'robot',
+            message: `🤖 ${id}: ERROR state${errMsgs ? ` — ${errMsgs}` : ''}`,
+          })
+        }
+
+        // Robot OFFLINE
+        if (settings.offlineAlertEnabled && summary.displayState === 'OFFLINE') {
+          entries.push({
+            id: `robot-off-${id}`,
+            level: 'P2',
+            service: 'robot',
+            message: `🤖 ${id}: Robot is offline`,
+          })
+        }
+
+        seen.add(id)
+      })
+    }
+
+    // From API fallback data
+    if (apiRobots) {
+      for (const r of apiRobots) {
+        if (seen.has(r.id)) continue
+        const battery = parseFloat(r.battery) || 0
+        if (battery < settings.batteryThreshold) {
+          entries.push({
+            id: `robot-batt-${r.id}`,
+            level: battery < (settings.batteryThreshold / 2) ? 'P0' : 'P1',
+            service: 'robot',
+            message: `🤖 ${r.id} (${r.brand}): Battery at ${Math.round(battery)}% (threshold: ${settings.batteryThreshold}%)`,
+          })
+        }
+        if (settings.robotErrorAlertEnabled && r.state?.toUpperCase() === 'ERROR') {
+          entries.push({
+            id: `robot-err-${r.id}`,
+            level: 'P1',
+            service: 'robot',
+            message: `🤖 ${r.id}: Robot in ERROR state`,
+          })
+        }
+        if (settings.offlineAlertEnabled && (r.state?.toUpperCase() === 'OFFLINE' || r.state?.toUpperCase() === 'UNAVAILABLE')) {
+          entries.push({
+            id: `robot-off-${r.id}`,
+            level: 'P2',
+            service: 'robot',
+            message: `🤖 ${r.id}: Robot is ${r.state?.toUpperCase() || 'offline'}`,
+          })
+        }
+        seen.add(r.id)
+      }
+    }
+
+    // Filter by area access (admin sees all)
+    return isAdmin ? entries : entries.filter(a => {
+      // Extract robot ID from alert ID: e.g. "robot-batt-kuka/001" -> "kuka/001"
+      const parts = a.id.split('-')
+      if (parts.length >= 3) {
+        const robotId = parts.slice(2).join('-')
+        return canViewRobot(robotId)
+      }
+      return true // non-robot alerts always visible
+    })
+  }, [mqtt?.robots, apiRobots, settings.batteryThreshold, settings.offlineAlertEnabled, settings.robotErrorAlertEnabled, isAdmin, canViewRobot])
+
+  // ── Task-level alerts: poll every 30s ──
+  useEffect(() => {
+    let active = true
+    async function fetchTaskAlerts() {
+      try {
+        const res = await fetch(`${CONFIG.apiBase}/v1/orders?limit=50`, { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!active) return
+
+        const orders: TaskApiResponse[] = data.orders ?? []
+        const entries: AlertEntry[] = []
+
+        for (const o of orders) {
+          const robot = o.robotBrand && o.robotSerial ? `${o.robotBrand}/${o.robotSerial}` : 'unassigned'
+          if (o.status === 'FAILED') {
+            entries.push({
+              id: `task-fail-${o.orderNo}`,
+              level: 'P1',
+              service: 'task',
+              message: `📋 ${o.orderNo} FAILED on ${robot}${o.errorMessage ? ` — ${o.errorMessage}` : ''}`,
+            })
+          }
+          if (o.status === 'CANCELLED') {
+            entries.push({
+              id: `task-cancel-${o.orderNo}`,
+              level: 'P2',
+              service: 'task',
+              message: `📋 ${o.orderNo} CANCELLED on ${robot}`,
+            })
+          }
+          if (o.status === 'SUSPENDED') {
+            entries.push({
+              id: `task-suspend-${o.orderNo}`,
+              level: 'P2',
+              service: 'task',
+              message: `📋 ${o.orderNo} SUSPENDED on ${robot}${o.errorMessage ? ` — ${o.errorMessage}` : ''}`,
+            })
+          }
+        }
+
+        if (active) setTaskAlerts(entries)
+      } catch {
+        // task API unavailable — not critical
+      }
+    }
+    fetchTaskAlerts()
+    const id = setInterval(fetchTaskAlerts, 30000)
+    return () => { active = false; clearInterval(id) }
+  }, [])
+
+  // ── System health polling ──
   useEffect(() => {
     let active = true
     async function fetchAlerts() {
@@ -47,25 +224,25 @@ export function AlertPanel() {
             message: 'Throttle active — order dispatch rate reduced. CPU or checkpoint threshold exceeded.',
           })
         }
-        if (health.resources?.errorRatePercent != null && health.resources.errorRatePercent > 5) {
+        if (health.resources?.errorRatePercent != null && health.resources.errorRatePercent > settings.errorRateThresholdPct) {
           entries.push({
-            id: `alert-error-rate`, level: health.resources.errorRatePercent > 10 ? 'P0' : 'P1',
+            id: `alert-error-rate`, level: health.resources.errorRatePercent > (settings.errorRateThresholdPct * 2) ? 'P0' : 'P1',
             service: 'sap-bridge',
-            message: `Error rate at ${health.resources.errorRatePercent.toFixed(1)}% (threshold: 5%). Check services.`,
+            message: `Error rate at ${health.resources.errorRatePercent.toFixed(1)}% (threshold: ${settings.errorRateThresholdPct}%). Check services.`,
           })
         }
-        if (health.resources?.cpuPercent != null && health.resources.cpuPercent > 80) {
+        if (health.resources?.cpuPercent != null && health.resources.cpuPercent > settings.cpuThreshold) {
           entries.push({
-            id: `alert-cpu`, level: health.resources.cpuPercent > 90 ? 'P1' : 'P2',
+            id: `alert-cpu`, level: health.resources.cpuPercent > (settings.cpuThreshold + 10) ? 'P1' : 'P2',
             service: 'nodered',
-            message: `CPU at ${health.resources.cpuPercent.toFixed(0)}%. Consider scaling.`,
+            message: `CPU at ${health.resources.cpuPercent.toFixed(0)}% (threshold: ${settings.cpuThreshold}%). Consider scaling.`,
           })
         }
-        if (health.resources?.memoryPercent != null && health.resources.memoryPercent > 85) {
+        if (health.resources?.memoryPercent != null && health.resources.memoryPercent > settings.memoryThreshold) {
           entries.push({
-            id: `alert-memory`, level: health.resources.memoryPercent > 95 ? 'P1' : 'P2',
+            id: `alert-memory`, level: health.resources.memoryPercent > (settings.memoryThreshold + 10) ? 'P1' : 'P2',
             service: 'nodered',
-            message: `Memory at ${health.resources.memoryPercent.toFixed(0)}%. Risk of OOM.`,
+            message: `Memory at ${health.resources.memoryPercent.toFixed(0)}% (threshold: ${settings.memoryThreshold}%). Risk of OOM.`,
           })
         }
         if (health.fleet?.error > 0) {
@@ -103,13 +280,25 @@ export function AlertPanel() {
     fetchAlerts()
     const id = setInterval(fetchAlerts, 10000)
     return () => { active = false; clearInterval(id) }
-  }, [])
+  }, [settings.cpuThreshold, settings.memoryThreshold, settings.errorRateThresholdPct])
+
+  // Merge all alert sources
+  const allAlerts = useMemo(() => {
+    const merged = [...alerts, ...robotAlerts, ...taskAlerts]
+    // Dedup by id (robotAlerts have stable ids)
+    const seen = new Set<string>()
+    return merged.filter(a => {
+      if (seen.has(a.id)) return false
+      seen.add(a.id)
+      return true
+    })
+  }, [alerts, robotAlerts, taskAlerts])
 
   const ack = (alertId: string) => {
     setAcknowledged(prev => new Set(prev).add(alertId))
   }
 
-  const filtered = filter === 'ALL' ? alerts : alerts.filter(a => a.level === filter)
+  const filtered = filter === 'ALL' ? allAlerts : allAlerts.filter(a => a.level === filter)
 
   if (loading) return <Panel>Loading alerts…</Panel>
   if (error) return <Panel><ErrorBox msg={error} /></Panel>
@@ -120,7 +309,7 @@ export function AlertPanel() {
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
         <span style={{ fontSize: 12, color: '#6b7280', marginRight: 4 }}>Filter:</span>
         {(['ALL', 'P0', 'P1', 'P2'] as SeverityFilter[]).map(level => {
-          const count = level === 'ALL' ? alerts.length : alerts.filter(a => a.level === level).length
+          const count = level === 'ALL' ? allAlerts.length : allAlerts.filter(a => a.level === level).length
           const active = filter === level
           return (
             <button key={level} onClick={() => setFilter(level)}
@@ -190,7 +379,7 @@ export function AlertPanel() {
 
       {/* Summary */}
       <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af', textAlign: 'right' }}>
-        {alerts.filter(a => !acknowledged.has(a.id)).length} unacknowledged
+        {allAlerts.filter(a => !acknowledged.has(a.id)).length} unacknowledged
         &nbsp;·&nbsp; updated every 10s
       </div>
     </div>

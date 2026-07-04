@@ -10,9 +10,15 @@ import { BatteryPanel } from './components/BatteryPanel'
 import { SystemHealth } from './components/SystemHealth'
 import { CommandPanel } from './components/CommandPanel'
 import { AlertPanel } from './components/AlertPanel'
+import { AuthPage } from './components/AuthPage'
+import { SettingsPage } from './components/SettingsPage'
+import { AdminPanel } from './components/AdminPanel'
+import { useAuth } from './context/AuthContext'
+import { useAreaAccess } from './hooks/useAreaAccess'
+import { areaLabel } from './hooks/useAreas'
 import { CONFIG } from './config'
 
-type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks' | 'system' | 'commands' | 'alerts'
+type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks' | 'system' | 'commands' | 'alerts' | 'settings' | 'admin'
 
 interface RobotApiStatus {
   id: string
@@ -23,6 +29,8 @@ interface RobotApiStatus {
 }
 
 export default function App() {
+  const { isAuthenticated, currentUser, logout, isAdmin } = useAuth()
+  const { userAreaIds, robotAreaId } = useAreaAccess()
   const mqtt = useMqtt()
   const [tab, setTab] = useState<Tab>('robots')
   const [selectedRobotId, setSelectedRobotId] = useState<string | null>(null)
@@ -73,7 +81,14 @@ export default function App() {
     { key: 'system', label: '💚 System' },
     { key: 'commands', label: '🎮 Commands' },
     { key: 'alerts', label: '🚨 Alerts' },
+    { key: 'settings', label: '⚙️ Settings' },
+    ...(isAdmin ? [{ key: 'admin' as Tab, label: '🛡️ Admin' }] : []),
   ]
+
+  // Auth gate — show login/register when not authenticated
+  if (!isAuthenticated) {
+    return <AuthPage />
+  }
 
   return (
     <div style={{
@@ -94,6 +109,43 @@ export default function App() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {currentUser && (
+            <span style={{ fontSize: 12, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              {currentUser.username}
+              {isAdmin && (
+                <span style={{
+                  padding: '1px 5px', borderRadius: 3, fontSize: 10, fontWeight: 700,
+                  background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca',
+                }}>
+                  ADMIN
+                </span>
+              )}
+              {!isAdmin && userAreaIds.length > 0 && (
+                <span style={{
+                  padding: '1px 5px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+                  background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe',
+                }} title={userAreaIds.map(areaLabel).join(', ')}>
+                  {userAreaIds.length} area{userAreaIds.length > 1 ? 's' : ''}: {userAreaIds.map(areaLabel).join(', ')}
+                </span>
+              )}
+              {!isAdmin && userAreaIds.length === 0 && (
+                <span style={{
+                  padding: '1px 5px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+                  background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a',
+                }}>
+                  No areas assigned
+                </span>
+              )}
+            </span>
+          )}
+          <button onClick={logout}
+            style={{
+              padding: '4px 10px', fontSize: 12, fontWeight: 500,
+              background: '#fff', color: '#6b7280', border: '1px solid #d1d5db',
+              borderRadius: 4, cursor: 'pointer',
+            }}>
+            Logout
+          </button>
           {!showEStop && (
             <button onClick={() => setShowEStop(true)}
               style={{
@@ -175,7 +227,9 @@ export default function App() {
       {tab === 'tasks' && <TaskList />}
       {tab === 'system' && <SystemHealth />}
       {tab === 'commands' && <CommandPanel onRefresh={refreshRobots} />}
-      {tab === 'alerts' && <AlertPanel />}
+      {tab === 'alerts' && <AlertPanel mqtt={mqtt} apiRobots={apiRobots} />}
+      {tab === 'settings' && <SettingsPage />}
+      {tab === 'admin' && isAdmin && <AdminPanel />}
     </div>
   )
 }

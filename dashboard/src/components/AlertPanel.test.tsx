@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { AlertPanel } from './AlertPanel'
+import { SettingsProvider } from '../context/SettingsContext'
+
+function renderWithProviders(ui: React.ReactElement) {
+  return render(<SettingsProvider>{ui}</SettingsProvider>)
+}
 
 const normalHealth = {
   timestamp: '2026-07-02T02:30:00Z',
@@ -38,7 +43,7 @@ afterEach(() => {
 describe('AlertPanel — 错误追踪面板', () => {
   it('shows loading state initially', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
     expect(screen.getByText('Loading alerts…')).toBeInTheDocument()
   })
 
@@ -47,7 +52,7 @@ describe('AlertPanel — 错误追踪面板', () => {
       ok: true, json: async () => normalHealth,
     } as Response)
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       expect(screen.getByText('No active alerts')).toBeInTheDocument()
@@ -59,7 +64,7 @@ describe('AlertPanel — 错误追踪面板', () => {
       ok: true, json: async () => criticalHealth,
     } as Response)
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       const badges = screen.getAllByText('P0')
@@ -72,7 +77,7 @@ describe('AlertPanel — 错误追踪面板', () => {
       ok: true, json: async () => criticalHealth,
     } as Response)
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       expect(screen.getByText(/SAFE MODE/)).toBeInTheDocument()
@@ -82,7 +87,7 @@ describe('AlertPanel — 错误追踪面板', () => {
   it('shows error state when API fails', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Connection refused'))
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       expect(screen.getByText(/Connection refused/)).toBeInTheDocument()
@@ -94,7 +99,7 @@ describe('AlertPanel — 错误追踪面板', () => {
       ok: true, json: async () => criticalHealth,
     } as Response)
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       // Filter buttons contain count: "P0 (3)", "P1 (2)", etc.
@@ -115,7 +120,7 @@ describe('AlertPanel — 错误追踪面板', () => {
       ok: true, json: async () => healthWithOneAlert,
     } as Response)
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       expect(screen.getByText(/SAFE MODE/)).toBeInTheDocument()
@@ -134,7 +139,7 @@ describe('AlertPanel — 错误追踪面板', () => {
       ok: true, json: async () => criticalHealth,
     } as Response)
 
-    render(<AlertPanel />)
+    renderWithProviders(<AlertPanel />)
 
     await waitFor(() => {
       expect(screen.getByText(/unacknowledged/)).toBeInTheDocument()

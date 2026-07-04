@@ -5,6 +5,7 @@ import { toRobotSummary } from '../types/vda5050'
 import type { RobotDisplayState } from '../types/vda5050'
 import { sortRobots, relativeTime } from '../utils/format'
 import { RobotCard } from './RobotCard'
+import { useAreaAccess } from '../hooks/useAreaAccess'
 
 interface RobotApiStatus {
   id: string
@@ -19,6 +20,8 @@ interface RobotApiStatus {
 export function RobotList({ mqtt, apiRobots, onRobotClick }: {
   mqtt: MqttState; apiRobots?: RobotApiStatus[]; onRobotClick?: (id: string) => void
 }) {
+  const { canViewRobot, isAdmin } = useAreaAccess()
+
   // Use MQTT data when available, fall back to API data
   const summaries = useMemo(() => {
     const mqttSummaries: ReturnType<typeof toRobotSummary>[] = []
@@ -62,9 +65,15 @@ export function RobotList({ mqtt, apiRobots, onRobotClick }: {
     return []
   }, [mqtt.robots, apiRobots])
 
-  const online = summaries.filter(r => r.connected).length
-  const errors = summaries.filter(r => r.displayState === 'ERROR').length
-  const moving = summaries.filter(r => r.displayState === 'MOVING' || r.displayState === 'EXECUTING').length
+  // Filter by area access (admin sees all)
+  const filtered = useMemo(() => {
+    if (isAdmin) return summaries
+    return summaries.filter(r => canViewRobot(r.id))
+  }, [summaries, isAdmin, canViewRobot])
+
+  const online = filtered.filter(r => r.connected).length
+  const errors = filtered.filter(r => r.displayState === 'ERROR').length
+  const moving = filtered.filter(r => r.displayState === 'MOVING' || r.displayState === 'EXECUTING').length
 
   return (
     <div>
@@ -73,7 +82,7 @@ export function RobotList({ mqtt, apiRobots, onRobotClick }: {
         display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap',
       }}>
         <Stat label="Connection" value={mqtt.connected ? 'MQTT' : apiRobots?.length ? 'API' : 'Off'} color={mqtt.connected || (apiRobots?.length ?? 0) > 0 ? '#22c55e' : '#ef4444'} />
-        <Stat label="Total" value={summaries.length} color="#3b82f6" />
+        <Stat label="Total" value={filtered.length} color="#3b82f6" />
         <Stat label="Online" value={online} color="#22c55e" />
         <Stat label="Running" value={moving} color="#3b82f6" />
         <Stat label="Errors" value={errors} color="#ef4444" />
@@ -90,13 +99,13 @@ export function RobotList({ mqtt, apiRobots, onRobotClick }: {
       )}
 
       {/* Empty state */}
-      {summaries.length === 0 ? (
+      {filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 16px', color: '#9ca3af', fontSize: 14 }}>
           {mqtt.connected ? 'Waiting for robots to connect…' : 'Connecting to MQTT broker…'}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {summaries.map(r => (
+          {filtered.map(r => (
             <div key={r.id} onClick={() => onRobotClick?.(r.id)}
               style={{ cursor: onRobotClick ? 'pointer' : 'default' }}>
               <RobotCard robot={r} data-source={mqtt.robots.size > 0 ? 'mqtt' : 'api'} />
@@ -107,8 +116,13 @@ export function RobotList({ mqtt, apiRobots, onRobotClick }: {
 
       {/* Footer */}
       <div style={{ marginTop: 12, fontSize: 11, color: '#d1d5db', textAlign: 'right' }}>
-        Last update: {summaries.length > 0 ? relativeTime(summaries[0].lastSeen) : '-'}
+        Last update: {filtered.length > 0 ? relativeTime(filtered[0].lastSeen) : '-'}
         {apiRobots && apiRobots.length > 0 && mqtt.robots.size === 0 && ' (API mode)'}
+        {!isAdmin && summaries.length > filtered.length && (
+          <span style={{ color: '#f59e0b', marginLeft: 4 }}>
+            (filtered: {filtered.length}/{summaries.length})
+          </span>
+        )}
       </div>
     </div>
   )

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { CONFIG } from '../config'
+import { useAreaAccess } from '../hooks/useAreaAccess'
 
 interface RobotInfo {
   id: string
@@ -33,6 +34,7 @@ export function CommandPanel({ onRefresh }: Props) {
   const [sending, setSending] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({})
   const pollRef = useRef<() => Promise<void>>(async () => {})
+  const { isAdmin, canViewRobot } = useAreaAccess()
 
   useEffect(() => {
     let active = true
@@ -41,7 +43,11 @@ export function CommandPanel({ onRefresh }: Props) {
         const res = await fetch(`${CONFIG.apiBase}/v1/robots/status`, { cache: 'no-store' })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
-        if (active) { setRobots(data.robots || []); setError(null) }
+        if (active) {
+          const all = (data.robots || []) as RobotInfo[]
+          setRobots(isAdmin ? all : all.filter(r => canViewRobot(r.id)))
+          setError(null)
+        }
       } catch (err) {
         if (active) setError((err as Error).message)
       } finally {
@@ -119,12 +125,12 @@ export function CommandPanel({ onRefresh }: Props) {
                     const isBusy = busy && sending === `${robot.id}:${action}`
                     return (
                       <button key={action} onClick={() => sendCommand(robot.id, action)}
-                        disabled={!!sending}
+                        disabled={isBusy}
                         style={{
                           padding: '5px 10px', fontSize: 12, fontWeight: 600,
                           background: color, color: '#fff', border: 'none',
-                          borderRadius: 4, cursor: sending ? 'not-allowed' : 'pointer',
-                          opacity: sending ? 0.5 : 1,
+                          borderRadius: 4, cursor: isBusy ? 'not-allowed' : 'pointer',
+                          opacity: isBusy ? 0.5 : 1,
                         }}>
                         {isBusy ? '⋯' : icon} {label}
                       </button>

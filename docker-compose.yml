@@ -129,7 +129,7 @@ services:
     container_name: robot-platform-sap-bridge
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:9000:8000"
     volumes:
       # 🟡 开发环境启用 volume mount（覆盖 Dockerfile COPY）
       # 生产环境注释掉以下 volume 行，使用纯镜像
@@ -137,6 +137,8 @@ services:
       # 🔧 WSL2 overlay2 只读 bug 临时绕过：日志写入容器内 /tmp/logs
       # - sap-bridge-logs:/app/logs
       - ./sap-bridge/sapnwrfc.ini:/app/sapnwrfc.ini:ro
+      # SQLite data volume (writable, separate from read-only /app)
+      - sap-bridge-data:/data
     environment:
       - TZ=UTC
       - PYTHONUNBUFFERED=1
@@ -152,6 +154,7 @@ services:
       - QUEUE_RETRY_DELAY=30
       - SAP_MAX_CONNECTIONS=5
       - SAP_CONNECTION_TIMEOUT=30
+      - DB_PATH=/tmp/robot_platform.db
     depends_on:
       redis:
         condition: service_healthy
@@ -271,11 +274,7 @@ services:
     image: eclipse-mosquitto:2
     container_name: robot-platform-mqtt
     restart: unless-stopped
-    # 🟡 端口映射：宿主机已运行 Mosquitto 服务，Docker 内部使用容器网络通信
-    # 宿主机 MQTT 转发到 Docker 内部需手动配置 bridge
-    # ports:
-    #   - "127.0.0.1:1883:1883"
-    #   - "127.0.0.1:9001:9001" # WebSocket 仅本机
+    # ports: host Mosquitto already takes 1883/9001 — Docker internal network only
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       # 🔐 首次部署：务必先运行 scripts/setup-mqtt-auth.sh 生成 passwd/acl 文件，
@@ -667,6 +666,8 @@ volumes:
   mqtt-logs:
     driver: local
   sap-bridge-logs:
+    driver: local
+  sap-bridge-data:
     driver: local
   watchdog-logs:
     driver: local
