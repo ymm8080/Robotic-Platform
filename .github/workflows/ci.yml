@@ -176,11 +176,9 @@ jobs:
       - name: Build dashboard (Vite + TypeScript)
         run: |
           cd dashboard
-          npm ci
-          # Workaround: npm 10 on Windows may omit Linux platform binaries
-          # from lock file when optional peer deps are involved. Force
-          # install to ensure all platform packages are present.
-          npm install --force
+          # Lock file generated on Windows omits Linux platform binaries.
+          # Use npm install (not ci) on CI to resolve all platform packages.
+          npm install
           npm run build
 
       - name: Verify Docker Compose config
