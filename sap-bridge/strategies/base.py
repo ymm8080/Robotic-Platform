@@ -104,10 +104,10 @@ class BaseStrategy(ABC):
 
         v4.1 verification matrix item 3: All brands must support >= v1.1.0.
         """
-        for supported in self.supported_versions:
-            if _compare_versions(supported, version) >= 0:
-                return True
-        return False
+        return any(
+            _compare_versions(supported, version) >= 0
+            for supported in self.supported_versions
+        )
 
     def get_quirks(self) -> list[BrandQuirk]:
         """Return documented brand quirks. Override in subclasses."""

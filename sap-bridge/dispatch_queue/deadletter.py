@@ -107,7 +107,11 @@ class DeadLetterHandler:
                 return None
             data = dict(row)
             payload_raw = data.get("payload")
-            data["payload"] = payload_raw if isinstance(payload_raw, (dict, list)) else (json.loads(payload_raw) if payload_raw else None)
+            data["payload"] = (
+                payload_raw
+                if isinstance(payload_raw, (dict, list))
+                else (json.loads(payload_raw) if payload_raw else None)
+            )
             return data
         finally:
             conn.close()

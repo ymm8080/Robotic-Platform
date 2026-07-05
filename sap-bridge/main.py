@@ -504,7 +504,11 @@ async def outbox_pending(limit: int = 20):
         for row in rows:
             d = dict(row) if not isinstance(row, dict) else row
             payload_raw = d.get("payload")
-            d["payload"] = payload_raw if isinstance(payload_raw, (dict, list)) else (_json.loads(payload_raw) if payload_raw else {})
+            d["payload"] = (
+                payload_raw
+                if isinstance(payload_raw, (dict, list))
+                else (_json.loads(payload_raw) if payload_raw else {})
+            )
             events.append(d)
         return {"events": events, "count": len(events)}
     finally:
@@ -578,6 +582,7 @@ async def outbox_deadletter(event_id: int, req: OutboxDeadletterRequest):
     Replaces: Node-RED direct DB access.
     """
     import json as _json
+
     from db import connect
 
     conn = connect()
@@ -614,6 +619,7 @@ async def outbox_create(order_id: int, event_type: str, payload: dict | None = N
     Called by Node-RED when an order needs SAP synchronization.
     """
     import json as _json
+
     from db import connect
 
     conn = connect()

@@ -7,7 +7,6 @@ import pytest
 
 from models.order import OrderStatus, WarehouseOrder
 
-
 MOCK_REDIS = MagicMock()
 MOCK_REDIS.ping.return_value = True
 MOCK_REDIS.zadd.return_value = 1

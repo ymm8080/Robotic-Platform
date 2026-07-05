@@ -118,6 +118,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: robot_platform_test
+          POSTGRES_USER: robot_platform
+          POSTGRES_PASSWORD: changeme_pg_password
+        options: >-
+          --health-cmd "pg_isready -U robot_platform"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -144,7 +158,11 @@ jobs:
             -v
         env:
           REDIS_URL: redis://localhost:6379/15
-          DB_PATH: /tmp/test_robot_platform.db
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_DB: robot_platform_test
+          PG_USER: robot_platform
+          PG_PASSWORD: changeme_pg_password
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

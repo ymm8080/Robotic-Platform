@@ -1,9 +1,7 @@
 """Tests for QueueWorker — dispatch logic, retry, backoff, deadletter."""
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # Use a single global mock redis before any module imports
 MOCK_REDIS_FOR_TESTS = MagicMock()

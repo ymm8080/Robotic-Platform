@@ -287,7 +287,10 @@ class TestStrategyRegistry:
             def normalize_battery(self, raw): return BatteryInfo(percent=100)
             def dispatch(self, order):
                 from strategies.base import DispatchResult
-                return DispatchResult(success=True, order_id=order.get("orderId", ""), protocol="vda5050", payload=order)
+                return DispatchResult(
+                    success=True, order_id=order.get("orderId", ""),
+                    protocol="vda5050", payload=order,
+                )
 
         registry.register(CustomStrategy())
         assert registry.get("CUSTOM") is not None
@@ -313,7 +316,10 @@ class TestStrategyRegistry:
             def normalize_battery(self, raw): return BatteryInfo(percent=100)
             def dispatch(self, order):
                 from strategies.base import DispatchResult
-                return DispatchResult(success=True, order_id=order.get("orderId", ""), protocol="vda5050", payload=order)
+                return DispatchResult(
+                    success=True, order_id=order.get("orderId", ""),
+                    protocol="vda5050", payload=order,
+                )
         registry.register(DupStrategy())
         assert registry.count() == count
 

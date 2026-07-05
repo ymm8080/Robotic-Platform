@@ -32,7 +32,7 @@ if "DB_URL" not in os.environ:
         try:
             with open(_pg_password_file) as f:
                 _pg_password = f.read().strip()
-        except (OSError, IOError):
+        except OSError:
             pass
 
     if _pg_password:
@@ -53,6 +53,7 @@ os.environ.setdefault("REDIS_URL_TEST", "redis://localhost:6379/15")
 
 import gc
 import logging
+
 import pytest
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ def _pg_available() -> bool:
 def _truncate_tables():
     """Truncate all data tables using raw psycopg2 (bypasses ConnectionWrapper)."""
     import psycopg2
+
     from db import DB_URL
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()

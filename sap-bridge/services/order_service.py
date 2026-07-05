@@ -229,7 +229,11 @@ class OrderService:
             robot_brand=row.get("robot_brand"),
             robot_serial=row.get("robot_serial"),
             status=OrderStatus(row["status"]),
-            payload=payload_raw if isinstance(payload_raw, (dict, list)) else (json.loads(payload_raw) if payload_raw else None),
+            payload=(
+                payload_raw
+                if isinstance(payload_raw, (dict, list))
+                else (json.loads(payload_raw) if payload_raw else None)
+            ),
             zone_id=row.get("zone_id"),
             location=row.get("location"),
             weight=row.get("weight"),

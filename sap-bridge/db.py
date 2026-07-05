@@ -11,7 +11,6 @@ Connection config via env vars:
 import logging
 import os
 import re
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ def _build_pg_url() -> str:
         try:
             with open(pg_password_file) as f:
                 pg_password = f.read().strip()
-        except (OSError, IOError):
+        except OSError:
             logger.warning(f"Cannot read PG password from {pg_password_file}")
     else:
         pg_password = os.getenv("PG_PASSWORD", "")

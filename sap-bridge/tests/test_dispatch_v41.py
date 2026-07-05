@@ -9,7 +9,6 @@ Tests cover:
 
 Requires: pytest, pytest-asyncio, httpx
 """
-import json
 import os
 from unittest.mock import MagicMock, patch
 
