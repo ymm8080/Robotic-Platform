@@ -87,3 +87,10 @@ SESSION_STATUS.md
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Dashboard debug/temp files
+dashboard/tmp_*.png
+dashboard/dashboard_*_state.json
+dashboard/debug_*.cjs
+dashboard/explore_*.cjs
+dashboard/test_login.cjs

@@ -28,7 +28,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "22"
-  RUNTIME_VERSION: "v3.4"
+  RUNTIME_VERSION: "v4.1"
 
 jobs:
   # ===========================================================================
@@ -67,7 +67,9 @@ jobs:
       - name: TypeScript type check (dashboard)
         run: |
           cd dashboard
-          npm ci
+          # Lock file generated on Windows omits Linux platform binaries
+          rm -f package-lock.json
+          npm install
           npx tsc --noEmit || echo "TS checks pending — non-blocking"
 
   # ===========================================================================
