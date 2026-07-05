@@ -30,7 +30,7 @@ OrderPriority = int  # 0 | 1 | 2 | 3
 class WarehouseOrder:
     """Core order entity representing a robot dispatch task.
 
-    Maps to the orders_v2 table in SQLite.
+    Maps to the orders table in PostgreSQL.
     """
     order_no: str
     type: OrderType = OrderType.MOVE

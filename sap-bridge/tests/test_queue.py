@@ -294,27 +294,11 @@ class TestDeadLetterHandler:
     """Dead letter handler tests (uses in-memory DB)."""
 
     @pytest.fixture
-    def dl(self, tmp_path):
-        """Use a temporary SQLite database."""
-        db_path = str(tmp_path / "test_deadletter.db")
-        # Create the dead_letter_queue table
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                id INTEGER PRIMARY KEY,
-                original_id TEXT,
-                error_type TEXT,
-                error_message TEXT,
-                payload TEXT,
-                status TEXT DEFAULT 'UNRESOLVED',
-                created_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        conn.commit()
-        conn.close()
-
-        handler = DeadLetterHandler(db_path=db_path)
+    def dl(self):
+        """DeadLetterHandler connected to test PostgreSQL."""
+        from db import init_schema
+        init_schema()
+        handler = DeadLetterHandler()
         yield handler
 
     def test_send(self, dl):

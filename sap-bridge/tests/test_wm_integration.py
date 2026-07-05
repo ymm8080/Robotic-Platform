@@ -104,9 +104,8 @@ class TestWmE2EFlow:
         assert status["connected"] is True
         assert status["backend"] == "wm"
 
-    def test_wm_to_order_conversion(self, wm_backend, monkeypatch, tmp_path):
+    def test_wm_to_order_conversion(self, wm_backend):
         """BatchService._task_to_order should convert WM task to VDA5050 order."""
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "robot_platform.db"))
         from services.batch_service import BatchService
         svc = BatchService()
         tasks = wm_backend.list_tasks(warehouse="001", status="0", top=1)

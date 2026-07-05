@@ -1,5 +1,10 @@
 ﻿[
     {
+        "path":  "Design/1783260341983.png",
+        "mtime":  "2026-07-05T14:05:43.4821141Z",
+        "size":  720443
+    },
+    {
         "path":  "CURSOR 3.4 docs/CHECKLIST_ADDITIONS_v3.4.md",
         "mtime":  "2026-06-23T06:28:02.3351067Z",
         "size":  2669
@@ -35,6 +40,11 @@
         "size":  11507
     },
     {
+        "path":  "Design/1783260362008.png",
+        "mtime":  "2026-07-05T14:06:02.9743985Z",
+        "size":  395575
+    },
+    {
         "path":  "05_reference/sap/README.md",
         "mtime":  "2026-06-21T10:38:23.0022520Z",
         "size":  898
@@ -43,6 +53,16 @@
         "path":  "05_reference/robots/geekplus-strategy.md",
         "mtime":  "2026-06-22T06:36:35.8535748Z",
         "size":  5402
+    },
+    {
+        "path":  "Design/SAP-EWM-版本升级验证-v3.4-to-v5.0-更新版.docx",
+        "mtime":  "2026-07-05T14:03:30.2123942Z",
+        "size":  54318
+    },
+    {
+        "path":  "version-upgrade-verification-v3.4-to-v5.0.docx",
+        "mtime":  "2026-06-25T06:26:44.7591269Z",
+        "size":  44754
     },
     {
         "path":  "05_reference/sap/auth/csrf-token-flow.md",
@@ -90,9 +110,9 @@
         "size":  2478
     },
     {
-        "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.35.docx",
-        "mtime":  "2026-06-23T15:13:17.8672328Z",
-        "size":  52566
+        "path":  "Design/企业级工业AI调度系统架构设计说明书_v13.1.0.docx",
+        "mtime":  "2026-05-31T11:17:23.1804879Z",
+        "size":  59978
     },
     {
         "path":  "CURSOR 3.4 docs/APPENDIX_NOTIFICATION.md",
@@ -100,14 +120,19 @@
         "size":  3117
     },
     {
-        "path":  "Design/version-upgrade-verification-v3.4-to-v5.0.docx",
-        "mtime":  "2026-06-25T06:26:44.7591269Z",
-        "size":  44754
+        "path":  "Design/Robot VDA5050 Actions.md",
+        "mtime":  "2026-07-02T13:45:40.6025429Z",
+        "size":  8310
     },
     {
-        "path":  "Design/企业级工业AI调度系统架构设计说明书_v13.1.0.docx",
-        "mtime":  "2026-05-31T11:17:23.1804879Z",
-        "size":  59978
+        "path":  "Design/version-upgrade-verification-v3.4-to-v5.0.docx",
+        "mtime":  "2026-07-05T13:33:14.4233827Z",
+        "size":  42459
+    },
+    {
+        "path":  "Design/SAP-EWM-机器人调度平台-v3.5-优化版.md",
+        "mtime":  "2026-07-05T14:04:45.8212242Z",
+        "size":  23707
     },
     {
         "path":  "SKILLS/SKILLS IN THE PROJECT.xlsx",
@@ -130,9 +155,24 @@
         "size":  7656
     },
     {
+        "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.5.md",
+        "mtime":  "2026-07-05T13:20:02.6462751Z",
+        "size":  51741
+    },
+    {
+        "path":  "Design/_v3.5_extracted.txt",
+        "mtime":  "2026-07-05T13:13:30.8201311Z",
+        "size":  40867
+    },
+    {
         "path":  "05_reference/protocols/vda5050/vda5050-message-schemas.md",
         "mtime":  "2026-06-22T15:23:23.9964229Z",
         "size":  7149
+    },
+    {
+        "path":  "Design/1783260381405.png",
+        "mtime":  "2026-07-05T14:06:22.2303005Z",
+        "size":  270618
     },
     {
         "path":  "CURSOR 3.4 docs/audit-findings-p1.md",
@@ -145,6 +185,11 @@
         "size":  20084
     },
     {
+        "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.5.docx",
+        "mtime":  "2026-07-05T14:04:21.3585493Z",
+        "size":  512031
+    },
+    {
         "path":  "CURSOR 3.4 docs/secrets-management.md",
         "mtime":  "2026-06-21T10:50:03.9188798Z",
         "size":  1308
@@ -155,19 +200,14 @@
         "size":  6369
     },
     {
-        "path":  "Design/_extracted_summary.txt",
-        "mtime":  "2026-06-23T15:32:35.4179158Z",
-        "size":  58480
-    },
-    {
         "path":  "CURSOR 3.4 docs/APPENDIX_BACKUP.md",
         "mtime":  "2026-06-23T06:28:02.2960646Z",
         "size":  4928
     },
     {
-        "path":  "Design/新建文本文档.txt",
-        "mtime":  "2026-06-25T05:25:46.5414901Z",
-        "size":  0
+        "path":  "Design/1783260340775.png",
+        "mtime":  "2026-07-05T14:05:41.9814804Z",
+        "size":  720443
     },
     {
         "path":  "05_reference/robots/README.md",
@@ -185,9 +225,9 @@
         "size":  1582
     },
     {
-        "path":  "Design/SAP-EWM-机器人调度平台-Cursor生产级配置终极清单-v3.35.md",
-        "mtime":  "2026-06-23T15:15:28.3670356Z",
-        "size":  36910
+        "path":  "Design/_extracted_summary.txt",
+        "mtime":  "2026-06-23T15:32:35.4179158Z",
+        "size":  58480
     },
     {
         "path":  "05_reference/sap/wm-classic-integration.md",

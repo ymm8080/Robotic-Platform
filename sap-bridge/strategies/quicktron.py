@@ -11,7 +11,7 @@ References:
 """
 
 
-from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 
 class QuicktronStrategy(BaseStrategy):
@@ -187,6 +187,38 @@ class QuicktronStrategy(BaseStrategy):
         return BatteryInfo(
             percent=min(100.0, max(0.0, percent)),
             charging=False,
+        )
+
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build dispatch payload for Quicktron — routes to VDA5050 or proprietary."""
+        order_id = order.get("orderId", "")
+        protocol_hint = order.get("protocol", order.get("_protocol", "vda5050"))
+        adapter = self.get_adapter(protocol_hint)
+
+        if adapter == "vda5050":
+            return DispatchResult(
+                success=True,
+                order_id=order_id,
+                protocol="vda5050",
+                payload={
+                    "orderId": order_id,
+                    "orderUpdateId": order.get("orderUpdateId", 0),
+                    "nodes": order.get("nodes", []),
+                    "edges": order.get("edges", []),
+                },
+            )
+        # Proprietary format
+        return DispatchResult(
+            success=True,
+            order_id=order_id,
+            protocol="rest",
+            payload={
+                "missionId": order_id,
+                "robotId": order.get("robotId", order.get("serialNumber", "")),
+                "taskType": order.get("taskType", "MOVE"),
+                "station": order.get("target", ""),
+                "priority": order.get("priority", 3),
+            },
         )
 
     @staticmethod

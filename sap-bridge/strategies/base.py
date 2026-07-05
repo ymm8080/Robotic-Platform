@@ -1,10 +1,25 @@
 """
 Base robot strategy providing default VDA5050 behavior.
 All brand-specific strategies inherit from this class.
+
+v4.1: Added dispatch() method for strategy-pattern order routing.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+# Minimum VDA5050 version required (v4.1 verification matrix item 3)
+MIN_VDA5050_VERSION = "1.1.0"
+
+
+@dataclass
+class DispatchResult:
+    """Result of dispatching an order to a robot via brand strategy."""
+    success: bool
+    order_id: str
+    protocol: str = "vda5050"  # vda5050 | iop | haiq | rest
+    payload: dict | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -72,6 +87,28 @@ class BaseStrategy(ABC):
         """Convert brand-specific battery format to normalized BatteryInfo."""
         ...
 
+    @abstractmethod
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build brand-specific dispatch payload for an order.
+
+        Args:
+            order: Order dict with keys: orderId, serialNumber, nodes, edges, etc.
+
+        Returns:
+            DispatchResult with the VDA5050 (or proprietary) payload.
+        """
+        ...
+
+    def check_version_compatibility(self, version: str = MIN_VDA5050_VERSION) -> bool:
+        """Check if this strategy supports the minimum required VDA5050 version.
+
+        v4.1 verification matrix item 3: All brands must support >= v1.1.0.
+        """
+        for supported in self.supported_versions:
+            if _compare_versions(supported, version) >= 0:
+                return True
+        return False
+
     def get_quirks(self) -> list[BrandQuirk]:
         """Return documented brand quirks. Override in subclasses."""
         return []
@@ -134,3 +171,18 @@ class BaseStrategy(ABC):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} brand={self.brand} versions={self.supported_versions}>"
+
+
+def _compare_versions(v1: str, v2: str) -> int:
+    """Compare two semantic version strings. Returns >0 if v1>v2, 0 if equal, <0 if v1<v2."""
+    parts1 = [int(x) for x in v1.split(".")]
+    parts2 = [int(x) for x in v2.split(".")]
+    # Pad shorter list with zeros
+    while len(parts1) < len(parts2):
+        parts1.append(0)
+    while len(parts2) < len(parts1):
+        parts2.append(0)
+    for a, b in zip(parts1, parts2):
+        if a != b:
+            return a - b
+    return 0

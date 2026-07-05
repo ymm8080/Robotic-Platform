@@ -30,6 +30,7 @@ from metrics import (
 )
 from mqtt_publisher import get_publisher
 from strategies import get_registry
+from strategies.registry import UnknownBrandError
 
 _redis_client = _redis_module.from_url(
     os.getenv("REDIS_URL", "redis://redis:6379/1"),
@@ -80,7 +81,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="SAP EWM/WM Robot Bridge",
-    version=os.getenv("RUNTIME_VERSION", "v3.4"),
+    version=os.getenv("RUNTIME_VERSION", "v4.1"),
     lifespan=lifespan,
 )
 
@@ -114,7 +115,7 @@ async def health():
     redis_connected.set(1 if _rd_conn else 0)
     return {
         "status": "healthy",
-        "version": os.getenv("RUNTIME_VERSION", "v3.4"),
+        "version": os.getenv("RUNTIME_VERSION", "v4.1"),
         "mqtt_connected": _mq_conn,
         "redis_connected": _rd_conn,
         "uptime_seconds": _uptime(),
@@ -202,6 +203,128 @@ async def list_strategies():
 
 
 # ──────────────────────────────────────────────
+# Dispatch API (v4.1: Strategy-pattern brand-specific dispatch)
+# ──────────────────────────────────────────────
+
+
+class DispatchRequest(BaseModel):
+    """Request body for brand-specific order dispatch.
+
+    v4.1: Routes order through the brand strategy pattern to build
+    the correct protocol payload (VDA5050 / IOP / HAIQ / REST).
+    """
+    brand: str                          # Robot brand (e.g., "KUKA", "MiR")
+    serialNumber: str                   # Robot serial number
+    orderId: str                        # Unique order ID
+    orderUpdateId: int = 0              # VDA5050 order update ID
+    nodes: list = []                    # VDA5050 nodes
+    edges: list = []                    # VDA5050 edges
+    robotModel: str = ""                # For dual-protocol brands (Geek+, Hai)
+    robotType: str = ""                 # For Hai ACR vs HaiPort
+    protocol: str = ""                  # For Quicktron proprietary fallback
+    taskType: str = "MOVE"              # IOP/HAIQ task type
+    target: str = ""                    # Target location (IOP/HAIQ/proprietary)
+    source: str = ""                    # Source location
+    priority: int = 3
+
+
+@app.post("/api/v1/dispatch")
+async def dispatch_order(req: DispatchRequest):
+    """Dispatch an order to a robot using the brand strategy pattern.
+
+    v4.1: This endpoint replaces the legacy direct-MQTT-publish flow.
+    It looks up the brand strategy, builds the protocol-specific payload
+    via strategy.dispatch(), verifies VDA5050 version compatibility,
+    then publishes to MQTT.
+
+    Returns:
+        200: Dispatch accepted with protocol payload
+        501: Unknown brand (not registered in strategy registry)
+        503: MQTT disconnected
+    """
+    if not get_publisher().is_connected:
+        return JSONResponse(status_code=503, content={"error": "mqtt_disconnected"})
+
+    registry = get_registry()
+
+    # Strict brand lookup — raises UnknownBrandError for unregistered brands
+    try:
+        strategy = registry.get_or_raise(req.brand)
+    except UnknownBrandError as e:
+        logger.warning(f"Dispatch rejected: {e}")
+        return JSONResponse(
+            status_code=501,
+            content={
+                "error": "unknown_brand",
+                "brand": e.brand,
+                "availableBrands": e.available,
+            },
+        )
+
+    # Version compatibility check (v4.1 verification matrix item 3)
+    if not strategy.check_version_compatibility():
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "version_incompatible",
+                "brand": strategy.brand,
+                "supportedVersions": strategy.supported_versions,
+                "requiredVersion": ">=1.1.0",
+            },
+        )
+
+    # Build the dispatch order dict for the strategy
+    order = {
+        "orderId": req.orderId,
+        "orderUpdateId": req.orderUpdateId,
+        "nodes": req.nodes,
+        "edges": req.edges,
+        "serialNumber": req.serialNumber,
+        "robotModel": req.robotModel,
+        "robotType": req.robotType,
+        "protocol": req.protocol,
+        "taskType": req.taskType,
+        "target": req.target,
+        "source": req.source,
+        "priority": req.priority,
+    }
+
+    # Strategy builds the brand-specific protocol payload
+    result = strategy.dispatch(order)
+
+    if not result.success:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "dispatch_failed", "detail": result.error},
+        )
+
+    # Publish the payload to MQTT
+    topic_suffix = "order" if result.protocol == "vda5050" else "command"
+    mid = get_publisher().publish(
+        manufacturer=req.brand,
+        serial_number=req.serialNumber,
+        topic_suffix=topic_suffix,
+        payload=result.payload,
+        qos=1,
+    )
+
+    orders_created.labels(type="DISPATCH").inc()
+    logger.info(
+        f"Dispatch {req.orderId} → {req.brand}/{req.serialNumber} "
+        f"protocol={result.protocol} mid={mid}"
+    )
+
+    return {
+        "status": "dispatched",
+        "orderId": req.orderId,
+        "brand": strategy.brand,
+        "protocol": result.protocol,
+        "mqttMid": mid,
+        "payload": result.payload,
+    }
+
+
+# ──────────────────────────────────────────────
 # Order API (via OrderService + MQTT publish)
 # ──────────────────────────────────────────────
 
@@ -257,7 +380,7 @@ async def create_order(req: CreateOrderRequest):
     except ValueError:
         return JSONResponse(status_code=400, content={"error": f"invalid_order_type: {req.orderType}"})
 
-    # Persist order to SQLite via OrderService
+    # Persist order via OrderService (PostgreSQL in production)
     order = WarehouseOrder(
         order_no=req.orderId,
         type=order_type,
@@ -350,6 +473,169 @@ async def suspend_order(order_no: str, req: UpdateOrderStatusRequest):
     if order is None:
         return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
     return order.to_dict()
+
+
+# ──────────────────────────────────────────────
+# Outbox API (v4.1: Node-RED calls these instead of direct SQLite access)
+# ──────────────────────────────────────────────
+
+
+@app.get("/api/v1/outbox/pending")
+async def outbox_pending(limit: int = 20):
+    """Fetch pending outbox events for Node-RED outbox flow.
+
+    Replaces: Node-RED direct DB access. All data now in PostgreSQL via sap-bridge HTTP API.
+    """
+    from db import connect
+
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """SELECT id, order_id, event_type, payload, retry_count, created_at
+               FROM outbox_events
+               WHERE status = 'PENDING' AND retry_count < 5
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        # Parse payload JSON for each row
+        import json as _json
+        events = []
+        for row in rows:
+            d = dict(row) if not isinstance(row, dict) else row
+            payload_raw = d.get("payload")
+            d["payload"] = payload_raw if isinstance(payload_raw, (dict, list)) else (_json.loads(payload_raw) if payload_raw else {})
+            events.append(d)
+        return {"events": events, "count": len(events)}
+    finally:
+        conn.close()
+
+
+class OutboxUpdateRequest(BaseModel):
+    """Update outbox event status after SAP HTTP response."""
+    status: str = "SENT"  # SENT | FAILED
+    retry_count: int | None = None
+    last_error: str = ""
+
+
+@app.post("/api/v1/outbox/{event_id}/update")
+async def outbox_update(event_id: int, req: OutboxUpdateRequest):
+    """Update outbox event status after SAP callback.
+
+    Replaces: Node-RED direct DB access.
+    """
+    from db import connect
+
+    conn = connect()
+    try:
+        if req.status == "SENT":
+            conn.execute(
+                """UPDATE outbox_events
+                   SET status = 'SENT', retry_count = retry_count + 1, sent_at = ?
+                   WHERE id = ?""",
+                (_now_iso(), event_id),
+            )
+        else:
+            conn.execute(
+                """UPDATE outbox_events
+                   SET retry_count = retry_count + 1, last_error = ?
+                   WHERE id = ? AND status = 'PENDING'""",
+                (req.last_error[:500] if req.last_error else "", event_id),
+            )
+        conn.commit()
+
+        # Check if deadletter needed
+        row = conn.execute(
+            "SELECT retry_count, status FROM outbox_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+        if row is None:
+            return JSONResponse(status_code=404, content={"error": "event_not_found"})
+
+        d = dict(row) if not isinstance(row, dict) else row
+        needs_deadletter = d.get("retry_count", 0) >= 5 and d.get("status") != "SENT"
+        return {
+            "status": "updated",
+            "eventId": event_id,
+            "retryCount": d.get("retry_count", 0),
+            "needsDeadletter": needs_deadletter,
+        }
+    finally:
+        conn.close()
+
+
+class OutboxDeadletterRequest(BaseModel):
+    """Move an outbox event to dead letter queue."""
+    error_type: str = "OUTBOX_RETRY_EXCEEDED"
+    error_message: str = ""
+    payload: dict | None = None
+
+
+@app.post("/api/v1/outbox/{event_id}/deadletter")
+async def outbox_deadletter(event_id: int, req: OutboxDeadletterRequest):
+    """Move a failed outbox event to the dead letter queue.
+
+    Replaces: Node-RED direct DB access.
+    """
+    import json as _json
+    from db import connect
+
+    conn = connect()
+    try:
+        # Insert into dead_letter_queue
+        conn.execute(
+            """INSERT INTO dead_letter_queue
+               (original_id, error_type, error_message, payload, status, created_at)
+               VALUES (?, ?, ?, ?, 'UNRESOLVED', ?)
+               RETURNING id""",
+            (
+                str(event_id),
+                req.error_type,
+                req.error_message[:500],
+                _json.dumps(req.payload) if req.payload else None,
+                _now_iso(),
+            ),
+        )
+        # Mark outbox event as FAILED
+        conn.execute(
+            "UPDATE outbox_events SET status = 'FAILED' WHERE id = ?",
+            (event_id,),
+        )
+        conn.commit()
+        return {"status": "deadlettered", "eventId": event_id}
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/outbox")
+async def outbox_create(order_id: int, event_type: str, payload: dict | None = None):
+    """Create a new outbox event.
+
+    Called by Node-RED when an order needs SAP synchronization.
+    """
+    import json as _json
+    from db import connect
+
+    conn = connect()
+    try:
+        cur = conn.execute(
+            """INSERT INTO outbox_events
+               (order_id, event_type, payload, status, retry_count, created_at)
+               VALUES (?, ?, ?, 'PENDING', 0, ?)
+               RETURNING id""",
+            (order_id, event_type, _json.dumps(payload) if payload else None, _now_iso()),
+        )
+        conn.commit()
+        event_id = cur.lastrowid
+        return {"status": "created", "eventId": event_id, "orderId": order_id}
+    finally:
+        conn.close()
+
+
+def _now_iso() -> str:
+    """Current UTC timestamp in ISO format."""
+    from datetime import UTC, datetime
+    return datetime.now(UTC).isoformat()
 
 
 # ──────────────────────────────────────────────
@@ -742,7 +1028,7 @@ async def system_health():
     except Exception:
         pass
 
-    # DB health (SQLite check)
+    # DB health check
     db_ok = False
     try:
         _order_service.list_orders(limit=1)
@@ -761,7 +1047,7 @@ async def system_health():
         },
         "resources": watchdog_metrics,
         "fleet": fleet,
-        "version": os.getenv("RUNTIME_VERSION", "v3.4"),
+        "version": os.getenv("RUNTIME_VERSION", "v4.1"),
     }
 
 

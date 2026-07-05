@@ -118,7 +118,7 @@ class QueueWorker:
             else:
                 del self._backoff_until[order_no]
 
-        # Load order from SQLite
+        # Load order from database (PostgreSQL)
         order = self._order_service.get_order(order_no)
         if order is None:
             logger.warning(f"Order {order_no} not found in DB, skipping")

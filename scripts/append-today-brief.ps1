@@ -99,7 +99,7 @@ if ($cnt -eq 0 -and $refChangedCnt -eq 0) {
     # Always generate a minimal brief — never exit silently when there are no changes
     $O=New-Object System.Collections.Generic.List[string]
     $O.Add("# Claude Code 今日工作简报"); $O.Add("")
-    $O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.4")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** 0 个")); $O.Add("")
+    $O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.5")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** 0 个")); $O.Add("")
     $O.Add("---"); $O.Add("")
     $O.Add("## 今日无文件变更"); $O.Add("")
     $O.Add("本日无文件修改或新建记录（git diff 无变更 + transcript 无记录）。"); $O.Add("")
@@ -552,7 +552,7 @@ $uniq=$uniq | Sort-Object { $order[$_.P] }
 $O=New-Object System.Collections.Generic.List[string]
 
 $O.Add("# Claude Code 今日工作简报"); $O.Add("")
-$O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.4")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** {0} 个（新建 + 修改）" -f ($cnt+$trivialCnt))); $O.Add("")
+$O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.5")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** {0} 个（新建 + 修改）" -f ($cnt+$trivialCnt))); $O.Add("")
 $O.Add("---"); $O.Add("")
 
 # Compute global time range from all entries with timestamps

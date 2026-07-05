@@ -2,69 +2,29 @@
 Order lifecycle service.
 Manages the full lifecycle of robot dispatch orders:
 create → assign → execute → complete / fail / cancel / suspend
+
+v4.1: PostgreSQL-only. All data in PostgreSQL.
 """
 import json
 import logging
-import os
-import sqlite3
 
+from db import connect, init_schema
 from models.order import OrderStatus, OrderType, WarehouseOrder
 
 logger = logging.getLogger(__name__)
 
-# SQLite database path (mounted Docker volume path)
-DB_PATH = os.getenv("DB_PATH", "/data/robot_platform.db")
-
 
 class OrderService:
-    """Order lifecycle service with SQLite persistence."""
+    """Order lifecycle service with unified persistence via db.py abstraction."""
 
-    def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        """Create tables if they don't exist."""
-        conn = self._connect()
-        try:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS orders_v2 (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    order_no TEXT NOT NULL UNIQUE,
-                    type TEXT NOT NULL,
-                    priority INTEGER DEFAULT 3,
-                    source TEXT,
-                    robot_brand TEXT,
-                    robot_serial TEXT,
-                    status TEXT DEFAULT 'CREATED',
-                    payload TEXT,
-                    zone_id TEXT,
-                    location TEXT,
-                    weight REAL,
-                    env_tag TEXT DEFAULT 'PROD',
-                    expected_qty INTEGER,
-                    assigned_rule_id INTEGER,
-                    error_message TEXT,
-                    version INTEGER DEFAULT 1,
-                    created_at REAL,
-                    updated_at REAL,
-                    completed_at REAL
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_v2_status ON orders_v2(status)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_v2_order_no ON orders_v2(order_no)")
-            conn.commit()
-        finally:
-            conn.close()
+    def __init__(self):
+        init_schema()
 
     # ── Connection ──────────────────────────────────────
 
-    def _connect(self) -> sqlite3.Connection:
-        """Get a new database connection."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+    def _connect(self):
+        """Get a new PostgreSQL connection."""
+        return connect()
 
     # ── CRUD ────────────────────────────────────────────
 
@@ -72,12 +32,16 @@ class OrderService:
         """Persist a new order and return it with generated ID."""
         conn = self._connect()
         try:
+            sql = """
+                INSERT INTO orders
+                (order_no, type, priority, source, robot_brand, robot_serial,
+                 status, payload, zone_id, location, weight, env_tag,
+                 expected_qty, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+            """
             cur = conn.execute(
-                """INSERT INTO orders_v2
-                   (order_no, type, priority, source, robot_brand, robot_serial,
-                    status, payload, zone_id, location, weight, env_tag,
-                    expected_qty, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                sql,
                 (
                     order.order_no, order.type.value, order.priority,
                     order.source, order.robot_brand, order.robot_serial,
@@ -100,7 +64,7 @@ class OrderService:
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT * FROM orders_v2 WHERE order_no = ?", (order_no,)
+                "SELECT * FROM orders WHERE order_no = ?", (order_no,)
             ).fetchone()
             if row is None:
                 return None
@@ -113,7 +77,7 @@ class OrderService:
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT * FROM orders_v2 WHERE id = ?", (order_id,)
+                "SELECT * FROM orders WHERE id = ?", (order_id,)
             ).fetchone()
             if row is None:
                 return None
@@ -131,7 +95,7 @@ class OrderService:
         """List orders with optional filters."""
         conn = self._connect()
         try:
-            query = "SELECT * FROM orders_v2 WHERE 1=1"
+            query = "SELECT * FROM orders WHERE 1=1"
             params = []
 
             if status:
@@ -144,7 +108,7 @@ class OrderService:
             query += " ORDER BY priority ASC, created_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
-            rows = conn.execute(query, params).fetchall()
+            rows = conn.execute(query, tuple(params)).fetchall()
             return [self._row_to_order(r) for r in rows]
         finally:
             conn.close()
@@ -223,7 +187,7 @@ class OrderService:
         try:
             order.version += 1
             cur = conn.execute(
-                """UPDATE orders_v2 SET
+                """UPDATE orders SET
                    status=?, robot_brand=?, robot_serial=?, payload=?,
                    zone_id=?, location=?, weight=?, expected_qty=?,
                    assigned_rule_id=?, error_message=?,
@@ -253,28 +217,28 @@ class OrderService:
             conn.close()
 
     @staticmethod
-    def _row_to_order(row: sqlite3.Row) -> WarehouseOrder:
-        """Convert a DB row to a WarehouseOrder."""
-        data = dict(row)
+    def _row_to_order(row: dict) -> WarehouseOrder:
+        """Convert a DB row dict to a WarehouseOrder."""
+        payload_raw = row.get("payload")
         return WarehouseOrder(
-            id=data["id"],
-            order_no=data["order_no"],
-            type=OrderType(data["type"]),
-            priority=data["priority"],
-            source=data.get("source"),
-            robot_brand=data.get("robot_brand"),
-            robot_serial=data.get("robot_serial"),
-            status=OrderStatus(data["status"]),
-            payload=json.loads(data["payload"]) if data.get("payload") else None,
-            zone_id=data.get("zone_id"),
-            location=data.get("location"),
-            weight=data.get("weight"),
-            env_tag=data.get("env_tag", "PROD"),
-            expected_qty=data.get("expected_qty"),
-            assigned_rule_id=data.get("assigned_rule_id"),
-            error_message=data.get("error_message"),
-            version=data.get("version", 1),
-            created_at=data.get("created_at"),
-            updated_at=data.get("updated_at"),
-            completed_at=data.get("completed_at"),
+            id=row.get("id"),
+            order_no=row["order_no"],
+            type=OrderType(row["type"]),
+            priority=row["priority"],
+            source=row.get("source"),
+            robot_brand=row.get("robot_brand"),
+            robot_serial=row.get("robot_serial"),
+            status=OrderStatus(row["status"]),
+            payload=payload_raw if isinstance(payload_raw, (dict, list)) else (json.loads(payload_raw) if payload_raw else None),
+            zone_id=row.get("zone_id"),
+            location=row.get("location"),
+            weight=row.get("weight"),
+            env_tag=row.get("env_tag", "PROD"),
+            expected_qty=row.get("expected_qty"),
+            assigned_rule_id=row.get("assigned_rule_id"),
+            error_message=row.get("error_message"),
+            version=row.get("version", 1),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+            completed_at=row.get("completed_at"),
         )
