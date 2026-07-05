@@ -1,7 +1,9 @@
 # =============================================================================
-# SAP-EWM 机器人调度平台 Docker Compose (v3.4)
+# SAP-EWM 机器人调度平台 Docker Compose (v4.1)
 # 包含：Node-RED + Redis + SAP-Bridge + Dify + MQTT + Nginx-Rescue + Watchdog
-#       + SQLite-Init + Docker-Socket-Proxy + Dashboard + Prometheus + Alertmanager + Grafana
+#       + Docker-Socket-Proxy + Dashboard + Prometheus + Alertmanager + Grafana
+#       + Message Gateway + Kafka + Elasticsearch + PostgreSQL
+# v4.1: 移除 sqlite-init，PostgreSQL 是唯一生产数据库
 # 修复：日志爆盘防护 / SAP端口隔离 / Docker Socket权限降级 / Watchdog API绑定本机
 # 评审修正：锁定镜像版本 / named volume / Docker Secrets / 安全模式动态控制 / 健康检查对齐
 # =============================================================================
@@ -44,14 +46,17 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/0
       # SAP 桥接层地址（内部网络）
       - SAP_BRIDGE_URL=http://sap-bridge:8000
+      # v3.5: Kafka 连接（消息网关事件生产者）
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_ALERT_TOPIC=platform_alerts
       # 版本校验
       - VERSION_FILE_PATH=/app/config/VERSION
-      - RUNTIME_VERSION=v3.4
+      - RUNTIME_VERSION=v3.5
     depends_on:
       redis:
         condition: service_healthy
-      sqlite-init:
-        condition: service_completed_successfully
+      sap-bridge:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1880/"]
       interval: 30s
@@ -154,9 +159,16 @@ services:
       - QUEUE_RETRY_DELAY=30
       - SAP_MAX_CONNECTIONS=5
       - SAP_CONNECTION_TIMEOUT=30
-      - DB_PATH=/tmp/robot_platform.db
+      # v4.1: PostgreSQL is the sole DB (SQLite removed).
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=robot_platform
+      - PG_USER=robot_platform
+      - PG_PASSWORD_FILE=/run/secrets/pg_password
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -168,6 +180,7 @@ services:
       - internal
     secrets:
       - sap_password
+      - pg_password
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -345,47 +358,7 @@ services:
         max-file: "3"
 
   # ===========================================================================
-  # 7. SQLite 数据库初始化（一次性任务）
-  # ===========================================================================
-  sqlite-init:
-    # 🟡 修正：使用 nodered 镜像（自带 sqlite3 CLI）
-    image: nodered/node-red:3.1.9
-    container_name: robot-platform-sqlite-init
-    restart: "no"
-    entrypoint: ["/bin/sh", "-c"]
-    volumes:
-      - nodered-data:/data
-      - ./sql/init.sql:/init.sql:ro
-      - ./sql/migrations:/migrations:ro
-    environment:
-      - TZ=UTC
-      - DB_PATH=/data/robot_platform.db
-    command: >
-      sh -c "
-        echo '[INIT] 初始化 SQLite 数据库...' &&
-        sqlite3 /data/robot_platform.db < /init.sql &&
-        echo '[INIT] 执行迁移脚本...' &&
-        for f in /migrations/*.sql; do
-          echo "Applying $$f" &&
-          sqlite3 /data/robot_platform.db < "$$f";
-        done &&
-        echo '[INIT] 设置 WAL 模式...' &&
-        sqlite3 /data/robot_platform.db 'PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=500;' &&
-        echo '[INIT] 完成'
-      "
-    networks:
-      - internal
-    deploy:
-      restart_policy:
-        condition: none
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ===========================================================================
-  # 8. Docker Socket 代理（权限隔离）
+  # 7. Docker Socket 代理（权限隔离）
   # 🔴 修复3：限制 Watchdog 只能调用 docker stats，禁止创建/执行容器
   # ===========================================================================
   docker-socket-proxy:
@@ -651,6 +624,241 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ===========================================================================
+  # 14. Kafka — 消息网关事件总线 (v3.5 新增)
+  # ===========================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: robot-platform-kafka
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9092:9092"
+    environment:
+      - TZ=UTC
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_LOG_RETENTION_HOURS=168
+      - KAFKA_LOG_SEGMENT_BYTES=1073741824
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - CLUSTER_ID=robot-platform-kafka-cluster
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      restart_policy:
+        condition: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 15. Elasticsearch — 消息网关审计日志存储 (v3.5 新增)
+  # ===========================================================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
+    container_name: robot-platform-elasticsearch
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9200:9200"
+    environment:
+      - TZ=UTC
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-robot-platform-es}
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - cluster.name=robot-platform-es
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD:-robot-platform-es} http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      restart_policy:
+        condition: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 16. Message Gateway — 多端交互消息网关 (v3.5 新增)
+  #     FastAPI + Kafka Consumer + Card Template Engine + Action Validator
+  #     独立部署，通过 Kafka 与核心业务主板解耦
+  # ===========================================================================
+  message-gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    image: robot-platform-message-gateway:v3.5
+    container_name: robot-platform-message-gateway
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8010:8010"
+    volumes:
+      - ./gateway:/app:ro
+      - gateway-logs:/app/logs
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      - GATEWAY_PORT=8010
+      # Kafka 连接
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_ALERT_TOPIC=platform_alerts
+      - KAFKA_CALLBACK_TOPIC=gateway_callbacks
+      - KAFKA_CONSUMER_GROUP=message-gateway
+      # Elasticsearch 连接
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD:-robot-platform-es}
+      - ELASTICSEARCH_INDEX_PREFIX=gateway_audit
+      # Redis 连接（共享）
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/2
+      # 企业微信配置
+      - WECOM_CORP_ID=${WECOM_CORP_ID:-}
+      - WECOM_AGENT_ID=${WECOM_AGENT_ID:-}
+      - WECOM_SECRET=${WECOM_SECRET:-}
+      - WECOM_TOKEN=${WECOM_TOKEN:-}
+      - WECOM_ENCODING_AES_KEY=${WECOM_ENCODING_AES_KEY:-}
+      # 飞书配置
+      - FEISHU_APP_ID=${FEISHU_APP_ID:-}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
+      - FEISHU_VERIFICATION_TOKEN=${FEISHU_VERIFICATION_TOKEN:-}
+      - FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY:-}
+      # 钉钉配置
+      - DINGTALK_APP_KEY=${DINGTALK_APP_KEY:-}
+      - DINGTALK_APP_SECRET=${DINGTALK_APP_SECRET:-}
+      - DINGTALK_ROBOT_CODE=${DINGTALK_ROBOT_CODE:-}
+      - DINGTALK_SIGN_SECRET=${DINGTALK_SIGN_SECRET:-}
+      # SMTP 邮件配置
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD_FILE=/run/secrets/smtp_password
+      - SMTP_FROM_ADDR=${SMTP_FROM_ADDR:-}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      # 核心业务主板回调地址
+      - CORE_PLATFORM_URL=http://nodered:1880
+      # 二次确认超时（秒）
+      - CONFIRM_TIMEOUT_SECONDS=300
+      # 审计日志保留天数
+      - AUDIT_LOG_RETENTION_DAYS=1095
+    depends_on:
+      kafka:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - internal
+    secrets:
+      - smtp_password
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # 17. PostgreSQL — v4.1 Sole Database (SQLite removed)
+  #     All services connect to PostgreSQL via PG_PASSWORD_FILE secret.
+  # ===========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: robot-platform-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./sql/init-pg.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    environment:
+      - TZ=UTC
+      - POSTGRES_DB=robot_platform
+      - POSTGRES_USER=robot_platform
+      - POSTGRES_PASSWORD_FILE=/run/secrets/pg_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U robot_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+    secrets:
+      - pg_password
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # =============================================================================
 # 持久化卷（named volumes，避免 bind mount 的 cwd 依赖问题）
 # =============================================================================
@@ -676,9 +884,16 @@ volumes:
     driver: local
   grafana-data:
     driver: local
-  # [v4.0] 迁移到 PostgreSQL 后取消注释
-  # pg-data:
-  #   driver: local
+  # v3.5: 消息网关基础设施持久化
+  kafka-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  gateway-logs:
+    driver: local
+  # v4.0: PostgreSQL persistent storage
+  pg-data:
+    driver: local
 
 # =============================================================================
 # Docker Secrets（凭证管理，禁止硬编码）
@@ -686,53 +901,12 @@ volumes:
 secrets:
   sap_password:
     file: ./secrets/sap_password.txt
-  # [v4.0] PostgreSQL 密码
-  # pg_password:
-  #   file: ./secrets/pg_password.txt
-
-# =============================================================================
-# [v4.0] PostgreSQL 服务 — 替代 SQLite（迁移前保持注释）
-# 激活前必须：
-#   1. 运行 scripts/data-migration-sqlite-to-pg.sh
-#   2. 更新 Node-RED 和 SAP Bridge 的 DB_URL
-#   3. 取消下方注释并重启
-# =============================================================================
-# postgres:
-#   image: postgres:15-alpine
-#   container_name: robot-platform-postgres
-#   restart: unless-stopped
-#   ports:
-#     - "127.0.0.1:5432:5432"
-#   volumes:
-#     - pg-data:/var/lib/postgresql/data
-#     - ./sql/init-pg.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-#   environment:
-#     - TZ=UTC
-#     - POSTGRES_DB=robot_platform
-#     - POSTGRES_USER=robot_platform
-#     - POSTGRES_PASSWORD_FILE=/run/secrets/pg_password
-#   healthcheck:
-#     test: ["CMD-SHELL", "pg_isready -U robot_platform"]
-#     interval: 10s
-#     timeout: 5s
-#     retries: 5
-#   networks:
-#     - internal
-#   secrets:
-#     - pg_password
-#   deploy:
-#     resources:
-#       limits:
-#         cpus: '1.0'
-#         memory: 512M
-#       reservations:
-#         cpus: '0.25'
-#         memory: 128M
-#   logging:
-#     driver: json-file
-#     options:
-#       max-size: "10m"
-#       max-file: "3"
+  # v3.5: 消息网关 SMTP 密码
+  smtp_password:
+    file: ./secrets/smtp_password.txt
+  # v4.0: PostgreSQL password
+  pg_password:
+    file: ./secrets/pg_password.txt
 
 # =============================================================================
 # [v4.0] WCS 影子沙箱（品牌适配 Mock 服务）

@@ -1,24 +1,24 @@
 """
 Dead letter handler — manages orders that have exhausted retries.
-Stores in SQLite dead_letter_queue with full error context.
+Stores in dead_letter_queue with full error context.
+
+v4.1: PostgreSQL-only. All data in PostgreSQL.
 """
 import json
 import logging
-import os
-import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from db import connect, init_schema
 
-DB_PATH = os.getenv("DB_PATH", "/data/robot_platform.db")
+logger = logging.getLogger(__name__)
 
 
 class DeadLetterHandler:
     """Handles orders that have exhausted all retry attempts."""
 
-    def __init__(self, db_path: str = DB_PATH):
-        self.db_path = db_path
+    def __init__(self):
+        init_schema()
 
     def send(
         self,
@@ -29,12 +29,16 @@ class DeadLetterHandler:
         retry_count: int = 0,
     ) -> int:
         """Move an order to the dead letter queue. Returns deadletter ID."""
-        conn = sqlite3.connect(self.db_path)
+        conn = connect()
         try:
+            sql = """
+                INSERT INTO dead_letter_queue
+                (original_id, error_type, error_message, payload, status, created_at)
+                VALUES (?, ?, ?, ?, 'UNRESOLVED', ?)
+                RETURNING id
+            """
             cur = conn.execute(
-                """INSERT INTO dead_letter_queue
-                   (original_id, error_type, error_message, payload, status, created_at)
-                   VALUES (?, ?, ?, ?, 'UNRESOLVED', ?)""",
+                sql,
                 (
                     order_no,
                     error_type,
@@ -52,8 +56,7 @@ class DeadLetterHandler:
 
     def list_unresolved(self, limit: int = 50) -> list[dict]:
         """List unresolved deadletter items."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = connect()
         try:
             rows = conn.execute(
                 """SELECT * FROM dead_letter_queue
@@ -61,27 +64,26 @@ class DeadLetterHandler:
                    ORDER BY created_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
-            return [dict(r) for r in rows]
+            return rows
         finally:
             conn.close()
 
     def list_all(self, limit: int = 50, offset: int = 0) -> list[dict]:
         """List all deadletter items with pagination."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = connect()
         try:
             rows = conn.execute(
                 """SELECT * FROM dead_letter_queue
                    ORDER BY created_at DESC LIMIT ? OFFSET ?""",
                 (limit, offset),
             ).fetchall()
-            return [dict(r) for r in rows]
+            return rows
         finally:
             conn.close()
 
     def resolve(self, dl_id: int, resolution: str = "MANUAL_FIX") -> bool:
         """Mark a deadletter item as resolved."""
-        conn = sqlite3.connect(self.db_path)
+        conn = connect()
         try:
             cur = conn.execute(
                 """UPDATE dead_letter_queue
@@ -96,8 +98,7 @@ class DeadLetterHandler:
 
     def retry(self, dl_id: int) -> dict | None:
         """Retrieve a deadletter item for retry. Returns payload or None."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = connect()
         try:
             row = conn.execute(
                 "SELECT * FROM dead_letter_queue WHERE id = ?", (dl_id,)
@@ -105,19 +106,26 @@ class DeadLetterHandler:
             if row is None:
                 return None
             data = dict(row)
-            data["payload"] = json.loads(data["payload"]) if data.get("payload") else None
+            payload_raw = data.get("payload")
+            data["payload"] = (
+                payload_raw
+                if isinstance(payload_raw, (dict, list))
+                else (json.loads(payload_raw) if payload_raw else None)
+            )
             return data
         finally:
             conn.close()
 
     def count_unresolved(self) -> int:
         """Count unresolved deadletter items."""
-        conn = sqlite3.connect(self.db_path)
+        conn = connect()
         try:
             row = conn.execute(
                 "SELECT COUNT(*) as cnt FROM dead_letter_queue WHERE status = 'UNRESOLVED'"
             ).fetchone()
-            return row[0] if row else 0
+            if row is None:
+                return 0
+            return row.get("cnt", 0) if isinstance(row, dict) else row[0]
         finally:
             conn.close()
 

@@ -5,6 +5,9 @@ redis>=5.0.0,<6.0.0
 pyyaml>=6.0,<7.0
 httpx>=0.27.0,<1.0.0
 
+# v4.0: PostgreSQL support (optional — only needed when DB_URL/PG_PASSWORD_FILE is set)
+psycopg2-binary>=2.9.0,<3.0.0
+
 # SAP NW RFC — requires SAP NW RFC SDK installed separately
 # Uncomment for Classic WM backend support:
 # pyrfc>=2.7,<3.0

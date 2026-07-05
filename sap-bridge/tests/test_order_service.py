@@ -1,65 +1,14 @@
-"""Tests for OrderService with SQLite persistence."""
-import os
-import sqlite3
-import tempfile
-
+"""Tests for OrderService with PostgreSQL persistence."""
 import pytest
 
 from models.order import OrderStatus, OrderType, WarehouseOrder
-from services.order_service import OrderService
 
 
 @pytest.fixture
-def db_path():
-    """Return a temporary database path."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    yield tmp.name
-    if os.path.exists(tmp.name):
-        os.remove(tmp.name)
-
-
-@pytest.fixture(autouse=True)
-def setup_db(db_path):
-    """Create orders_v2 table in test DB before each test."""
-    conn = sqlite3.connect(db_path)
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS orders_v2 (
-            id INTEGER PRIMARY KEY,
-            order_no TEXT NOT NULL UNIQUE,
-            type TEXT NOT NULL DEFAULT 'MOVE',
-            priority INTEGER NOT NULL DEFAULT 3,
-            source TEXT,
-            robot_brand TEXT,
-            robot_serial TEXT,
-            status TEXT NOT NULL DEFAULT 'CREATED',
-            payload TEXT,
-            zone_id TEXT,
-            zone_token TEXT,
-            weight REAL,
-            location TEXT,
-            env_tag TEXT DEFAULT 'PROD',
-            expected_qty INTEGER,
-            assigned_rule_id INTEGER,
-            error_message TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now')),
-            completed_at TEXT,
-            version INTEGER DEFAULT 1
-        );
-        CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER PRIMARY KEY,
-            applied_at TEXT DEFAULT (datetime('now')),
-            description TEXT
-        );
-    """)
-    conn.commit()
-    conn.close()
-
-
-@pytest.fixture
-def service(db_path):
-    return OrderService(db_path=db_path)
+def service():
+    """OrderService connected to test PostgreSQL."""
+    from services.order_service import OrderService
+    return OrderService()
 
 
 class TestOrderService:

@@ -2,7 +2,7 @@
 
 ## Project Context
 
-**Current Date**: June 2026  
+**Current Date**: July 2026  
 **Platform**: SAP EWM integration with VDA5050 robot dispatch  
 **Architecture**: Microservices on Docker Compose with Node-RED, MQTT, Redis, PostgreSQL  
 **IDEs**: Cursor, Qoder, and other AI assistants (synchronized configuration)
@@ -19,6 +19,9 @@
 - **SAP Bridge**: OData/RFC integration to SAP EWM
 - **Watchdog**: Health monitoring, auto-recovery
 - **Rescue Dashboard**: Offline-capable monitoring (Nginx)
+- **Message Gateway**: Multi-channel notification (WeChat/Feishu/DingTalk/Email) with six-layer accuracy validation
+- **Kafka**: Event bus decoupling gateway from core platform
+- **Elasticsearch**: Audit log storage for message gateway operations
 
 ### Key Directories
 ```
@@ -31,6 +34,7 @@
 sap-bridge/          - SAP EWM integration code
 watchdog/            - Health monitoring service
 mqtt/                - Mosquitto configuration
+gateway/             - Message gateway (FastAPI, multi-channel notification)
 ```
 
 ## Critical Protocols
@@ -47,6 +51,14 @@ mqtt/                - Mosquitto configuration
 - RFC calls for synchronous operations
 - IDoc for asynchronous batch processing
 - Authentication: Basic auth + CSRF tokens
+
+### Message Gateway Protocol (v4.1)
+- Multi-channel notification: WeChat / Feishu / DingTalk / Email
+- Six-layer accuracy validation: identity → permission → object → anti-replay → secondary confirmation → pre-execution
+- Unified callback: `POST /webhook/{platform}` (platform: wechat | feishu | dingtalk)
+- Platform signature verification required for all callbacks
+- Operation state machine: INIT → NOTIFIED → CONFIRMING → CONFIRMED → EXECUTING → SUCCESS/FAILED/TIMEOUT/CANCELLED
+- AI query isolation: CowAgent (optional) is read-only, strictly isolated from write operations
 
 ## Development Standards
 
@@ -98,6 +110,7 @@ See `10_adr/` for full records:
 - ADR-003: Outbox pattern for SAP sync reliability
 - ADR-004: Redis for session state (not PostgreSQL)
 - ADR-005: Watchdog for auto-recovery (not manual intervention)
+- ADR-006: Message Gateway architecture (multi-channel notification with six-layer validation)
 
 ## Active Development Areas
 
@@ -106,12 +119,14 @@ See `10_adr/` for full records:
 2. SAP EWM warehouse task synchronization
 3. Rescue dashboard offline capabilities
 4. Watchdog predictive failure detection
+5. Message Gateway multi-channel notification (v4.1)
 
 ### Known Challenges
 - VDA5050 state machine complexity across brands
 - SAP OData rate limiting under high load
 - MQTT message ordering guarantees
 - Redis memory growth with long sessions
+- Platform API differences across WeChat/Feishu/DingTalk
 
 ## Skills & Tools
 
@@ -142,6 +157,9 @@ Both `.cursor/skills` and `.qoder/skills` are synchronized with:
 - Redis: 6379
 - PostgreSQL: 5432
 - Nginx (Rescue): 8080
+- Message Gateway: 8010
+- Kafka: 9092
+- Elasticsearch: 9200
 
 ### Critical Commands
 ```bash
@@ -156,6 +174,12 @@ curl http://localhost:1880/sap-bridge/health
 
 # Watchdog logs
 docker logs watchdog -f
+
+# Verify message gateway
+curl http://localhost:8010/health
+
+# Query audit logs
+curl 'http://localhost:8010/api/v1/audit/logs?limit=10'
 ```
 
 ### Emergency Contacts
@@ -172,6 +196,8 @@ docker logs watchdog -f
 ❌ Don't hardcode robot-specific logic (use strategy pattern)  
 ❌ Don't ignore Redis memory growth alerts  
 ❌ Don't deploy without updating runbooks  
+❌ Don't bypass six-layer validation for mobile write operations  
+❌ Don't accept unverified platform callback signatures  
 
 ## Token Efficiency
 

@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 > SAP EWM -> Multi-Brand Robot Dispatch Platform (VDA5050)
-> Project version: v3.4 | Last updated: 2026-06-21
+> Project version: v4.1 | Last updated: 2026-07-05
 
 ## Project Identity
 
@@ -88,6 +88,9 @@ Full Cursor skills sync. Key custom skills:
 - **SAP Bridge**: OData/RFC integration to SAP EWM
 - **Watchdog**: Health monitoring, auto-recovery
 - **Rescue Dashboard**: Offline-capable monitoring (Nginx port 8080)
+- **Message Gateway**: Multi-channel notification (WeChat/Feishu/DingTalk/Email) with six-layer validation (port 8010)
+- **Kafka**: Event bus for gateway-core decoupling (port 9092)
+- **Elasticsearch**: Audit log storage for gateway operations (port 9200)
 
 ### Service Ports
 - MQTT: 1883
@@ -95,6 +98,9 @@ Full Cursor skills sync. Key custom skills:
 - Redis: 6379
 - PostgreSQL: 5432
 - Nginx (Rescue): 8080
+- Message Gateway: 8010
+- Kafka: 9092
+- Elasticsearch: 9200
 
 ## Critical Protocols
 
@@ -170,6 +176,8 @@ Full Cursor skills sync. Key custom skills:
 - Don't hardcode robot-specific logic (use strategy pattern)
 - Don't ignore Redis memory growth alerts
 - Don't deploy without updating runbooks
+- Don't bypass six-layer validation for mobile write operations
+- Don't accept unverified platform callback signatures
 
 ## Emergency Procedures
 

@@ -5,7 +5,7 @@ Reference: REFERENCE/05_reference/protocols/vda5050/vda5050-state-machine.md
 """
 import math
 
-from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 # OTTO 1500 battery curve: millivolts → approximate percentage (LiFePO4)
 # Typical ranges: 48.0V (empty) → 54.6V (full) for a 48V nominal pack
@@ -101,6 +101,21 @@ class OttoStrategy(BaseStrategy):
             percent=min(100.0, max(0.0, percent)),
             voltage=float(mv) / 1000 if mv else None,  # Convert mV → V for our records
             charging=charging,
+        )
+
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build VDA5050 v2.0 order payload for OTTO 1500."""
+        order_id = order.get("orderId", "")
+        return DispatchResult(
+            success=True,
+            order_id=order_id,
+            protocol="vda5050",
+            payload={
+                "orderId": order_id,
+                "orderUpdateId": order.get("orderUpdateId", 0),
+                "nodes": order.get("nodes", []),
+                "edges": order.get("edges", []),
+            },
         )
 
     def get_quirks(self) -> list[BrandQuirk]:

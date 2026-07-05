@@ -12,7 +12,7 @@ References:
 """
 
 
-from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 # IOP status → normalized status mapping
 IOP_STATUS_MAP = {
@@ -187,6 +187,43 @@ class GeekPlusStrategy(BaseStrategy):
         return BatteryInfo(
             percent=min(100.0, max(0.0, percent)),
             charging=False,  # Determined from state, not battery reading
+        )
+
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build dispatch payload for Geek+ — routes to IOP or VDA5050.
+
+        P/S series → IOP REST mission payload.
+        M/R series → VDA5050 v2.0 order payload.
+        """
+        order_id = order.get("orderId", "")
+        robot_model = order.get("robotModel", order.get("model", ""))
+        adapter = self.get_adapter(robot_model)
+
+        if adapter == "vda5050":
+            return DispatchResult(
+                success=True,
+                order_id=order_id,
+                protocol="vda5050",
+                payload={
+                    "orderId": order_id,
+                    "orderUpdateId": order.get("orderUpdateId", 0),
+                    "nodes": order.get("nodes", []),
+                    "edges": order.get("edges", []),
+                },
+            )
+        # IOP REST mission format
+        return DispatchResult(
+            success=True,
+            order_id=order_id,
+            protocol="iop",
+            payload={
+                "missionId": order_id,
+                "robotId": order.get("robotId", order.get("serialNumber", "")),
+                "taskType": order.get("taskType", "MOVE"),
+                "target": order.get("target", ""),
+                "source": order.get("source", ""),
+                "priority": order.get("priority", 3),
+            },
         )
 
     # ── Quirks ──────────────────────────────────────────

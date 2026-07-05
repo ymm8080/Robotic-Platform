@@ -9,15 +9,10 @@ Optional: Redis (tests skip if unavailable)
 """
 import json
 import os
-import sqlite3
-import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Set DB_PATH before any module imports so order_service reads it at load time
-_db_path = tempfile.mktemp(suffix=".db")
-os.environ["DB_PATH"] = _db_path
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ.setdefault("MQTT_BROKER", "localhost")
 
@@ -27,23 +22,8 @@ os.environ.setdefault("MQTT_BROKER", "localhost")
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
-    """Create all tables once per test session."""
-    init_sql = os.path.join(os.path.dirname(__file__), "..", "..", "sql", "init.sql")
-    mig_001 = os.path.join(os.path.dirname(__file__), "..", "..", "sql", "migrations", "001_order_schema_v2.sql")
-    mig_002 = os.path.join(os.path.dirname(__file__), "..", "..", "sql", "migrations", "002_data_mask_rules.sql")
-
-    conn = sqlite3.connect(_db_path)
-    for sql_file in [init_sql, mig_001, mig_002]:
-        with open(sql_file, encoding="utf-8") as f:
-            conn.executescript(f.read())
-    conn.commit()
-    conn.close()
-
-    with patch("services.order_service.DB_PATH", _db_path):
-        yield
-
-    if os.path.exists(_db_path):
-        os.remove(_db_path)
+    """Schema is initialized by conftest.py session fixture."""
+    yield
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -108,7 +88,8 @@ class TestOrderLifecycleE2E:
         order1 = svc.create_order(WarehouseOrder(order_no="E2E-IDEMP-001"))
         assert order1.id > 0
 
-        with pytest.raises(sqlite3.IntegrityError):
+        import psycopg2
+        with pytest.raises(psycopg2.errors.UniqueViolation):
             svc.create_order(WarehouseOrder(order_no="E2E-IDEMP-001"))
 
     def test_cancel_created_order(self, setup_db):
@@ -171,14 +152,15 @@ class TestOrderLifecycleE2E:
         svc.assign_order("E2E-LOCK-001", "KUKA", "KMR-001")
         order = svc.get_order("E2E-LOCK-001")
 
-        # Simulate stale version write
-        conn = sqlite3.connect(svc.db_path)
-        conn.execute(
-            "UPDATE orders_v2 SET status='COMPLETED', version=version+1 WHERE order_no=?",
+        # Simulate stale version write directly via psycopg2
+        from db import connect as _connect
+        _conn = _connect()
+        _conn.execute(
+            "UPDATE orders SET status='COMPLETED', version=version+1 WHERE order_no=?",
             ("E2E-LOCK-001",),
         )
-        conn.commit()
-        conn.close()
+        _conn.commit()
+        _conn.close()
 
         order.status = OrderStatus.IN_PROGRESS  # stale
         order.version = 2  # stale
@@ -340,7 +322,7 @@ class TestHTTPAPIE2E:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "v3.4"
+        assert data["version"] == "v4.1"
 
     def test_create_order_via_api(self, client):
         resp = client.post("/api/v1/orders", json={

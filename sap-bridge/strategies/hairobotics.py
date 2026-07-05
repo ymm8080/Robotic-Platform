@@ -15,7 +15,7 @@ References:
 """
 
 
-from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 # HAIQ status → normalized status mapping
 HAIQ_STATUS_MAP = {
@@ -189,6 +189,44 @@ class HaiRoboticsStrategy(BaseStrategy):
         return BatteryInfo(
             percent=min(100.0, max(0.0, percent)),
             charging=False,
+        )
+
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build dispatch payload for Hai Robotics — routes to HAIQ or VDA5050.
+
+        ACR series → HAIQ-ESS REST request payload.
+        HaiPort/HaiFlex → VDA5050 v2.0 order payload.
+        """
+        order_id = order.get("orderId", "")
+        robot_type = order.get("robotType", order.get("type", ""))
+        adapter = self.get_adapter(robot_type)
+
+        if adapter == "vda5050":
+            return DispatchResult(
+                success=True,
+                order_id=order_id,
+                protocol="vda5050",
+                payload={
+                    "orderId": order_id,
+                    "orderUpdateId": order.get("orderUpdateId", 0),
+                    "nodes": order.get("nodes", []),
+                    "edges": order.get("edges", []),
+                },
+            )
+        # HAIQ-ESS REST request format
+        return DispatchResult(
+            success=True,
+            order_id=order_id,
+            protocol="haiq",
+            payload={
+                "requestId": order_id,
+                "robotId": order.get("robotId", order.get("serialNumber", "")),
+                "taskType": order.get("taskType", "RETRIEVE"),
+                "toteId": order.get("toteId", ""),
+                "sourceLocation": order.get("source", ""),
+                "targetLocation": order.get("target", ""),
+                "priority": order.get("priority", 3),
+            },
         )
 
     # ── Quirks ──────────────────────────────────────────

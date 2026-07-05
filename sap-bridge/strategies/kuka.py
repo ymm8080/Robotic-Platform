@@ -2,7 +2,7 @@
 KUKA KMR iiwa strategy.
 VDA5050 v2.0.0 — standard behavior with custom lift action.
 """
-from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 
 class KukaStrategy(BaseStrategy):
@@ -62,6 +62,21 @@ class KukaStrategy(BaseStrategy):
             voltage=float(raw.get("batteryVoltage", 0)) if raw.get("batteryVoltage") else None,
             health=float(raw.get("batteryHealth", 0)) if raw.get("batteryHealth") else None,
             charging=False,  # KUKA reports charging via driving=false + batteryState
+        )
+
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build VDA5050 v2.0 order payload for KUKA KMR iiwa."""
+        order_id = order.get("orderId", "")
+        return DispatchResult(
+            success=True,
+            order_id=order_id,
+            protocol="vda5050",
+            payload={
+                "orderId": order_id,
+                "orderUpdateId": order.get("orderUpdateId", 0),
+                "nodes": order.get("nodes", []),
+                "edges": order.get("edges", []),
+            },
         )
 
     def get_quirks(self) -> list[BrandQuirk]:

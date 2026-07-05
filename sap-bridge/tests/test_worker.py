@@ -1,39 +1,7 @@
 """Tests for QueueWorker — dispatch logic, retry, backoff, deadletter."""
-import os
-import sqlite3
-import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-
-def _create_tables(db_path):
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS orders_v2 (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_no TEXT UNIQUE NOT NULL,
-            type TEXT NOT NULL DEFAULT 'MOVE',
-            priority INTEGER DEFAULT 3, source TEXT,
-            robot_brand TEXT, robot_serial TEXT,
-            status TEXT NOT NULL DEFAULT 'CREATED',
-            payload TEXT, zone_id TEXT, location TEXT,
-            weight REAL DEFAULT 0, env_tag TEXT DEFAULT 'PROD',
-            expected_qty INTEGER, assigned_rule_id INTEGER,
-            error_message TEXT, version INTEGER DEFAULT 1,
-            created_at TEXT, updated_at TEXT, completed_at TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS dead_letter_queue (
-            id INTEGER PRIMARY KEY,
-            original_id TEXT, error_type TEXT, error_message TEXT,
-            payload TEXT, status TEXT DEFAULT 'UNRESOLVED', created_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
 
 # Use a single global mock redis before any module imports
 MOCK_REDIS_FOR_TESTS = MagicMock()
@@ -65,10 +33,10 @@ def _patch_redis():
 
 @pytest.fixture
 def db():
-    db_path = tempfile.mktemp(suffix=".db")
-    _create_tables(db_path)
-    os.environ["DB_PATH"] = db_path
-    return db_path
+    """Schema is initialized by conftest.py. Return None for compatibility."""
+    from db import init_schema
+    init_schema()
+    return None
 
 
 class TestQueueWorkerLifecycle:

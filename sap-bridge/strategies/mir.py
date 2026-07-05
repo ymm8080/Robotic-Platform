@@ -3,7 +3,7 @@ MiR250 strategy.
 VDA5050 v1.1.0 — older spec with known state mapping quirks.
 Reference: REFERENCE/05_reference/protocols/vda5050/vda5050-state-machine.md
 """
-from .base import BaseStrategy, BatteryInfo, BrandQuirk, RobotState
+from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 
 class MirStrategy(BaseStrategy):
@@ -97,6 +97,25 @@ class MirStrategy(BaseStrategy):
             percent=percent,
             voltage=float(raw["batteryVoltage"]) if raw.get("batteryVoltage") else None,
             charging=bool(raw.get("charging", False)),
+        )
+
+    def dispatch(self, order: dict) -> DispatchResult:
+        """Build VDA5050 v1.1 order payload for MiR250.
+
+        v1.1 format is simpler than v2.0 — fewer optional fields.
+        """
+        order_id = order.get("orderId", "")
+        return DispatchResult(
+            success=True,
+            order_id=order_id,
+            protocol="vda5050",
+            payload={
+                "orderId": order_id,
+                "orderUpdateId": order.get("orderUpdateId", 0),
+                "nodes": order.get("nodes", []),
+                "edges": order.get("edges", []),
+                # MiR v1.1: no headerId in nodes/edges (v2.0 addition)
+            },
         )
 
     def get_quirks(self) -> list[BrandQuirk]:
