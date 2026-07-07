@@ -175,7 +175,8 @@ def init_schema():
                                     CHECK(status IN (
                                         'CREATED', 'ASSIGNED', 'IN_PROGRESS',
                                         'COMPLETED', 'FAILED', 'CANCELLED',
-                                        'SUSPENDED', 'DIFF_SUSPENDED'
+                                        'SUSPENDED', 'DIFF_SUSPENDED',
+                                        'SAP_PENDING', 'SAP_CONFIRMED'
                                     )),
                 payload         JSONB,
                 zone_id         TEXT,

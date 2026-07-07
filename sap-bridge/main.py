@@ -475,6 +475,42 @@ async def suspend_order(order_no: str, req: UpdateOrderStatusRequest):
     return order.to_dict()
 
 
+@app.post("/api/v1/orders/{order_no}/start-execution")
+async def start_execution(order_no: str, req: UpdateOrderStatusRequest):
+    """Start order execution (ASSIGNED → IN_PROGRESS)."""
+    order = _order_service.start_execution(order_no)
+    if order is None:
+        return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
+    return order.to_dict()
+
+
+@app.post("/api/v1/orders/{order_no}/resume")
+async def resume_order(order_no: str, req: UpdateOrderStatusRequest):
+    """Resume a suspended order (SUSPENDED → IN_PROGRESS)."""
+    order = _order_service.resume_order(order_no)
+    if order is None:
+        return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
+    return order.to_dict()
+
+
+@app.post("/api/v1/orders/{order_no}/sap-pending")
+async def mark_sap_pending(order_no: str, req: UpdateOrderStatusRequest):
+    """Mark order as waiting for SAP confirmation (COMPLETED → SAP_PENDING)."""
+    order = _order_service.mark_sap_pending(order_no)
+    if order is None:
+        return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
+    return order.to_dict()
+
+
+@app.post("/api/v1/orders/{order_no}/sap-confirmed")
+async def mark_sap_confirmed(order_no: str, req: UpdateOrderStatusRequest):
+    """Mark order as fully confirmed in SAP (SAP_PENDING → SAP_CONFIRMED)."""
+    order = _order_service.mark_sap_confirmed(order_no)
+    if order is None:
+        return JSONResponse(status_code=404, content={"error": "order_not_found_or_invalid_state"})
+    return order.to_dict()
+
+
 # ──────────────────────────────────────────────
 # Outbox API (v4.1: Node-RED calls these instead of direct SQLite access)
 # ──────────────────────────────────────────────

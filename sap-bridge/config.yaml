@@ -1,5 +1,5 @@
 # =============================================================================
-# SAP Bridge Configuration v3.4
+# SAP Bridge Configuration v4.1
 # Loaded at startup by sap-bridge. Overrides env vars where specified.
 # =============================================================================
 
@@ -20,7 +20,7 @@ brands:
 
   MIR:
     enabled: true
-    supported_versions: ["1.1.0", "2.0.0"]
+    supported_versions: ["1.1.0"]
     default_priority: 2
     max_concurrent_orders: 5
     quirks:
@@ -38,8 +38,8 @@ brands:
     quirks:
       battery_in_millivolts: true
       charging_state_format: "custom"
-      battery_empty_millivolts: 21000
-      battery_full_millivolts: 29000
+      battery_empty_millivolts: 48000
+      battery_full_millivolts: 54600
     state_mapping:
       CHARGING: "CHARGING"
       MOVING: "MOVING"

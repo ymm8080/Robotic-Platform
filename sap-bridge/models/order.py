@@ -20,6 +20,8 @@ class OrderStatus(StrEnum):
     CANCELLED = "CANCELLED"
     SUSPENDED = "SUSPENDED"
     DIFF_SUSPENDED = "DIFF_SUSPENDED"
+    SAP_PENDING = "SAP_PENDING"      # COMPLETED on platform, awaiting SAP confirmation
+    SAP_CONFIRMED = "SAP_CONFIRMED"  # Fully confirmed in SAP EWM/WM
 
 
 # Priority: 0=critical, 1=high, 2=normal, 3=low
@@ -93,6 +95,23 @@ class WarehouseOrder:
         self.status = OrderStatus.SUSPENDED
         self.error_message = reason
         self.updated_at = _now()
+
+    def mark_resumed(self):
+        """Resume order from SUSPENDED back to IN_PROGRESS."""
+        self.status = OrderStatus.IN_PROGRESS
+        self.error_message = None
+        self.updated_at = _now()
+
+    def mark_sap_pending(self):
+        """Order completed on platform, awaiting SAP confirmation."""
+        self.status = OrderStatus.SAP_PENDING
+        self.updated_at = _now()
+
+    def mark_sap_confirmed(self):
+        """SAP confirmed the warehouse task."""
+        self.status = OrderStatus.SAP_CONFIRMED
+        self.completed_at = _now()
+        self.updated_at = self.completed_at
 
     def to_dict(self) -> dict:
         """Serialize to dict for JSON response / DB insert."""
