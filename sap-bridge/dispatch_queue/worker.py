@@ -211,7 +211,9 @@ class QueueWorker:
                 for key in keys:
                     data = self._redis.hgetall(key)
                     state = data.get("state", data.get("connectionState", "")).upper()
-                    if state not in ("ONLINE", "IDLE", "CHARGING", "EXECUTING"):
+                    # Per VDA5050 §6.10: only IDLE and CHARGING can receive new orders.
+                    # ONLINE is a connection state (not vehicle state) — skip connection-only records.
+                    if state not in ("IDLE", "CHARGING"):
                         continue
 
                     manufacturer = data.get("manufacturer", "")

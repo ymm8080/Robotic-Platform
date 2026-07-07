@@ -159,11 +159,11 @@ class OrderService:
         return order
 
     def cancel_order(self, order_no: str) -> WarehouseOrder | None:
-        """Cancel order. CREATED/ASSIGNED → CANCELLED."""
+        """Cancel order. CREATED/ASSIGNED/SUSPENDED → CANCELLED."""
         order = self.get_order(order_no)
         if order is None:
             return None
-        if order.status not in (OrderStatus.CREATED, OrderStatus.ASSIGNED):
+        if order.status not in (OrderStatus.CREATED, OrderStatus.ASSIGNED, OrderStatus.SUSPENDED):
             logger.warning(f"Cannot cancel order {order_no}: status={order.status.value}")
             return None
         order.mark_cancelled()
@@ -175,7 +175,46 @@ class OrderService:
         order = self.get_order(order_no)
         if order is None:
             return None
+        if order.status != OrderStatus.IN_PROGRESS:
+            logger.warning(f"Cannot suspend order {order_no}: status={order.status.value}")
+            return None
         order.mark_suspended(reason)
+        self._update(order)
+        return order
+
+    def resume_order(self, order_no: str) -> WarehouseOrder | None:
+        """Resume order from SUSPENDED → IN_PROGRESS."""
+        order = self.get_order(order_no)
+        if order is None:
+            return None
+        if order.status != OrderStatus.SUSPENDED:
+            logger.warning(f"Cannot resume order {order_no}: status={order.status.value}")
+            return None
+        order.mark_resumed()
+        self._update(order)
+        return order
+
+    def mark_sap_pending(self, order_no: str) -> WarehouseOrder | None:
+        """Mark order as waiting for SAP confirmation. COMPLETED → SAP_PENDING."""
+        order = self.get_order(order_no)
+        if order is None:
+            return None
+        if order.status != OrderStatus.COMPLETED:
+            logger.warning(f"Cannot mark {order_no} SAP_PENDING: status={order.status.value}")
+            return None
+        order.mark_sap_pending()
+        self._update(order)
+        return order
+
+    def mark_sap_confirmed(self, order_no: str) -> WarehouseOrder | None:
+        """Mark order as fully confirmed in SAP. SAP_PENDING → SAP_CONFIRMED."""
+        order = self.get_order(order_no)
+        if order is None:
+            return None
+        if order.status != OrderStatus.SAP_PENDING:
+            logger.warning(f"Cannot mark {order_no} SAP_CONFIRMED: status={order.status.value}")
+            return None
+        order.mark_sap_confirmed()
         self._update(order)
         return order
 

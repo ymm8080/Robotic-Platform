@@ -69,7 +69,7 @@ RUN sed -i '/^exec/iexec 2>/dev/null || true' /app/main.py || true
 
 # Container labels
 LABEL maintainer="Robot Platform Team" \
-      version="${RUNTIME_VERSION:-v3.4}" \
+      version="${RUNTIME_VERSION:-v4.1}" \
       description="SAP EWM Robot Dispatch Platform — SAP Bridge" \
       security.scope="internal-network-only"
 

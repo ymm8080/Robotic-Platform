@@ -401,6 +401,12 @@ class TestHTTPAPIE2E:
             "manufacturer": "KUKA", "serialNumber": "KMR-001",
             "orderId": "API-SUSPEND-001",
         })
+        # Must start execution first — only IN_PROGRESS can be suspended
+        # (per config.yaml order lifecycle: ASSIGNED → IN_PROGRESS → SUSPENDED)
+        client.post(
+            "/api/v1/orders/API-SUSPEND-001/start-execution",
+            json={"status": "IN_PROGRESS"},
+        )
         resp = client.post(
             "/api/v1/orders/API-SUSPEND-001/suspend",
             json={"status": "SUSPENDED", "errorMessage": "Zone blocked"},

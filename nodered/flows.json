@@ -79,7 +79,7 @@
     "type": "function",
     "z": "tab_health",
     "name": "FN 健康检查",
-    "func": "msg.payload = {\n    status: 'healthy',\n    version: process.env.RUNTIME_VERSION || 'v3.4',\n    uptime: process.uptime(),\n    timestamp: new Date().toISOString()\n};\nreturn msg;",
+    "func": "msg.payload = {\n    status: 'healthy',\n    version: process.env.RUNTIME_VERSION || 'v4.1',\n    uptime: process.uptime(),\n    timestamp: new Date().toISOString()\n};\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "initialize": "",

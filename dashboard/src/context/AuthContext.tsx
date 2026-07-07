@@ -110,6 +110,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!active) return
       setUserList(seeded)
 
+      // Check for auto-login via query param: ?auto=admin
+      const params = new URLSearchParams(window.location.search)
+      const autoUser = params.get('auto')
+      if (autoUser) {
+        const all = readUsers()
+        let found: User | undefined
+        for (const u of all) {
+          if (u.role === autoUser || u.username === autoUser || u.email === autoUser) {
+            found = u
+            break
+          }
+        }
+        if (found) {
+          saveSession(found.id)
+          setState({
+            currentUser: safeUser(found),
+            isAuthenticated: true,
+            isAdmin: found.role === 'admin',
+            error: null,
+          })
+          // Clean the URL
+          window.history.replaceState(null, '', window.location.pathname)
+          return
+        }
+      }
+
       const sessionId = loadSession()
       if (sessionId) {
         const found = seeded.find(u => u.id === sessionId)

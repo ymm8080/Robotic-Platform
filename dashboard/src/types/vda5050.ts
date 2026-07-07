@@ -48,6 +48,7 @@ export interface BatteryState {
   batteryCharge: number
   batteryVoltage?: number
   batteryHealth?: number
+  charging?: boolean
 }
 
 export interface AGVPosition {
@@ -179,8 +180,9 @@ export function deriveDisplayState(s: StateMessage, connected: boolean): RobotDi
 
   if (s.operatingMode !== 'AUTOMATIC' && s.operatingMode !== 'SEMIAUTOMATIC') return 'UNAVAILABLE'
 
-  const isCharging = s.batteryState?.batteryCharge >= 100 && !s.driving
-  if (isCharging) return 'CHARGING'
+  // Reference: VDA5050 §6.10 — CHARGING is detected via batteryState.charging flag,
+  // not by battery level alone. Battery at 100% means full, not actively charging.
+  if (s.batteryState?.charging) return 'CHARGING'
 
   if (s.paused) return 'PAUSED'
   if (s.driving) return 'MOVING'

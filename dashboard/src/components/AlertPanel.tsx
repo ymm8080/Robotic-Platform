@@ -1,9 +1,13 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { CONFIG } from '../config'
 import { useSettings } from '../context/SettingsContext'
+import { useAuth } from '../context/AuthContext'
 import type { MqttState } from '../hooks/useMqtt'
 import { toRobotSummary } from '../types/vda5050'
 import { useAreaAccess } from '../hooks/useAreaAccess'
+
+/** CowAgent alert push endpoint — use same hostname as dashboard for LAN access */
+const COWAGENT_ALERT_PUSH_URL = `http://${window.location.hostname}:9899/api/alert-push`
 
 interface AlertEntry {
   id: string
@@ -48,12 +52,14 @@ interface TaskApiResponse {
 export function AlertPanel({ mqtt, apiRobots }: Props) {
   const { settings } = useSettings()
   const { isAdmin, canViewRobot } = useAreaAccess()
+  const { currentUser } = useAuth()
   const [alerts, setAlerts] = useState<AlertEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<SeverityFilter>('ALL')
   const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set())
   const [taskAlerts, setTaskAlerts] = useState<AlertEntry[]>([])
+  const pushedAlertIds = useRef<Set<string>>(new Set())
 
   // ── Robot-level alerts derived from MQTT/API data + user thresholds ──
   const robotAlerts = useMemo<AlertEntry[]>(() => {
@@ -298,6 +304,29 @@ export function AlertPanel({ mqtt, apiRobots }: Props) {
   const ack = (alertId: string) => {
     setAcknowledged(prev => new Set(prev).add(alertId))
   }
+
+  // ── Push new alerts to CowAgent (WeChat + Email) ──
+  useEffect(() => {
+    const newAlerts = allAlerts.filter(a => !pushedAlertIds.current.has(a.id))
+    if (newAlerts.length === 0) return
+    // Mark as pushed immediately to prevent duplicates
+    newAlerts.forEach(a => pushedAlertIds.current.add(a.id))
+    const payload = {
+      alerts: newAlerts.map(a => ({
+        id: a.id,
+        level: a.level,
+        service: a.service,
+        message: a.message,
+        timestamp: a.timestamp || new Date().toISOString(),
+      })),
+      user_email: currentUser?.email || '',
+    }
+    fetch(COWAGENT_ALERT_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => { /* CowAgent may be offline; silently ignore */ })
+  }, [allAlerts, currentUser])
 
   const filtered = filter === 'ALL' ? allAlerts : allAlerts.filter(a => a.level === filter)
 

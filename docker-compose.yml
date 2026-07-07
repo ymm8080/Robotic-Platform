@@ -51,7 +51,7 @@ services:
       - KAFKA_ALERT_TOPIC=platform_alerts
       # 版本校验
       - VERSION_FILE_PATH=/app/config/VERSION
-      - RUNTIME_VERSION=v3.5
+      - RUNTIME_VERSION=v4.1
     depends_on:
       redis:
         condition: service_healthy
