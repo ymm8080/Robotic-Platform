@@ -1,0 +1,4 @@
+#!/bin/bash
+# Git post-commit hook — triggers daily brief generation from ANY IDE
+# Runs in background so it never blocks git operations
+powershell -ExecutionPolicy Bypass -File "D:/EWM ROBOT/ROBOTIC PLATFORM CODES/scripts/append-today-brief.ps1" &
