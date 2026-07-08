@@ -1,0 +1,3 @@
+#!/bin/bash
+# Git post-merge hook — triggers daily brief generation after pull/merge from ANY IDE
+powershell -ExecutionPolicy Bypass -File "D:/EWM ROBOT/ROBOTIC PLATFORM CODES/scripts/append-today-brief.ps1" &

@@ -1,6 +1,11 @@
-﻿param()
+﻿param([string]$Date)
 $R = "D:\EWM ROBOT\ROBOTIC PLATFORM CODES"
-$DS = (Get-Date).ToString("yyyyMMdd"); $DF = (Get-Date).ToString("yyyy-MM-dd"); $TS = (Get-Date).ToString("HH:mm:ss")
+if ($Date) {
+    $targetDate = [datetime]::ParseExact($Date, "yyyy-MM-dd", $null)
+} else {
+    $targetDate = Get-Date
+}
+$DS = $targetDate.ToString("yyyyMMdd"); $DF = $targetDate.ToString("yyyy-MM-dd"); $TS = (Get-Date).ToString("HH:mm:ss")
 $ctxFile = Join-Path $R ".claude\today-session-context.json"; $brDir = "D:\EWM ROBOT\daily-briefs"
 if (-not (Test-Path $brDir)) { New-Item -ItemType Directory -Path $brDir -Force | Out-Null }
 $brFile = Join-Path $brDir ("claude-code-today-brief-$DS.md")
@@ -10,7 +15,7 @@ $refSnapFile = Join-Path $R ".claude\reference-snapshot.json"
 
 $SC=$null; $HC=$false
 if (Test-Path $ctxFile) { try { $SC=(Get-Content $ctxFile -Raw -Encoding UTF8)|ConvertFrom-Json; $HC=$true } catch {} }
-# Validate context is from today — ignore stale data from previous sessions
+# Validate context is from target date — ignore stale data from previous sessions
 if ($HC -and $SC.date -and $SC.date -ne $DS) { $HC = $false; $SC = $null }
 
 $FE=New-Object System.Collections.ArrayList; $seen=@{}; $ct=""
@@ -28,10 +33,28 @@ if ($gd) { foreach ($ln in $gd) { if ($ln -match "^([AMDR])\s+(.+)$") { $p=$Matc
 # Also capture untracked files (?? in git status) — git diff HEAD misses these entirely
 $uf = git ls-files --others --exclude-standard 2>$null
 if ($uf) { foreach ($u in ($uf -split "`n")) { $u=$u.Trim(); if ($u -and -not $seen.ContainsKey($u)) { $seen[$u]=$true; [void]$FE.Add((New-Object PSObject -Property @{T="";P=($u -replace '\\','/');A="CREATE"})) } } }
+# Also capture files committed on the target date (catches work that was committed before the brief ran)
+$committedRaw = git log --since="$DF 00:00:00" --until="$DF 23:59:59" --name-status --pretty=format:"" 2>$null
+if ($committedRaw) {
+    foreach ($ln in ($committedRaw -split "`n")) {
+        $ln = $ln.Trim()
+        if ($ln -match "^([AMDR])\t(.+)") {
+            $code = $Matches[1]; $rest = $Matches[2]
+            # For renames (R), git shows "R100\told_path\tnew_path" — take the new path
+            $parts = $rest -split "`t"
+            $p = ($parts[-1]).Trim() -replace '\\', '/'
+            if (-not $seen.ContainsKey($p)) {
+                $seen[$p] = $true
+                $a = if ($code -eq "A") { "CREATE" } elseif ($code -eq "M") { "MODIFY" } elseif ($code -eq "D") { "DELETE" } elseif ($code -eq "R") { "REWRITE" } else { "MODIFY" }
+                [void]$FE.Add((New-Object PSObject -Property @{T="";P=$p;A=$a}))
+            }
+        }
+    }
+}
 Pop-Location
 
 # Filter: skip deleted files, non-today files, and trivial files
-$todayStart = (Get-Date).Date
+$todayStart = $targetDate.Date
 $sigFE=New-Object System.Collections.ArrayList; $trimmed=New-Object System.Collections.ArrayList
 $staleFE=New-Object System.Collections.ArrayList
 foreach ($fe in $FE) {
@@ -40,10 +63,11 @@ foreach ($fe in $FE) {
     if (-not $isTrivial -and $fe.A -ne "DELETE") {
         $resolved = if ([System.IO.Path]::IsPathRooted($fe.P)) { $fe.P } else { Join-Path $R $fe.P }
         if (-not (Test-Path $resolved)) { continue }
-        # Date filter: files from git diff (no transcript timestamp) must be modified today
+        # Date filter: files from git diff (no transcript timestamp) must be modified on target date
         if (-not $fe.T) {
             $mtime = (Get-Item $resolved).LastWriteTime
-            if ($mtime -lt $todayStart) {
+            $todayEnd = $todayStart.AddDays(1)
+            if ($mtime -lt $todayStart -or $mtime -ge $todayEnd) {
                 [void]$staleFE.Add($fe)
                 continue
             }
@@ -54,41 +78,44 @@ foreach ($fe in $FE) {
 $cnt=$sigFE.Count; $trivialCnt=$trimmed.Count; $staleCnt=$staleFE.Count
 
 # === REFERENCE DIRECTORY CHANGE DETECTION ===
+# Unified: always scan by mtime for CREATE/MODIFY (both normal and backfill modes).
+# Snapshot used only for DELETE detection + CREATE classification + baseline saving (normal mode only).
 $refFE = New-Object System.Collections.ArrayList
 $refChangedCnt = 0
-$curSnap = @{}
+$refEnd = $todayStart.AddDays(1)
 if (Test-Path $refDir) {
+    # Load old snapshot (normal mode only — for deletion detection and CREATE vs MODIFY)
     $oldSnap = @{}
-    if (Test-Path $refSnapFile) {
+    if (-not $Date -and (Test-Path $refSnapFile)) {
         try {
             $snapData = Get-Content $refSnapFile -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($item in $snapData) { $oldSnap[$item.path] = @{ mtime=$item.mtime; size=$item.size } }
         } catch {}
     }
-    $isFirstRun = ($oldSnap.Count -eq 0)
+    $curSnap = @{}
+    # Detect CREATE/MODIFY by mtime scan (consistent in both modes — no more stale-accumulation bug)
     Get-ChildItem $refDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
         $relPath = ($_.FullName.Substring($refDir.Length + 1) -replace '\\', '/')
         $curSnap[$relPath] = @{ mtime = $_.LastWriteTimeUtc.ToString('o'); size = $_.Length }
-        if ($isFirstRun) { return }
-        if (-not $oldSnap.ContainsKey($relPath)) {
-            [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$relPath";A="CREATE"}))
-        } else {
-            $old = $oldSnap[$relPath]
-            if ($old.mtime -ne $curSnap[$relPath].mtime -or $old.size -ne $curSnap[$relPath].size) {
-                [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$relPath";A="MODIFY"}))
+        if ($_.LastWriteTime -ge $todayStart -and $_.LastWriteTime -lt $refEnd) {
+            $action = if (-not $Date -and $oldSnap.Count -gt 0 -and -not $oldSnap.ContainsKey($relPath)) { "CREATE" } else { "MODIFY" }
+            [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$relPath";A=$action}))
+        }
+    }
+    # Deletion detection (normal mode only — backfill can't detect historical deletions)
+    if (-not $Date -and $oldSnap.Count -gt 0) {
+        foreach ($key in $oldSnap.Keys) {
+            if (-not $curSnap.ContainsKey($key)) {
+                [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$key";A="DELETE"}))
             }
         }
     }
-    # Deletions
-    foreach ($key in $oldSnap.Keys) {
-        if (-not $curSnap.ContainsKey($key)) {
-            [void]$refFE.Add((New-Object PSObject -Property @{T=$TS;P="REFERENCE:$key";A="DELETE"}))
-        }
+    # Save snapshot (normal mode only — backfill must not overwrite current baseline)
+    if (-not $Date) {
+        $snapArray = $curSnap.Keys | ForEach-Object { @{path=$_; mtime=$curSnap[$_].mtime; size=$curSnap[$_].size} }
+        $snapArray | ConvertTo-Json | Set-Content $refSnapFile -Encoding UTF8
     }
     $refChangedCnt = $refFE.Count
-    # Save REFERENCE snapshot immediately (even if no changes, to establish baseline)
-    $snapArray = $curSnap.Keys | ForEach-Object { @{path=$_; mtime=$curSnap[$_].mtime; size=$curSnap[$_].size} }
-    $snapArray | ConvertTo-Json | Set-Content $refSnapFile -Encoding UTF8
 }
 # Merge ref findings into sigFE
 if ($refChangedCnt -gt 0) {
@@ -102,7 +129,7 @@ if ($cnt -eq 0 -and $refChangedCnt -eq 0) {
     $O.Add(("> **日期：** {0}" -f $DF)); $O.Add(("> **项目：** SAP-EWM 机器人调度平台 v3.5")); $O.Add(("> **根目录：** ``{0}``" -f $R)); $O.Add(("> **总文件数：** 0 个")); $O.Add("")
     $O.Add("---"); $O.Add("")
     $O.Add("## 今日无文件变更"); $O.Add("")
-    $O.Add("本日无文件修改或新建记录（git diff 无变更 + transcript 无记录）。"); $O.Add("")
+    $O.Add("本日无文件修改或新建记录（git diff 无变更 + transcript 无记录 + git log 无当日提交）。"); $O.Add("")
     $O.Add("> 若您确实进行了开发工作，请检查："); $O.Add("> 1. transcript-logger 是否正常记录（SessionStart / PostToolUse hook）"); $O.Add("> 2. git 仓库是否正确跟踪变更文件"); $O.Add("> 3. 文件是否在 .gitignore 中被排除"); $O.Add("")
     $O.Add("---"); $O.Add(""); $O.Add(("*文档生成：{0} {1} | 由 Claude Code 自动汇总*" -f $DF, $TS)); $O.Add("")
     $nl=[System.Environment]::NewLine; [System.IO.File]::WriteAllText($brFile, ($O -join $nl), [System.Text.Encoding]::UTF8)
@@ -734,14 +761,3 @@ $O.Add("")
 $O.Add("---"); $O.Add(""); $O.Add(("*文档生成：{0} {1} | 由 Claude Code 自动汇总*" -f $DF, $TS)); $O.Add("")
 
 $nl=[System.Environment]::NewLine; [System.IO.File]::WriteAllText($brFile, ($O -join $nl), [System.Text.Encoding]::UTF8)
-
-
-
-
-
-
-
-
-
-
-
