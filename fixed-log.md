@@ -104,4 +104,15 @@
 
 ---
 
+## 2026-07-09 — Commit and push Phase 0 fixes
+- **Phase**: Setup / 0
+- **Issue**: Need to keep work trackable and resumable before pausing.
+- **Root cause**: User session running out of resources; resuming in ~5 hours.
+- **Files changed**: All Phase 0 files staged and committed; new branch `core-functions-and-fix` pushed to `origin`.
+- **Fix**: Committed Phase 0 changes as `b5256b9` and pushed to `origin/core-functions-and-fix`. Remaining work (Phases 1–3) will continue on this branch.
+- **Verification**: `git log --oneline -1` shows commit; `git branch -vv` shows tracking `origin/core-functions-and-fix`.
+- **References**: [[D:/EWM ROBOT/fixing codes/fixing-plan.md#phase-0]]
+
+---
+
 *End of current log. New entries go above this line.*
