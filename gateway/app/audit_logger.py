@@ -1,41 +1,91 @@
-"""Audit Logger - Write all gateway operations to Elasticsearch (immutable audit trail).
+"""Audit Logger - Write gateway operations to Elasticsearch or local JSONL fallback.
 
 All operations (including mobile button clicks) must be logged.
 Retention: >=3 years (1095 days).
 Critical operations also written to WORM storage.
+
+Elasticsearch is optional: if ES is unavailable or not configured, logs are
+written to a local JSONL fallback file and the gateway remains operational.
 """
+import json
 import logging
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
-
-from elasticsearch import AsyncElasticsearch
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
 
+FALLBACK_PATH = Path(os.environ.get("AUDIT_FALLBACK_PATH", "/app/logs/audit_fallback.jsonl"))
+
 
 class AuditLogger:
-    """Records all gateway operations to Elasticsearch audit index."""
+    """Records gateway operations to Elasticsearch with JSONL fallback."""
 
     def __init__(self):
-        self._es: Optional[AsyncElasticsearch] = None
+        self._es: Any = None
+        self._es_available: bool = False
+        self._es_error: Optional[str] = None
+
+    @property
+    def healthy(self) -> bool:
+        """Return True if Elasticsearch is connected and index exists."""
+        return self._es_available
+
+    @property
+    def status(self) -> dict:
+        return {
+            "elasticsearch_available": self._es_available,
+            "elasticsearch_error": self._es_error,
+            "fallback_path": str(FALLBACK_PATH),
+        }
 
     async def init(self):
-        """Initialize Elasticsearch client and ensure index exists."""
-        self._es = AsyncElasticsearch(
-            hosts=[settings.ELASTICSEARCH_URL],
-            basic_auth=("elastic", settings.ELASTICSEARCH_PASSWORD),
-        )
-        await self._ensure_index()
+        """Initialize Elasticsearch client if configured; never raise on failure."""
+        # Lazy import so the gateway can start without elasticsearch installed.
+        try:
+            from elasticsearch import AsyncElasticsearch
+        except ImportError as exc:
+            self._es_error = f"elasticsearch package not installed: {exc}"
+            logger.warning("[Audit] %s", self._es_error)
+            return
+
+        if not settings.ELASTICSEARCH_URL:
+            self._es_error = "ELASTICSEARCH_URL not configured"
+            logger.warning("[Audit] %s — using JSONL fallback", self._es_error)
+            return
+
+        try:
+            es_kwargs = {
+                "hosts": [settings.ELASTICSEARCH_URL],
+                "basic_auth": ("elastic", settings.ELASTICSEARCH_PASSWORD),
+            }
+            if settings.ELASTICSEARCH_URL.startswith("https://") or os.getenv("ELASTICSEARCH_SSL", "false").lower() == "true":
+                es_kwargs["verify_certs"] = os.getenv("ELASTICSEARCH_SSL_VERIFY", "true").lower() == "true"
+            self._es = AsyncElasticsearch(**es_kwargs)
+            await self._ensure_index()
+            self._es_available = True
+            self._es_error = None
+            logger.info("[Audit] Elasticsearch connected")
+        except Exception as e:
+            self._es_available = False
+            self._es_error = str(e)
+            logger.warning("[Audit] Elasticsearch unavailable: %s — using JSONL fallback", e)
 
     async def close(self):
         if self._es:
-            await self._es.close()
+            try:
+                await self._es.close()
+            except Exception as e:
+                logger.warning("[Audit] Error closing ES client: %s", e)
 
     async def _ensure_index(self):
         """Create the audit log index if it doesn't exist."""
+        if not self._es:
+            return
         index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}-logs"
         try:
             exists = await self._es.indices.exists(index=index_name)
@@ -70,6 +120,8 @@ class AuditLogger:
                 logger.info("[Audit] Created index: %s", index_name)
         except Exception as e:
             logger.error("[Audit] Failed to ensure index: %s", e)
+            self._es_available = False
+            self._es_error = str(e)
 
     async def log(
         self,
@@ -112,28 +164,30 @@ class AuditLogger:
             "correlation_id": correlation_id,
         }
 
-        index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}-logs"
-        try:
-            await self._es.index(index=index_name, document=doc)
-            logger.info(
-                "[Audit] Logged: operator=%s, action=%s, target=%s, status=%s, critical=%s",
-                operator, action_type, target_id, status, is_critical,
-            )
-        except Exception as e:
-            logger.error("[Audit] Failed to write log: %s", e)
-            # Fallback: write to local file as emergency measure
+        if self._es_available and self._es:
+            index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}-logs"
             try:
-                import json
-                from pathlib import Path
-                fallback_path = Path("/app/logs/audit_fallback.jsonl")
-                with open(fallback_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(doc, ensure_ascii=False) + "\n")
-                logger.warning("[Audit] Wrote to fallback file: %s", fallback_path)
-            except Exception:
-                logger.error("[Audit] Fallback write also failed!")
+                await self._es.index(index=index_name, document=doc)
+                logger.info(
+                    "[Audit] Logged: operator=%s, action=%s, target=%s, status=%s, critical=%s",
+                    operator, action_type, target_id, status, is_critical,
+                )
+                return log_id
+            except Exception as e:
+                logger.error("[Audit] Failed to write log: %s", e)
+                self._es_available = False
+                self._es_error = str(e)
+
+        # Fallback: write to local JSONL file (emergency measure / ES disabled)
+        try:
+            FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(FALLBACK_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(doc, ensure_ascii=False) + "\n")
+            logger.warning("[Audit] Wrote to fallback file: %s", FALLBACK_PATH)
+        except Exception:
+            logger.error("[Audit] Fallback write also failed!")
 
         # For critical operations, mark as immutable (WORM-like)
-        # In production, this would write to a WORM storage device
         if is_critical:
             logger.info(
                 "[Audit] Critical operation logged: %s (WORM backup recommended)", log_id
@@ -151,7 +205,12 @@ class AuditLogger:
         page: int = 1,
         page_size: int = 20,
     ) -> dict:
-        """Query audit logs with filters."""
+        """Query audit logs with filters. Falls back to local JSONL if ES unavailable."""
+        if not self._es_available or not self._es:
+            return self._query_fallback_logs(
+                start_time, end_time, user_id, action_type, target_id, page, page_size
+            )
+
         must = []
         filter_clauses = []
 
@@ -191,7 +250,59 @@ class AuditLogger:
                 "page": page,
                 "page_size": page_size,
                 "logs": hits,
+                "source": "elasticsearch",
             }
         except Exception as e:
             logger.error("[Audit] Query failed: %s", e)
-            return {"total": 0, "page": page, "page_size": page_size, "logs": []}
+            self._es_available = False
+            self._es_error = str(e)
+            return self._query_fallback_logs(
+                start_time, end_time, user_id, action_type, target_id, page, page_size
+            )
+
+    def _query_fallback_logs(
+        self,
+        start_time: str = "",
+        end_time: str = "",
+        user_id: str = "",
+        action_type: str = "",
+        target_id: str = "",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        """Read and filter the local JSONL fallback log."""
+        logs = []
+        if FALLBACK_PATH.exists():
+            with open(FALLBACK_PATH, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        doc = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if start_time and doc.get("timestamp", "") < start_time:
+                        continue
+                    if end_time and doc.get("timestamp", "") > end_time:
+                        continue
+                    if user_id and doc.get("operator") != user_id:
+                        continue
+                    if action_type and doc.get("action_type") != action_type:
+                        continue
+                    if target_id and doc.get("target_id") != target_id:
+                        continue
+                    logs.append(doc)
+
+        logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        total = len(logs)
+        start = (page - 1) * page_size
+        end = start + page_size
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "logs": logs[start:end],
+            "source": "jsonl_fallback",
+            "fallback_path": str(FALLBACK_PATH),
+        }

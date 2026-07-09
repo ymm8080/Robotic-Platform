@@ -67,9 +67,7 @@ jobs:
       - name: TypeScript type check (dashboard)
         run: |
           cd dashboard
-          # Lock file generated on Windows omits Linux platform binaries
-          rm -f package-lock.json
-          npm install
+          npm ci
           npx tsc --noEmit || echo "TS checks pending — non-blocking"
 
   # ===========================================================================
@@ -176,6 +174,19 @@ jobs:
       - name: Check coverage threshold (80%)
         run: python .github/scripts/check_coverage.py coverage.xml 0.80
 
+      - name: Install gateway dependencies
+        run: |
+          cd gateway
+          pip install -r requirements.txt
+
+      - name: Run gateway tests
+        run: |
+          cd gateway
+          python -m pytest tests/ -v
+        env:
+          REDIS_URL: redis://localhost:6379/15
+          ELASTICSEARCH_URL: http://localhost:9200
+          ELASTICSEARCH_PASSWORD: ""
   # ===========================================================================
   # Phase 4: Build
   # ===========================================================================
@@ -196,11 +207,7 @@ jobs:
       - name: Build dashboard (Vite + TypeScript)
         run: |
           cd dashboard
-          # Lock file generated on Windows omits Linux platform binaries
-          # (e.g. @rollup/rollup-linux-x64-gnu). Remove it so npm install
-          # resolves all platform packages fresh on the CI runner.
-          rm -f package-lock.json
-          npm install
+          npm ci
           npm run build
 
       - name: Verify Docker Compose config

@@ -1,19 +1,11 @@
 [run]
+branch = true
 source = .
 omit =
     # SAP NW RFC SDK required - cannot be tested in CI
     */backends/wm_backend.py
-    # SAP EWM OData backend modules - need live SAP EWM system
-    */backends/base.py
-    */backends/ewm_backend.py
-    */backends/factory.py
-    */backends/registry.py
-    # Hardware simulators
-    */simulators/*
     # Test files
     */tests/*
-    # Application entrypoint - wires all components, hard to unit test
-    main.py
 
 [report]
 show_missing = true
@@ -22,3 +14,4 @@ exclude_lines =
     pragma: no cover
     def __repr__
     if __name__ == .__main__.:
+    raise NotImplementedError

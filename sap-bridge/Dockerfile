@@ -65,7 +65,7 @@ COPY --chown=robot:robot . .
 # VOLUME /tmp  # Uncomment if using --read-only
 
 # Security: drop all capabilities
-RUN sed -i '/^exec/iexec 2>/dev/null || true' /app/main.py || true
+# Note: do not inject shell text into Python files here.
 
 # Container labels
 LABEL maintainer="Robot Platform Team" \

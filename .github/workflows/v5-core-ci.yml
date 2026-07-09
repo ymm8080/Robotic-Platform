@@ -1,0 +1,47 @@
+name: v5.0 Core CI
+
+on:
+  push:
+    paths:
+      - 'core/**'
+      - 'traffic_coordinator_v5/**'
+      - 'docker-compose-v5.yml'
+      - '.github/workflows/v5-core-ci.yml'
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'traffic_coordinator_v5/**'
+      - 'docker-compose-v5.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install lint/test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest ruff
+
+      - name: Run v5.0 core tests
+        run: python -m pytest core/tests/ -q
+
+      - name: Lint v5.0 core
+        run: ruff check core/ || true
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate v5 compose syntax
+        run: docker compose -f docker-compose-v5.yml config
+
+      - name: Build traffic-coordinator image
+        run: docker compose -f docker-compose-v5.yml build traffic-coordinator
