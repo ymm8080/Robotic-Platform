@@ -1,0 +1,115 @@
+{
+  "title": "SAP Bridge Overview",
+  "uid": "sap-bridge-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["sap-bridge", "production"],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Order Throughput (per min)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Created" }, "properties": [{ "id": "color", "value": "blue" }] },
+          { "matcher": { "id": "byName", "options": "Completed" }, "properties": [{ "id": "color", "value": "green" }] },
+          { "matcher": { "id": "byName", "options": "Failed" }, "properties": [{ "id": "color", "value": "red" }] }
+        ]
+      },
+      "targets": [
+        { "refId": "A", "expr": "rate(sap_bridge_orders_created_total[5m]) * 60", "legendFormat": "Created" },
+        { "refId": "B", "expr": "rate(sap_bridge_orders_completed_total[5m]) * 60", "legendFormat": "Completed" },
+        { "refId": "C", "expr": "rate(sap_bridge_orders_failed_total[5m]) * 60", "legendFormat": "Failed" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Connection Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } }, "type": "value" }]
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sap_bridge_sap_connected", "legendFormat": "SAP" }]
+    },
+    {
+      "id": 3,
+      "title": "MQTT Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "options": { "0": { "text": "DISCONNECTED", "color": "red" }, "1": { "text": "CONNECTED", "color": "green" } }, "type": "value" }]
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sap_bridge_mqtt_connected", "legendFormat": "MQTT" }]
+    },
+    {
+      "id": 4,
+      "title": "Service Up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } }, "type": "value" }]
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "up{job=\"sap-bridge\"}", "legendFormat": "SAP Bridge" }]
+    },
+    {
+      "id": 5,
+      "title": "Queue Depth",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "refId": "A", "expr": "sap_bridge_queue_depth", "legendFormat": "Pending Orders" }]
+    },
+    {
+      "id": 6,
+      "title": "Dead Letter Queue",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sap_bridge_deadletter_unresolved", "legendFormat": "Unresolved" }]
+    },
+    {
+      "id": 7,
+      "title": "Error Rate (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 0.2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.03 }, { "color": "red", "value": 0.05 }] }
+        }
+      },
+      "targets": [{
+        "refId": "A",
+        "expr": "rate(sap_bridge_orders_failed_total[5m]) / clamp_min(rate(sap_bridge_orders_created_total[5m]), 1)",
+        "legendFormat": "Error Rate"
+      }]
+    }
+  ]
+}
