@@ -40,13 +40,13 @@ _TOKEN_SAFETY_MARGIN_S = 60
 _DEFAULT_TOKEN_TTL_S = 3600
 
 
-def _read_client_secret(secret_file: str) -> str:
+def read_client_secret(secret_file: str) -> str:
     """Read OAuth2 client secret from Docker secret file."""
     try:
         with open(secret_file) as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.error(f"OAuth2 client secret file not found: {secret_file}")
+        logger.error("OAuth2 client secret file not found at configured path")
         raise
 
 

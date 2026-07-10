@@ -27,7 +27,7 @@ from models.warehouse_task import WarehouseTask
 from redis_client import redis_from_url
 
 from .base import WarehouseBackend
-from .oauth2_token_manager import OAuth2TokenManager, _read_client_secret
+from .oauth2_token_manager import OAuth2TokenManager, read_client_secret
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def _read_password(password_file: str) -> str:
         with open(password_file) as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.error(f"SAP password file not found: {password_file}")
+        logger.error("SAP password file not found at configured path")
         raise
 
 
@@ -169,7 +169,7 @@ class EwmBackend(WarehouseBackend):
             "client_secret_file",
             "/run/secrets/sap_oauth_client_secret",
         )
-        client_secret = oauth2_cfg.get("client_secret") or _read_client_secret(secret_file)
+        client_secret = oauth2_cfg.get("client_secret") or read_client_secret(secret_file)
         scope = oauth2_cfg.get("scope", "")
 
         self._oauth2_cfg = {
