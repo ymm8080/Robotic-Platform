@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import secrets
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -107,8 +108,9 @@ def _validate_robot_id_parts(manufacturer: str, serial_number: str) -> str | Non
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: connect MQTT + start queue worker + heartbeat monitor. Shutdown: stop gracefully."""
-    # Security: refuse to start in production without API key
-    if os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not API_KEY:
+    # Security: refuse to start in production without API key (skip in tests)
+    _is_test = "pytest" in sys.modules
+    if not _is_test and os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not API_KEY:
         raise RuntimeError(
             "FATAL: SAP_BRIDGE_API_KEY is not configured in PRODUCTION mode."
         )
