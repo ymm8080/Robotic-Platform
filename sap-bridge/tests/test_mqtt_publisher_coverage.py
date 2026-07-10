@@ -9,7 +9,7 @@ from mqtt_publisher import VDA5050Publisher
 @pytest.fixture
 def pub():
     """Publisher with mocked redis and mqtt client."""
-    with patch("mqtt_publisher.redis.from_url") as mock_redis_factory:
+    with patch("mqtt_publisher.redis_from_url") as mock_redis_factory:
         mock_redis = MagicMock()
         mock_redis.incr.return_value = 1
         mock_redis.expire.return_value = True

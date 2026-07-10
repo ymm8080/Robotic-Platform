@@ -11,7 +11,7 @@ class TestHeartbeatMonitor:
     @pytest.fixture
     def monitor(self):
         from heartbeat_monitor import HeartbeatMonitor
-        with patch("heartbeat_monitor.redis.from_url") as mock_redis:
+        with patch("heartbeat_monitor.redis_from_url") as mock_redis:
             mock_redis.return_value = MagicMock()
             mon = HeartbeatMonitor()
             # Don't actually connect to MQTT

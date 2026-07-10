@@ -118,7 +118,7 @@ class TestPriorityQueue:
 
     @pytest.fixture
     def q(self):
-        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+        with patch("dispatch_queue.priority_queue.redis_from_url") as mock_ru:
             mock_ru.return_value = _make_mock_redis()
             q = PriorityQueue()
             yield q
@@ -265,7 +265,7 @@ class TestPriorityQueueEdgeCases:
     @pytest.fixture
     def q(self):
         from dispatch_queue.priority_queue import PriorityQueue
-        with patch("dispatch_queue.priority_queue.rd.from_url") as mock_ru:
+        with patch("dispatch_queue.priority_queue.redis_from_url") as mock_ru:
             mock_ru.return_value = _make_mock_redis()
             yield PriorityQueue()
 
