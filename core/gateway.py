@@ -320,7 +320,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
         order_id = assignment.task_id
         order = {
             "headerId": int(time.time() * 1000),
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "timestamp": self._iso_now(),
             "version": "2.0.0",
             "manufacturer": envelope.brand,
             "serialNumber": envelope.robot_id,
@@ -350,7 +350,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
             tl = assignment.traffic_state
             instant_action = {
                 "headerId": int(time.time() * 1000),
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "timestamp": self._iso_now(),
                 "version": "2.0.0",
                 "manufacturer": envelope.brand,
                 "serialNumber": envelope.robot_id,
@@ -400,7 +400,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
 
         payload = {
             "headerId": int(time.time() * 1000),
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "timestamp": self._iso_now(),
             "version": "2.0.0",
             "manufacturer": envelope.brand,
             "serialNumber": envelope.robot_id,
