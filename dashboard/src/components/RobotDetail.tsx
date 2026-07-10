@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
 import type { MqttState } from '../hooks/useMqtt'
-import type { RobotSummary } from '../types/vda5050'
+import type { RobotSummary, V5RobotState } from '../types/vda5050'
 import { toRobotSummary } from '../types/vda5050'
+import { deriveSensorHealth, sensorHealthLabel } from '../types/vda5050'
 import { displayStateLabel, displayStateColor, relativeTime } from '../utils/format'
 
-export function RobotDetail({ robotId, mqtt, onBack }: {
-  robotId: string; mqtt: MqttState; onBack: () => void
+export function RobotDetail({ robotId, mqtt, v5Robot, onBack }: {
+  robotId: string; mqtt: MqttState; v5Robot?: V5RobotState; onBack: () => void
 }) {
   const robot = useMemo<RobotSummary | null>(() => {
     const stream = mqtt.robots.get(robotId)
@@ -63,6 +64,63 @@ export function RobotDetail({ robotId, mqtt, onBack }: {
           <InfoItem label="最后更新" value={state.lastSeen ? relativeTime(state.lastSeen) : '-'} />
           <InfoItem label="急停状态" value={state.safetyState.eStop ? '⚠️ 急停!' : '正常'} />
         </div>
+
+        {/* v5 coordinator info */}
+        {v5Robot && (
+          <div style={{
+            marginTop: 16, padding: 12, background: '#f9fafb',
+            border: '1px solid #e5e7eb', borderRadius: 8,
+          }}>
+            <h4 style={{ fontSize: 13, fontWeight: 600, color: '#374151', margin: '0 0 8px' }}>
+              v5.0 Coordinator Data
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <InfoItem label="Boot ID" value={v5Robot.boot_id || '-'} />
+              <InfoItem label="Mode" value={v5Robot.mode} />
+              <InfoItem label="Battery" value={v5Robot.battery_percent !== undefined ? `${v5Robot.battery_percent}%` : '-'} />
+              <InfoItem label="Velocity" value={v5Robot.velocity !== undefined ? `${v5Robot.velocity.toFixed(2)} m/s` : '-'} />
+              <InfoItem label="Degraded" value={v5Robot.degraded ? '⚠️ Yes' : 'No'} />
+              <InfoItem label="Sensor Health" value={
+                v5Robot.sensor_health !== undefined
+                  ? `${sensorHealthLabel(deriveSensorHealth(v5Robot.sensor_health))} (${(v5Robot.sensor_health * 100).toFixed(0)}%)`
+                  : '-'
+              } />
+            </div>
+            {/* Sensor health bar */}
+            {v5Robot.sensor_health !== undefined && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>Sensor Health</div>
+                <div style={{
+                  height: 6, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${(v5Robot.sensor_health * 100).toFixed(0)}%`,
+                    height: '100%',
+                    background: v5Robot.sensor_health >= 0.8 ? '#22c55e' : v5Robot.sensor_health >= 0.4 ? '#eab308' : '#ef4444',
+                    borderRadius: 3, transition: 'width 0.5s',
+                  }} />
+                </div>
+              </div>
+            )}
+            {/* v5 errors */}
+            {v5Robot.errors && v5Robot.errors.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>
+                  v5 Errors ({v5Robot.errors.length})
+                </div>
+                {v5Robot.errors.map((e, i) => (
+                  <div key={i} style={{
+                    background: '#fef2f2', border: '1px solid #fecaca',
+                    borderRadius: 4, padding: '3px 8px', marginBottom: 2,
+                    fontSize: 12, color: '#991b1b',
+                  }}>
+                    {e}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Errors */}
         {state.errors.length > 0 && (

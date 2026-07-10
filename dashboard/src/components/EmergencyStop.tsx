@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { CONFIG } from '../config'
+import { usePlatformState } from '../hooks/usePlatformState'
 
 interface RobotInfo {
   id: string
@@ -9,9 +10,11 @@ interface RobotInfo {
 }
 
 export function EmergencyStop() {
+  const v5 = usePlatformState()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [zoneResult, setZoneResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [robots, setRobots] = useState<RobotInfo[]>([])
   const [targetRobotId, setTargetRobotId] = useState('*')
   const [loadingRobots, setLoadingRobots] = useState(true)
@@ -160,6 +163,63 @@ export function EmergencyStop() {
           color: result.ok ? '#15803d' : '#991b1b',
         }}>
           {result.msg}
+        </div>
+      )}
+
+      {/* v5 zone lockdown */}
+      {v5.connected && v5.state && (
+        <div style={{
+          marginTop: 16, padding: 14, background: '#f9fafb',
+          border: '1px solid #e5e7eb', borderRadius: 8,
+        }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, color: '#374151', margin: '0 0 6px' }}>
+            🔒 v5 Zone Lockdown
+          </h4>
+          <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 8px' }}>
+            Lock all zones to prevent robot movement. Unlock to resume.
+          </p>
+          {v5.state.locked_zones.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 6 }}>
+                {v5.state.locked_zones.length} zone(s) locked: {v5.state.locked_zones.join(', ')}
+              </div>
+              <button onClick={async () => {
+                setZoneResult(null)
+                try {
+                  const results = await Promise.allSettled(
+                    v5.state!.locked_zones.map(z =>
+                      fetch(`${CONFIG.apiBase}/v1/v5/zone/${encodeURIComponent(z)}/unlock`,
+                        { method: 'POST' })
+                    )
+                  )
+                  const ok = results.filter(r => r.status === 'fulfilled').length
+                  setZoneResult({ ok: ok > 0, msg: `Unlocked ${ok}/${results.length} zones` })
+                } catch (err) {
+                  setZoneResult({ ok: false, msg: `Unlock failed: ${(err as Error).message}` })
+                }
+              }}
+                style={{
+                  padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                  background: '#15803d', color: '#fff', border: 'none',
+                  borderRadius: 4, cursor: 'pointer',
+                }}>
+                Unlock All Zones
+              </button>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#22c55e' }}>
+              No zones locked — all clear
+            </div>
+          )}
+          {zoneResult && (
+            <div style={{
+              marginTop: 8, padding: 6, borderRadius: 4, fontSize: 12,
+              background: zoneResult.ok ? '#f0fdf4' : '#fef2f2',
+              color: zoneResult.ok ? '#15803d' : '#991b1b',
+            }}>
+              {zoneResult.msg}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -191,6 +191,62 @@ export function deriveDisplayState(s: StateMessage, connected: boolean): RobotDi
   return 'IDLE'
 }
 
+/* ── v5.0 Traffic Coordinator types ── */
+
+export interface V5RobotState {
+  mode: string          // IDLE | TASKING | CHARGING | ERROR
+  pose: [number, number] // [x, y]
+  boot_id?: string
+  degraded?: boolean
+  sensor_health?: number  // 0.0–1.0
+  battery_percent?: number
+  velocity?: number
+  errors?: string[]
+}
+
+export interface V5PlatformState {
+  robots: Record<string, V5RobotState>
+  locked_zones: string[]
+  pending_tasks: number
+  active_assignments: number
+  pending_commands: number
+  metrics: Record<string, number>
+}
+
+export interface V5CoordinatorHealth {
+  status: string
+  mode: string
+  version: string
+  supported_versions: string[]
+  checks: string[]
+}
+
+export type SensorHealthLevel = 'HEALTHY' | 'DEGRADED' | 'CRITICAL'
+
+export function sensorHealthColor(level: SensorHealthLevel): string {
+  switch (level) {
+    case 'HEALTHY': return '#22c55e'
+    case 'DEGRADED': return '#eab308'
+    case 'CRITICAL': return '#ef4444'
+    default: return '#9ca3af'
+  }
+}
+
+export function sensorHealthLabel(level: SensorHealthLevel): string {
+  switch (level) {
+    case 'HEALTHY': return 'Healthy'
+    case 'DEGRADED': return 'Degraded'
+    case 'CRITICAL': return 'Critical'
+    default: return 'Unknown'
+  }
+}
+
+export function deriveSensorHealth(sensor_health: number | undefined): SensorHealthLevel {
+  if (sensor_health === undefined || sensor_health >= 0.8) return 'HEALTHY'
+  if (sensor_health >= 0.4) return 'DEGRADED'
+  return 'CRITICAL'
+}
+
 export function toRobotSummary(
   manufacturer: string,
   serialNumber: string,

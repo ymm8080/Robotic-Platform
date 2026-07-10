@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { CONFIG } from '../config'
 import type { RobotMap, MqttState } from '../hooks/useMqtt'
 import { toRobotSummary } from '../types/vda5050'
-import type { RobotDisplayState } from '../types/vda5050'
+import type { RobotDisplayState, V5PlatformState } from '../types/vda5050'
 import { sortRobots, relativeTime } from '../utils/format'
 import { RobotCard } from './RobotCard'
 import { useAreaAccess } from '../hooks/useAreaAccess'
@@ -17,8 +17,8 @@ interface RobotApiStatus {
   orderId?: string | null
 }
 
-export function RobotList({ mqtt, apiRobots, onRobotClick }: {
-  mqtt: MqttState; apiRobots?: RobotApiStatus[]; onRobotClick?: (id: string) => void
+export function RobotList({ mqtt, apiRobots, v5State, onRobotClick }: {
+  mqtt: MqttState; apiRobots?: RobotApiStatus[]; v5State?: V5PlatformState | null; onRobotClick?: (id: string) => void
 }) {
   const { canViewRobot, isAdmin } = useAreaAccess()
 
@@ -108,7 +108,8 @@ export function RobotList({ mqtt, apiRobots, onRobotClick }: {
           {filtered.map(r => (
             <div key={r.id} onClick={() => onRobotClick?.(r.id)}
               style={{ cursor: onRobotClick ? 'pointer' : 'default' }}>
-              <RobotCard robot={r} data-source={mqtt.robots.size > 0 ? 'mqtt' : 'api'} />
+              <RobotCard robot={r} v5Robot={v5State?.robots?.[r.id]}
+                data-source={mqtt.robots.size > 0 ? 'mqtt' : 'api'} />
             </div>
           ))}
         </div>

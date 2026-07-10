@@ -1,0 +1,60 @@
+# facility_map.yaml — v5.0 fixed-lane facility map
+# =================================================
+# This file is the single source of truth for the physical lane graph.
+# Semantic overlays (blocked lanes, virtual walls, dynamic obstacles) are
+# maintained at runtime by the coordinator and are NOT stored here.
+#
+# Changing this file requires Ground Truth validation + sign-off per 附录A.7.
+
+version: "5.0"
+facility:
+  name: "demo_facility"
+  description: "Minimal demo facility — 3 nodes, 2 lanes, 1 intersection"
+
+# ── Nodes (waypoints / intersections / dock points) ──────────────
+nodes:
+  - id: A
+    label: "Warehouse Entry"
+  - id: B
+    label: "Intersection X1"
+  - id: C
+    label: "Loading Dock"
+
+# ── Lanes (directed edges) ───────────────────────────────────────
+# Each lane is one-way. For bidirectional corridors, define two lanes.
+lanes:
+  - lane_id: L_A_B
+    from_node: A
+    to_node: B
+    length: 10.0
+    max_speed: 1.5
+    # width: 1.2           # defaults to 1.2
+    # speed_class: FAST    # FAST | SLOW
+    # allowed_models: []   # empty = all models allowed
+    # no_reverse: false
+    # charger: false
+    # lift_id: null
+    # floor: null
+    # intersection_id: null
+
+  - lane_id: L_B_C
+    from_node: B
+    to_node: C
+    length: 10.0
+    max_speed: 1.5
+
+# ── Intersections (traffic-light-controlled) ──────────────────────
+intersections:
+  - id: X1
+    node: B       # the node this intersection guards
+
+# ── Chargers ──────────────────────────────────────────────────────
+chargers:
+  # - id: CHG_01
+  #   lane: L_B_C     # lane where the charger bay is located
+
+# ── Lifts / elevators ─────────────────────────────────────────────
+lifts:
+  # - id: LIFT_01
+  #   lanes: ["L_1F_LIFT", "L_2F_LIFT"]
+  #   floors: [1, 2]
