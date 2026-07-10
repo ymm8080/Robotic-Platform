@@ -15,20 +15,27 @@ Usage:
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 from xml.etree import ElementTree as ET
 
-import redis as rd
-
 from dispatch_queue import PriorityQueue
 from models.order import WarehouseOrder
 from models.warehouse_task import WarehouseTask
+from redis_client import redis_from_url
+from services.order_service import OrderService
 
 logger = logging.getLogger(__name__)
 
 # Redis URL for outbox / audit logging
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
+# Maximum IDoc XML payload size (1 MB) to prevent memory bombs.
+MAX_IDOC_SIZE_BYTES = int(os.getenv("MAX_IDOC_SIZE_BYTES", "1048576"))
+
+# Patterns that indicate a DTD/ENTITY declaration and therefore possible XXE.
+_DTD_PATTERN = re.compile(r"<!\s*(DOCTYPE|ENTITY|ELEMENT|ATTLIST|NOTATION)", re.IGNORECASE)
 
 # Namespace for IDoc XML (SAP uses unqualified elements, no namespace needed)
 IDOC_ROOT_TAG = "IDOC"
@@ -168,8 +175,9 @@ class IdocListener:
     """SAP IDoc listener — parse, validate, enrich, and enqueue warehouse tasks."""
 
     def __init__(self, redis_url: str = REDIS_URL):
-        self._redis = rd.from_url(redis_url, decode_responses=True)
+        self._redis = redis_from_url(redis_url, decode_responses=True)
         self._queue = PriorityQueue(redis_url)
+        self._order_service = OrderService()
         self._stats_key = "idoc:stats"
         self._idoc_log_key = "idoc:recent"
 
@@ -177,6 +185,14 @@ class IdocListener:
 
     def process(self, raw_xml: str) -> dict:
         """Process an incoming IDoc XML. Returns result summary."""
+        if len(raw_xml.encode("utf-8")) > MAX_IDOC_SIZE_BYTES:
+            logger.warning("IDoc payload exceeds maximum size")
+            return {"accepted": False, "reason": "PAYLOAD_TOO_LARGE"}
+
+        if _DTD_PATTERN.search(raw_xml):
+            logger.warning("IDoc payload contains DTD/ENTITY declarations (XXE risk)")
+            return {"accepted": False, "reason": "DTD_NOT_ALLOWED"}
+
         if not _has_idoc_format(raw_xml):
             logger.warning("Received payload that does not look like SAP IDoc XML")
             return {"accepted": False, "reason": "NOT_IDOC_XML"}
@@ -206,6 +222,9 @@ class IdocListener:
                 if task is None:
                     continue
                 order = _task_to_order(task)
+
+                # Persist before enqueue so the worker can load it from DB.
+                self._order_service.create_order(order)
 
                 # Enqueue
                 self._queue.enqueue(order.order_no, order.priority, order.payload)

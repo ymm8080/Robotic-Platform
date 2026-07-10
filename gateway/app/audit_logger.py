@@ -29,6 +29,7 @@ class AuditLogger:
         self._es: Any = None
         self._es_available: bool = False
         self._es_error: Optional[str] = None
+        self._fallback_dir_created: bool = False
 
     @property
     def healthy(self) -> bool:
@@ -45,6 +46,14 @@ class AuditLogger:
 
     async def init(self):
         """Initialize Elasticsearch client if configured; never raise on failure."""
+        # Ensure fallback directory exists once at startup
+        if not self._fallback_dir_created:
+            try:
+                FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+                self._fallback_dir_created = True
+            except Exception:
+                pass
+
         # Lazy import so the gateway can start without elasticsearch installed.
         try:
             from elasticsearch import AsyncElasticsearch
@@ -180,7 +189,9 @@ class AuditLogger:
 
         # Fallback: write to local JSONL file (emergency measure / ES disabled)
         try:
-            FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if not self._fallback_dir_created:
+                FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+                self._fallback_dir_created = True
             with open(FALLBACK_PATH, "a", encoding="utf-8") as f:
                 f.write(json.dumps(doc, ensure_ascii=False) + "\n")
             logger.warning("[Audit] Wrote to fallback file: %s", FALLBACK_PATH)
@@ -270,11 +281,18 @@ class AuditLogger:
         page: int = 1,
         page_size: int = 20,
     ) -> dict:
-        """Read and filter the local JSONL fallback log."""
+        """Read and filter the local JSONL fallback log.
+
+        Reads only the last N lines to avoid unbounded memory usage.
+        """
+        MAX_LINES = 10_000
         logs = []
         if FALLBACK_PATH.exists():
             with open(FALLBACK_PATH, "r", encoding="utf-8") as f:
-                for line in f:
+                # Read tail efficiently for large files
+                import collections
+                tail = collections.deque(f, maxlen=MAX_LINES)
+                for line in tail:
                     line = line.strip()
                     if not line:
                         continue

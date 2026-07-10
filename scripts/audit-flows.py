@@ -17,7 +17,6 @@ import os
 import sys
 from collections import Counter
 
-
 WARN = "\033[93mWARN\033[0m"
 ERROR = "\033[91mERROR\033[0m"
 INFO = "\033[94mINFO\033[0m"
@@ -26,7 +25,7 @@ PASS = "\033[92mPASS\033[0m"
 
 def audit_flows(flow_path: str) -> dict:
     """Audit a Node-RED flows.json for common issues."""
-    with open(flow_path, 'r', encoding='utf-8') as f:
+    with open(flow_path, encoding='utf-8') as f:
         data = json.load(f)
 
     flows = data if isinstance(data, list) else data.get("flows", [])

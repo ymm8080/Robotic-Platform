@@ -84,6 +84,8 @@ def _check_mode() -> list[str]:
 
 # Global coordinator instance. In production this would be backed by Redis/etcd.
 COORDINATOR = RobotPlatformCoordinator()
+# Use ThreadingHTTPServer with daemon threads for safe request handling.
+from http.server import ThreadingHTTPServer  # noqa: E402
 # Seed a minimal demo map so the endpoints are usable out of the box.
 COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
 COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
@@ -108,8 +110,13 @@ class Handler(BaseHTTPRequestHandler):
                 return {}
             if length > _MAX_BODY_BYTES:
                 return None
-            return json.loads(self.rfile.read(length).decode())
-        except Exception:  # noqa: BLE001
+            raw_body = self.rfile.read(length)
+            return json.loads(raw_body.decode())
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid json body"})
+            return None
+        except (ConnectionError, TimeoutError) as e:
+            self.log_error("Error reading request body: %s", e)
             return None
 
     def do_GET(self) -> None:  # noqa: N802
@@ -233,7 +240,8 @@ def main() -> None:
     if checks:
         raise RuntimeError(checks[0])
 
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server.daemon_threads = True
     print(f"v5.0 Traffic Coordinator listening on 0.0.0.0:{PORT} mode={MODE}")
     server.serve_forever()
 

@@ -13,7 +13,7 @@ import logging
 import os
 import time
 
-import redis as rd
+from redis_client import redis_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class PriorityQueue:
     """Redis sorted-set priority queue with processing set for crash safety."""
 
     def __init__(self, redis_url: str = REDIS_URL):
-        self._redis = rd.from_url(redis_url, decode_responses=True)
+        self._redis = redis_from_url(redis_url, decode_responses=True)
 
     # ── Enqueue ──────────────────────────────────────
 
