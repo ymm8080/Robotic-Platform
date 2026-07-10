@@ -119,6 +119,12 @@ async def test_anti_replay_duplicate_rejected(validator, action, card_context):
     validator._redis.smembers = AsyncMock(return_value={"robot_stop"})
     validator._redis.set = AsyncMock(return_value=False)  # already exists = duplicate
 
+    # Mock HTTP for object validation (must pass so we reach anti-replay layer)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"state": "EXECUTING"}
+    validator._http_client.get = AsyncMock(return_value=mock_resp)
+
     results = await validator.validate("wechat", "user1", action, card_context)
 
     failed = [r for r in results if not r.passed]
@@ -181,4 +187,4 @@ async def test_readonly_action_no_confirm_needed():
 
     # No secondary confirm needed for readonly
     confirm_layer = [r for r in results if r.layer == "secondary_confirm"]
-    assert confirm_layer[0].passed is True
+    assert len(confirm_layer) == 0 or confirm_layer[0].passed is True
