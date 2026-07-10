@@ -41,6 +41,8 @@ from core.scheduling.task_allocator import TaskAllocator
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
+from traffic_coordinator_v5.bootstrap import bootstrap_adapters
+from traffic_coordinator_v5.maps.loader import load_facility_map
 
 CONFIG = CoreConfig()
 MODE = os.environ.get("MODE", "PRODUCTION")
@@ -86,10 +88,36 @@ def _check_mode() -> list[str]:
 COORDINATOR = RobotPlatformCoordinator()
 # Use ThreadingHTTPServer with daemon threads for safe request handling.
 from http.server import ThreadingHTTPServer  # noqa: E402
-# Seed a minimal demo map so the endpoints are usable out of the box.
-COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
-COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
-COORDINATOR.register_intersection("X1")
+# ── Bootstrap: load facility map and register adapters ───────────
+MAP_PATH = os.environ.get("TC_MAP_PATH", "")
+facility = load_facility_map(MAP_PATH if MAP_PATH else None)
+
+if facility.warnings:
+    for w in facility.warnings:
+        print(f"[bootstrap] WARNING: {w}")
+
+if facility.fmap.all_lanes():
+    # Map loaded successfully from YAML
+    print(f"[bootstrap] loaded facility '{facility.facility_name}' "
+          f"with {len(facility.fmap.all_lanes())} lanes, "
+          f"{len(facility.intersections)} intersections")
+    for lane in facility.fmap.all_lanes():
+        COORDINATOR.add_lane(lane)
+    for iid in facility.intersections:
+        COORDINATOR.register_intersection(iid)
+    for cid in facility.charger_ids:
+        COORDINATOR.register_charger(cid)
+    for lift in facility.lift_ids:
+        COORDINATOR.register_lift(lift["id"])
+else:
+    # DEMO fallback: seed a minimal map so endpoints are usable out of the box
+    print("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
+    COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
+    COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
+    COORDINATOR.register_intersection("X1")
+
+# Register brand adapters (generic pass-through until Phase 2)
+bootstrap_adapters(COORDINATOR)
 
 
 class Handler(BaseHTTPRequestHandler):

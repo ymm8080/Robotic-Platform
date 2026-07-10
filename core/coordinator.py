@@ -31,7 +31,7 @@ from core.messages import ActionPrimitive, FleetState, RobotMode, TaskAssignment
 from core.observability import CoreMetrics, MetricsSnapshot
 from core.orders import Order, OrderPlan, OrderSequencer, OrderStatus
 from core.platform.charger_reservation import ChargerReservation
-from core.platform.facility_manager import FacilityManager
+from core.scheduling.facility_manager import FacilityManager
 from core.platform.failover_degrade import FailoverDegrade
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from core.platform.lift_manager import LiftManager

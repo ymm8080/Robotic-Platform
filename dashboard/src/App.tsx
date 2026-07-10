@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useMqtt } from './hooks/useMqtt'
+import { usePlatformState } from './hooks/usePlatformState'
 import { RobotList } from './components/RobotList'
 import { RobotDetail } from './components/RobotDetail'
 import { OrderForm } from './components/OrderForm'
@@ -10,6 +11,8 @@ import { BatteryPanel } from './components/BatteryPanel'
 import { SystemHealth } from './components/SystemHealth'
 import { CommandPanel } from './components/CommandPanel'
 import { AlertPanel } from './components/AlertPanel'
+import { TrafficLightPanel } from './components/TrafficLightPanel'
+import { ZoneLockdownPanel } from './components/ZoneLockdownPanel'
 import { AuthPage } from './components/AuthPage'
 import { SettingsPage } from './components/SettingsPage'
 import { AdminPanel } from './components/AdminPanel'
@@ -18,7 +21,7 @@ import { useAreaAccess } from './hooks/useAreaAccess'
 import { areaLabel } from './hooks/useAreas'
 import { CONFIG } from './config'
 
-type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks' | 'system' | 'commands' | 'alerts' | 'settings' | 'admin'
+type Tab = 'robots' | 'map' | 'battery' | 'orders' | 'tasks' | 'system' | 'commands' | 'alerts' | 'traffic' | 'zones' | 'settings' | 'admin'
 
 interface RobotApiStatus {
   id: string
@@ -32,6 +35,7 @@ export default function App() {
   const { isAuthenticated, currentUser, logout, isAdmin } = useAuth()
   const { userAreaIds, robotAreaId } = useAreaAccess()
   const mqtt = useMqtt()
+  const v5 = usePlatformState()
   const [tab, setTab] = useState<Tab>('robots')
   const [selectedRobotId, setSelectedRobotId] = useState<string | null>(null)
   const [showEStop, setShowEStop] = useState(false)
@@ -81,6 +85,8 @@ export default function App() {
     { key: 'system', label: '💚 System' },
     { key: 'commands', label: '🎮 Commands' },
     { key: 'alerts', label: '🚨 Alerts' },
+    { key: 'traffic', label: `🚦 Traffic${v5.connected ? ' (v5)' : ''}` },
+    { key: 'zones', label: `🔒 Zones${v5.connected ? ' (v5)' : ''}` },
     { key: 'settings', label: '⚙️ Settings' },
     ...(isAdmin ? [{ key: 'admin' as Tab, label: '🛡️ Admin' }] : []),
   ]
@@ -213,8 +219,8 @@ export default function App() {
       {/* Content */}
       {tab === 'robots' && hasData && (
         selectedRobotId
-          ? <RobotDetail robotId={selectedRobotId} onBack={() => setSelectedRobotId(null)} mqtt={mqtt} />
-          : <RobotList mqtt={mqtt} apiRobots={apiRobots} onRobotClick={id => setSelectedRobotId(id)} />
+          ? <RobotDetail robotId={selectedRobotId} onBack={() => setSelectedRobotId(null)} mqtt={mqtt} v5Robot={v5.state?.robots[selectedRobotId]} />
+          : <RobotList mqtt={mqtt} apiRobots={apiRobots} onRobotClick={id => setSelectedRobotId(id)} v5State={v5.state} />
       )}
       {tab === 'robots' && !hasData && (
         <div style={{ textAlign: 'center', padding: 48, color: '#9ca3af', fontSize: 14 }}>
@@ -228,6 +234,8 @@ export default function App() {
       {tab === 'system' && <SystemHealth />}
       {tab === 'commands' && <CommandPanel onRefresh={refreshRobots} />}
       {tab === 'alerts' && <AlertPanel mqtt={mqtt} apiRobots={apiRobots} />}
+      {tab === 'traffic' && <TrafficLightPanel />}
+      {tab === 'zones' && <ZoneLockdownPanel />}
       {tab === 'settings' && <SettingsPage />}
       {tab === 'admin' && isAdmin && <AdminPanel />}
     </div>

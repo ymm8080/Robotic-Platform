@@ -1,11 +1,8 @@
 """Tests for platform service layer, adapter, governance, survival."""
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.shadow_state_machine import CircuitState, ShadowStateMachine
@@ -18,7 +15,7 @@ from core.platform.failover_degrade import FailoverDegrade
 from core.platform.fixed_lane_map import FixedLaneMap, Lane, SpeedClass
 from core.platform.lift_manager import LiftManager, LiftState
 from core.platform.robot_as_obstacle import RobotAsObstacle
-from core.survival.version_router import VersionRouter, VersionedMessage
+from core.survival.version_router import VersionedMessage, VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
 
 

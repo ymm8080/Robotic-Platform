@@ -1,9 +1,12 @@
-import type { RobotSummary } from '../types/vda5050'
+import type { RobotSummary, V5RobotState } from '../types/vda5050'
+import { deriveSensorHealth, sensorHealthLabel } from '../types/vda5050'
 import { displayStateLabel, displayStateColor } from '../utils/format'
 
-export function RobotCard({ robot }: { robot: RobotSummary }) {
+export function RobotCard({ robot, v5Robot }: { robot: RobotSummary; v5Robot?: V5RobotState }) {
   const color = displayStateColor(robot.displayState)
   const label = displayStateLabel(robot.displayState)
+  const sensorLevel = deriveSensorHealth(v5Robot?.sensor_health)
+  const sensorColor = sensorLevel === 'HEALTHY' ? '#22c55e' : sensorLevel === 'DEGRADED' ? '#eab308' : '#ef4444'
 
   return (
     <div style={{
@@ -54,6 +57,28 @@ export function RobotCard({ robot }: { robot: RobotSummary }) {
         </div>
         <div style={{ fontSize: 10, color: '#9ca3af' }}>电量</div>
       </div>
+
+      {/* v5: sensor health + degraded */}
+      {v5Robot && (
+        <div style={{ textAlign: 'center', minWidth: 60 }}>
+          {v5Robot.degraded && (
+            <div style={{
+              fontSize: 10, fontWeight: 700, color: '#ef4444',
+              background: '#fef2f2', padding: '1px 6px', borderRadius: 4,
+              marginBottom: 2,
+            }}>
+              DEGRADED
+            </div>
+          )}
+          {v5Robot.sensor_health !== undefined && (
+            <div style={{ fontSize: 11, color: sensorColor }}>
+              <span style={{ fontWeight: 600 }}>
+                {sensorHealthLabel(sensorLevel)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Position / errors */}
       <div style={{ minWidth: 80, textAlign: 'right', fontSize: 12, color: '#6b7280' }}>

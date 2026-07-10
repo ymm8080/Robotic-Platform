@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -45,24 +46,26 @@ class WormBlackbox:
         self._current_shard_start: float = 0.0
         self._shard_dir = sink_path.parent if sink_path else None
         self._base_name = sink_path.stem if sink_path else None
+        self._lock = threading.Lock()
 
     def write(self, timestamp: float, category: str, robot_id: str, payload: dict) -> WormRecord:
         """Append one record. Never overwrites; chains on the previous hash."""
-        if self._sink is not None and self.needs_rotation(timestamp):
-            self.rotate(timestamp)
-        rec = WormRecord(
-            timestamp=timestamp,
-            category=category,
-            robot_id=robot_id,
-            payload=payload,
-            prev_hash=self._prev_hash,
-        )
-        rec.hash = self._hash_record(rec)
-        self._records.append(rec)
-        self._prev_hash = rec.hash
-        if self._sink is not None:
-            self._persist(rec)
-        return rec
+        with self._lock:
+            if self._sink is not None and self.needs_rotation(timestamp):
+                self.rotate(timestamp)
+            rec = WormRecord(
+                timestamp=timestamp,
+                category=category,
+                robot_id=robot_id,
+                payload=payload,
+                prev_hash=self._prev_hash,
+            )
+            rec.hash = self._hash_record(rec)
+            self._records.append(rec)
+            self._prev_hash = rec.hash
+            if self._sink is not None:
+                self._persist(rec)
+            return rec
 
     def _hash_record(self, rec: WormRecord) -> str:
         blob = json.dumps(

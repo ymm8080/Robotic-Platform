@@ -1,22 +1,16 @@
 """Tests for the v5.0 core scheduling + safety modules."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# make ``core`` importable when run from repo root without install
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from core.config import TrafficConfig
+from core.governance.reputation_engine import ReputationEngine
 from core.messages import HealthStatus, Pose, RobotMode, SensorHealth
 from core.safety.safe_distance import SafeDistanceCalculator
+from core.scheduling.facility_manager import FacilityManager
 from core.scheduling.task_allocator import Task, TaskAllocator
 from core.scheduling.traffic_light_controller import (
     LightPhase,
     TrafficLightController,
 )
-from core.scheduling.facility_manager import FacilityManager
-from core.governance.reputation_engine import ReputationEngine
 
 
 # ── safety distance ───────────────────────────────────────────
