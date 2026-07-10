@@ -107,6 +107,12 @@ def _validate_robot_id_parts(manufacturer: str, serial_number: str) -> str | Non
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: connect MQTT + start queue worker + heartbeat monitor. Shutdown: stop gracefully."""
+    # Security: refuse to start in production without API key
+    if os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not API_KEY:
+        raise RuntimeError(
+            "FATAL: SAP_BRIDGE_API_KEY is not configured in PRODUCTION mode."
+        )
+
     publisher = get_publisher()
     publisher.connect()
 

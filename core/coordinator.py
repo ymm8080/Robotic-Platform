@@ -426,13 +426,13 @@ class RobotPlatformCoordinator:
                     and self.fmap.is_traversable(lane.lane_id)
                 )
 
-            best = min(
-                (
-                    (self.fmap.distance_between(robot.pose.last_node_id, cl, lane_filter=_filter, cost="time"), cl)
-                    for cl in charger_lanes
-                ),
-                key=lambda x: x[0],
-            )
+            reachable = [
+                (self.fmap.distance_between(robot.pose.last_node_id, cl, lane_filter=_filter, cost="time"), cl)
+                for cl in charger_lanes
+            ]
+            if not reachable:
+                continue
+            best = min(reachable, key=lambda x: x[0])
             if best[0] == float("inf"):
                 continue
             bay = self.charger.reserve(robot.robot_id, robot.battery_percent, now)

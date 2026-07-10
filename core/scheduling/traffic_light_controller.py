@@ -143,7 +143,7 @@ class TrafficLightController:
             robots = list(it.waiting_robots.values())
             # 双方向都等了超过 threshold
             if all(now - r.arrived_at >= threshold for r in robots):
-                # 低优先级 (priority 数值小) 的后退; 同优先级取最早到达
+                # 低优先级 (priority 数值小) 的后退; 同优先级取最晚到达 (让先到的先行)
                 loser = min(robots, key=lambda r: (r.priority, -r.arrived_at))
                 breaks.append(DeadlockBreak(
                     intersection_id=it.intersection_id,

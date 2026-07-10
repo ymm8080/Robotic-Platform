@@ -84,9 +84,11 @@ class TaskAllocator:
             return False, "payload_exceeds"
         if not cap.supports(task.action_primitives):
             return False, "action_primitive_unsupported"
-        # 环境约束 + 型号: 检查起点车道; 终点车道在 assign_path 时验证
+        # 环境约束 + 型号: 检查起点和终点车道
         if not self._lane_fits(robot, cap, task.start_lane):
             return False, "start_lane_incompatible"
+        if not self._lane_fits(robot, cap, task.end_lane):
+            return False, "end_lane_incompatible"
         return True, ""
 
     def _lane_fits(self, robot: FleetState, cap: CapabilityVector, lane_id: str) -> bool:

@@ -76,6 +76,12 @@ async def lifespan(app: FastAPI):
     global _redis, _http
     logger.info("[Gateway] Starting message gateway v3.5...")
 
+    # Security: refuse to start in production without API key
+    if os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not settings.gateway_api_key:
+        raise RuntimeError(
+            "FATAL: GATEWAY_API_KEY is not configured in PRODUCTION mode."
+        )
+
     # Initialize all components
     await router.init()
     await validator.init()

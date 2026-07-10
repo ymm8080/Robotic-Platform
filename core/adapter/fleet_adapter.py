@@ -152,10 +152,10 @@ class FleetAdapter:
         events: list[str] = []
         for rid in self.shadow.tick(now):
             events.append(f"BREAKER_HALF_OPEN:{rid}")
-        for rid in self.shadow.behavior_timeouts:
+        while self.shadow.behavior_timeouts:
+            rid = self.shadow.behavior_timeouts.popleft()
             events.append(f"BEHAVIOR_TIMEOUT_5S:{rid}")
             self._enqueue_retreat(rid, now)
-        self.shadow.behavior_timeouts.clear()
 
         # retry / expire unacked commands
         for seq in list(self._unacked):
