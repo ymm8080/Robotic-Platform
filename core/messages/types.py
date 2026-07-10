@@ -122,10 +122,11 @@ class SensorHealth:
         return self.worst >= HealthStatus.DEGRADED
 
 
+@dataclass
 class Versioned:
     """Mixin: every crossing-boundary message carries a version field."""
 
-    version: str = "5.0"
+    version: str = field(default="5.0", kw_only=True)
 
 
 @dataclass

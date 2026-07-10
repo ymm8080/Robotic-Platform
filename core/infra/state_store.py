@@ -74,3 +74,36 @@ class LocalStateStore(StateStore):
         if time.monotonic() > self._expiry[key]:
             self._data.pop(key, None)
             self._expiry.pop(key, None)
+
+
+class RedisStateStore(StateStore):
+    """Redis-backed state store for multi-replica failover.
+
+    Uses JSON serialization for values. TTL is delegated to Redis EXPIRE.
+    """
+
+    def __init__(self, redis_client) -> None:
+        self._redis = redis_client
+
+    def get(self, key: str) -> Any | None:
+        import json
+        raw = self._redis.get(key)
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        return json.loads(raw)
+
+    def set(self, key: str, value: Any, ttl: float = 0.0) -> None:
+        import json
+        serialized = json.dumps(value, default=str)
+        if ttl > 0:
+            self._redis.setex(key, int(ttl), serialized)
+        else:
+            self._redis.set(key, serialized)
+
+    def delete(self, key: str) -> None:
+        self._redis.delete(key)
+
+    def exists(self, key: str) -> bool:
+        return bool(self._redis.exists(key))

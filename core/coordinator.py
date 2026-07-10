@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from core.adapter.fleet_adapter import AdapterCommand, FleetAdapter
@@ -730,6 +730,241 @@ class RobotPlatformCoordinator:
             pending_commands=sum(len(a.pending_commands) for a in self._adapters.values()),
             metrics=self.metrics.snapshot(),
         )
+
+    # ── state persistence ────────────────────────────────────────
+    def snapshot(self) -> dict:
+        """Serialize coordinator state for persistence/restart recovery.
+
+        Returns a JSON-serializable dict capturing robots, assignments,
+        task queue, and order plans. Adapters are NOT serialized (they
+        are rebuilt by bootstrap on restart).
+        """
+        def _fleet_state_dict(fs: FleetState) -> dict:
+            return {
+                "robot_id": fs.robot_id,
+                "boot_id": fs.boot_id,
+                "pose": asdict(fs.pose),
+                "battery_percent": fs.battery_percent,
+                "mode": int(fs.mode),
+                "errors": list(fs.errors),
+                "sensor_health": {
+                    "velocity_sensor": int(fs.sensor_health.velocity_sensor),
+                    "lidar": int(fs.sensor_health.lidar),
+                    "camera": int(fs.sensor_health.camera),
+                    "time_sync": int(fs.sensor_health.time_sync),
+                },
+                "velocity": fs.velocity,
+                "last_seen_monotonic": fs.last_seen_monotonic,
+                "capability": {
+                    "payload_kg": fs.capability.payload_kg,
+                    "max_speed": fs.capability.max_speed,
+                    "supported_models": list(fs.capability.supported_models),
+                    "action_primitives": [int(a) for a in fs.capability.action_primitives],
+                    "env": asdict(fs.capability.env),
+                    "supports_reverse": fs.capability.supports_reverse,
+                },
+                "degraded": fs.degraded,
+                "version": fs.version,
+            }
+
+        return {
+            "robot_states": {rid: _fleet_state_dict(fs) for rid, fs in self._robot_states.items()},
+            "active_assignments": {
+                rid: {
+                    "task_id": a.task_id,
+                    "path": list(a.path),
+                    "max_speed": a.max_speed,
+                    "version": a.version,
+                }
+                for rid, a in self._active_assignments.items()
+            },
+            "task_queue": [
+                {
+                    "task_id": t.task_id,
+                    "start_lane": t.start_lane,
+                    "end_lane": t.end_lane,
+                    "priority": t.priority,
+                    "created_at": t.created_at,
+                    "deadline": t.deadline,
+                    "action_primitives": [int(a) for a in t.action_primitives],
+                    "required_payload_kg": t.required_payload_kg,
+                }
+                for t in self._task_queue
+            ],
+            "order_plans": {
+                oid: {
+                    "order": {
+                        "order_id": p.order.order_id,
+                        "origin_lane": p.order.origin_lane,
+                        "destination_lane": p.order.destination_lane,
+                        "actions": [int(a) for a in p.order.actions],
+                        "payload_kg": p.order.payload_kg,
+                        "priority": p.order.priority,
+                        "status": p.order.status.name,
+                    },
+                    "tasks": [
+                        {
+                            "task_id": t.task_id,
+                            "start_lane": t.start_lane,
+                            "end_lane": t.end_lane,
+                            "priority": t.priority,
+                            "created_at": t.created_at,
+                            "deadline": t.deadline,
+                            "action_primitives": [int(a) for a in t.action_primitives],
+                            "required_payload_kg": t.required_payload_kg,
+                        }
+                        for t in p.tasks
+                    ],
+                }
+                for oid, p in self._order_plans.items()
+            },
+            "task_order": dict(self._task_order),
+            "order_completion": {oid: list(s) for oid, s in self._order_completion.items()},
+            "task_retries": dict(self._task_retries),
+            "robot_lane": dict(self._robot_lane),
+            "robot_brands": {
+                rid: adapter.brand for rid, adapter in self._robot_adapter.items()
+            },
+        }
+
+    def restore(self, data: dict) -> None:
+        """Restore coordinator state from a snapshot dict.
+
+        Adapters must be re-registered via ``register_adapter`` before
+        calling this method so that ``_robot_adapter`` mappings can be
+        reconstructed from robot states.
+        """
+        from core.messages import (
+            ActionPrimitive,
+            CapabilityVector,
+            EnvConstraints,
+            FleetState,
+            HealthStatus,
+            Pose,
+            RobotMode,
+            SensorHealth,
+        )
+        from core.orders import Order, OrderPlan, OrderStatus
+        from core.scheduling.task_allocator import Task
+
+        # Restore robot states
+        for rid, fs_data in data.get("robot_states", {}).items():
+            cap_data = fs_data.get("capability", {})
+            env_data = cap_data.get("env", {})
+            cap = CapabilityVector(
+                payload_kg=cap_data.get("payload_kg", 0.0),
+                max_speed=cap_data.get("max_speed", 1.5),
+                supported_models=cap_data.get("supported_models", []),
+                action_primitives={
+                    ActionPrimitive(a)
+                    for a in cap_data.get("action_primitives", [0])
+                },
+                env=EnvConstraints(
+                    max_grade=env_data.get("max_grade", 0.0),
+                    floor_threshold=env_data.get("floor_threshold", 0.0),
+                    min_friction=env_data.get("min_friction", 0.0),
+                ),
+                supports_reverse=cap_data.get("supports_reverse", False),
+            )
+            sh_data = fs_data.get("sensor_health", {})
+            pose_data = fs_data.get("pose", {})
+            fs = FleetState(
+                robot_id=fs_data["robot_id"],
+                boot_id=fs_data.get("boot_id", ""),
+                pose=Pose(
+                    x=pose_data.get("x", 0.0),
+                    y=pose_data.get("y", 0.0),
+                    theta=pose_data.get("theta", 0.0),
+                    last_node_id=pose_data.get("last_node_id", ""),
+                    position_initialized=pose_data.get("position_initialized", True),
+                ),
+                battery_percent=fs_data.get("battery_percent", 0.0),
+                mode=RobotMode(fs_data.get("mode", 0)),
+                errors=fs_data.get("errors", []),
+                sensor_health=SensorHealth(
+                    velocity_sensor=HealthStatus(sh_data.get("velocity_sensor", 0)),
+                    lidar=HealthStatus(sh_data.get("lidar", 0)),
+                    camera=HealthStatus(sh_data.get("camera", 0)),
+                    time_sync=HealthStatus(sh_data.get("time_sync", 0)),
+                ),
+                velocity=fs_data.get("velocity", 0.0),
+                last_seen_monotonic=fs_data.get("last_seen_monotonic", 0.0),
+                capability=cap,
+                degraded=fs_data.get("degraded", False),
+            )
+            self._robot_states[rid] = fs
+
+        # Re-link robot → adapter if brand mapping was saved
+        for rid, brand in data.get("robot_brands", {}).items():
+            adapter = self._adapters.get(brand)
+            if adapter is not None and rid in self._robot_states:
+                self._robot_adapter[rid] = adapter
+
+        # Restore active assignments
+        from core.messages import TaskAssignment
+        for rid, a_data in data.get("active_assignments", {}).items():
+            self._active_assignments[rid] = TaskAssignment(
+                task_id=a_data["task_id"],
+                path=a_data.get("path", []),
+                max_speed=a_data.get("max_speed", 1.5),
+                version=a_data.get("version", "5.0"),
+            )
+
+        # Restore task queue
+        self._task_queue.clear()
+        for t_data in data.get("task_queue", []):
+            self._task_queue.append(Task(
+                task_id=t_data["task_id"],
+                start_lane=t_data["start_lane"],
+                end_lane=t_data["end_lane"],
+                priority=t_data.get("priority", 0),
+                created_at=t_data.get("created_at", 0.0),
+                deadline=t_data.get("deadline", 0.0),
+                action_primitives={
+                    ActionPrimitive(a)
+                    for a in t_data.get("action_primitives", [0])
+                },
+                required_payload_kg=t_data.get("required_payload_kg", 0.0),
+            ))
+
+        # Restore order plans
+        self._order_plans.clear()
+        for oid, p_data in data.get("order_plans", {}).items():
+            o_data = p_data["order"]
+            order = Order(
+                order_id=o_data["order_id"],
+                origin_lane=o_data["origin_lane"],
+                destination_lane=o_data["destination_lane"],
+                actions=[ActionPrimitive(a) for a in o_data.get("actions", [0])],
+                payload_kg=o_data.get("payload_kg", 0.0),
+                priority=o_data.get("priority", 0),
+                status=OrderStatus[o_data.get("status", "PENDING")],
+            )
+            tasks = [
+                Task(
+                    task_id=t_data["task_id"],
+                    start_lane=t_data["start_lane"],
+                    end_lane=t_data["end_lane"],
+                    priority=t_data.get("priority", 0),
+                    created_at=t_data.get("created_at", 0.0),
+                    deadline=t_data.get("deadline", 0.0),
+                    action_primitives={
+                        ActionPrimitive(a)
+                        for a in t_data.get("action_primitives", [0])
+                    },
+                    required_payload_kg=t_data.get("required_payload_kg", 0.0),
+                )
+                for t_data in p_data["tasks"]
+            ]
+            self._order_plans[oid] = OrderPlan(order=order, tasks=tasks)
+
+        # Restore simple maps
+        self._task_order = dict(data.get("task_order", {}))
+        self._order_completion = {
+            oid: set(s) for oid, s in data.get("order_completion", {}).items()
+        }
+        self._task_retries = dict(data.get("task_retries", {}))
+        self._robot_lane = dict(data.get("robot_lane", {}))
 
     # ── helpers ──────────────────────────────────────────────────
     def _worm_event(self, now: float, category: str, robot_id: str, payload: dict) -> None:

@@ -43,6 +43,12 @@ class InboundMessage:
 
 @dataclass
 class OutboundEnvelope:
+    """One outbound message to a robot.
+
+    ``robot_id`` is the VDA5050 ``serialNumber`` (not the manufacturer-prefixed
+    internal connection key). ``brand`` is the VDA5050 ``manufacturer``.
+    """
+
     robot_id: str
     brand: str
     assignment: TaskAssignment | None = None
@@ -187,10 +193,10 @@ class MqttGateway(InboundGateway, OutboundGateway):
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
 
-        # Set Last Will: if TC goes down, robots see DISCONNECTED
+        # Set Last Will: if TC goes down, operators see OFFLINE
         self._client.will_set(
             "vda5050/traffic-coordinator/connection",
-            json.dumps({"state": "OFFLINE", "timestamp": ""}),
+            json.dumps({"state": "OFFLINE", "timestamp": self._iso_now()}),
             qos=1,
             retain=True,
         )
@@ -211,7 +217,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
             # Announce TC online
             client.publish(
                 "vda5050/traffic-coordinator/connection",
-                json.dumps({"state": "ONLINE", "timestamp": str(time.time())}),
+                json.dumps({"state": "ONLINE", "timestamp": self._iso_now()}),
                 qos=1,
                 retain=True,
             )
@@ -238,17 +244,15 @@ class MqttGateway(InboundGateway, OutboundGateway):
             return
 
         manufacturer, serial_number = parsed
-        robot_id = f"{manufacturer}_{serial_number}"
         now = time.monotonic()
 
         if topic.endswith("/connection"):
-            self._handle_connection(robot_id, manufacturer, serial_number, payload, now)
+            self._handle_connection(manufacturer, serial_number, payload, now)
         elif topic.endswith("/state"):
-            self._handle_state(manufacturer, robot_id, payload, now)
+            self._handle_state(manufacturer, serial_number, payload, now)
 
     def _handle_connection(
         self,
-        robot_id: str,
         manufacturer: str,
         serial_number: str,
         payload: dict,
@@ -257,6 +261,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
         """Track connection LWT — ONLINE / OFFLINE / CONNECTIONBROKEN."""
         state = payload.get("connectionState", payload.get("state", "OFFLINE"))
         online = state.upper() == "ONLINE"
+        robot_id = f"{manufacturer}_{serial_number}"
         with self._lock:
             conn = self._connections.setdefault(
                 robot_id,
@@ -272,10 +277,16 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 conn.boot_id = payload.get("bootId", payload.get("serialNumber", ""))
 
     def _handle_state(
-        self, brand: str, robot_id: str, payload: dict, now: float
+        self, brand: str, serial_number: str, payload: dict, now: float
     ) -> None:
-        """Forward VDA5050 state to coordinator via callback."""
-        # Stamp the robot_id onto the payload so adapters can find it
+        """Forward VDA5050 state to coordinator via callback.
+
+        The coordinator's internal robot_id is the VDA5050 serialNumber,
+        not the manufacturer-prefixed connection key.
+        """
+        robot_id = serial_number
+        # Stamp the robot_id onto the payload so adapters can find it, but only
+        # if the VDA5050 message did not already provide it.
         payload.setdefault("robotId", robot_id)
         payload.setdefault("manufacturer", brand)
 
@@ -283,7 +294,8 @@ class MqttGateway(InboundGateway, OutboundGateway):
             self._callback(InboundMessage(brand=brand, raw=payload, received_at=now))
 
         with self._lock:
-            conn = self._connections.get(robot_id)
+            conn_key = f"{brand}_{serial_number}"
+            conn = self._connections.get(conn_key)
             if conn is not None:
                 conn.last_seen = now
 
@@ -414,6 +426,10 @@ class MqttGateway(InboundGateway, OutboundGateway):
             self._client.publish(topic, json.dumps(payload), qos=self._qos)
         except Exception:
             logger.exception("MqttGateway failed to publish to %s", topic)
+
+    @staticmethod
+    def _iso_now() -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
 
     # ── connection queries ───────────────────────────────────
 

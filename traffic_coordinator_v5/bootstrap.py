@@ -19,6 +19,7 @@ from core.adapter.brands._loader import load_strategy
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.vda5050_fleet_adapter import VDA5050FleetAdapter
 from core.coordinator import RobotPlatformCoordinator
+from core.messages import FleetState, Pose, RobotMode
 
 SUPPORTED_BRANDS = [
     "mir",
@@ -40,9 +41,7 @@ def _create_generic_adapter(brand: str) -> FleetAdapter:
     """
     adapter = FleetAdapter(brand=brand)
 
-    def _passthrough(raw: dict) -> core.messages.FleetState:  # noqa: F821
-        from core.messages import FleetState, Pose, RobotMode
-
+    def _passthrough(raw: dict) -> FleetState:
         return FleetState(
             robot_id=raw.get("robot_id", raw.get("robotId", "unknown")),
             boot_id=raw.get("boot_id", raw.get("bootId", "")),
