@@ -1,46 +1,39 @@
-"""v5.0 Traffic Coordinator HTTP service.
+"""v5.0 Traffic Coordinator — HTTP + MQTT dual-transport service.
 
-This service wires the ``core/`` platform loop to a small HTTP surface:
+This service wires the ``core/`` platform loop to both an HTTP control plane
+and an MQTT transport layer (VDA5050).  The MQTT gateway subscribes to robot
+state topics and publishes TaskAssignment / AdapterCommand back to robots.
 
-- ``GET /health`` — mode self-check.
-- ``GET /version`` — supported protocol versions.
-- ``POST /ingest/{brand}`` — submit a vendor-native robot state message.
-- ``POST /order`` — submit a WMS/ERP order.
-- ``POST /order/{order_id}/cancel`` — cancel an order.
-- ``GET /state`` — platform state snapshot.
-- ``GET /metrics`` — in-memory metrics snapshot.
+HTTP endpoints:
+  ``GET  /health``          — mode self-check + MQTT status
+  ``GET  /version``         — supported protocol versions
+  ``POST /ingest/{brand}``  — submit a vendor-native robot state message
+  ``POST /order``           — submit a WMS/ERP order
+  ``POST /order/{id}/cancel`` — cancel an order
+  ``GET  /state``           — platform state snapshot
+  ``GET  /metrics``         — in-memory metrics snapshot
 
-It is intentionally transport-light; production will usually add MQTT/DDS
-below or beside this HTTP control plane.
+MQTT topics:
+  Subscribe: vda5050/+/+/state, vda5050/+/+/connection
+  Publish:   vda5050/{mfr}/{sn}/order, vda5050/{mfr}/{sn}/instantActions
 """
+
 from __future__ import annotations
 
 import json
 import os
 import re
+import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
-from core.adapter.fleet_adapter import FleetAdapter
-from core.adapter.shadow_state_machine import ShadowStateMachine
 from core.config import CoreConfig
 from core.coordinator import RobotPlatformCoordinator
-from core.governance.economic_model import EconomicModel
-from core.governance.reputation_engine import ReputationEngine
-from core.messages import ActionPrimitive, FleetState, Pose, RobotMode, TaskAssignment
+from core.gateway import InboundMessage, MqttGateway, OutboundEnvelope
+from core.messages import ActionPrimitive
 from core.orders import Order
-from core.platform.charger_reservation import ChargerReservation
-from core.platform.failover_degrade import FailoverDegrade
-from core.platform.fixed_lane_map import FixedLaneMap, Lane
-from core.platform.lift_manager import LiftManager
-from core.platform.robot_as_obstacle import RobotAsObstacle
-from core.safety.safe_distance import SafeDistanceCalculator
-from core.scheduling.facility_manager import FacilityManager
-from core.scheduling.task_allocator import TaskAllocator
-from core.scheduling.traffic_light_controller import TrafficLightController
-from core.survival.version_router import VersionRouter
-from core.survival.worm_blackbox import WormBlackbox
+from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
 
@@ -48,6 +41,15 @@ CONFIG = CoreConfig()
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
+
+# MQTT config (from env; defaults match docker-compose Mosquitto service)
+MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST", "localhost")
+MQTT_BROKER_PORT = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
+MQTT_ENABLED = os.environ.get("MQTT_ENABLED", "1") != "0"
+
+# Background tick interval (seconds) — ensures the platform loop advances
+# even when no HTTP requests arrive.
+TICK_INTERVAL = float(os.environ.get("TC_TICK_INTERVAL", "0.5"))
 
 
 def _load_api_key() -> str:
@@ -62,13 +64,11 @@ def _load_api_key() -> str:
 
 TC_API_KEY = _load_api_key()
 
-# Input validation rules
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
 
 def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
-    """Verify X-API-Key header for mutating endpoints."""
     if not TC_API_KEY:
         return True
     provided = handler.headers.get("X-API-Key", "")
@@ -78,16 +78,66 @@ def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
 
 
 def _check_mode() -> list[str]:
-    """Hard-coded production/demo mode self-check (灰犀牛 #18)."""
     if MODE not in ("PRODUCTION", "DEMO"):
         return [f"invalid mode {MODE!r}; must be PRODUCTION or DEMO"]
     return []
 
 
-# Global coordinator instance. In production this would be backed by Redis/etcd.
+# ── Global coordinator + gateway ──────────────────────────────────
 COORDINATOR = RobotPlatformCoordinator()
-# Use ThreadingHTTPServer with daemon threads for safe request handling.
-from http.server import ThreadingHTTPServer  # noqa: E402
+
+# Create the MQTT gateway (no-op if paho-mqtt is not installed)
+MQTT_GATEWAY = MqttGateway(
+    broker_host=MQTT_BROKER_HOST,
+    broker_port=MQTT_BROKER_PORT,
+    client_id="traffic-coordinator-v5",
+)
+
+
+def _on_mqtt_inbound(msg: InboundMessage) -> None:
+    """Called by MqttGateway for each VDA5050 state/connection message.
+
+    Routes the raw message through the appropriate brand adapter to produce
+    a unified FleetState, then feeds it to the coordinator.
+    """
+    brand = msg.brand
+    adapter = COORDINATOR._adapters.get(brand) if hasattr(COORDINATOR, "_adapters") else None
+    if adapter is not None:
+        adapter.ingest_native_state(msg.raw, msg.received_at)
+    else:
+        # Fallback: pass raw dict directly (generic adapter path)
+        COORDINATOR.ingest_uplink(brand, msg.raw, msg.received_at)
+
+
+def _publish_tick_result(result) -> None:
+    """Emit assignments and commands from a tick result via MQTT."""
+    for robot_id, assignment in result.assignments:
+        adapter = COORDINATOR._robot_adapter.get(robot_id)
+        brand = adapter.brand if adapter is not None else "generic"
+        MQTT_GATEWAY.send(
+            OutboundEnvelope(robot_id=robot_id, brand=brand, assignment=assignment)
+        )
+
+    for cmd in result.commands:
+        adapter = COORDINATOR._robot_adapter.get(cmd.robot_id)
+        brand = adapter.brand if adapter is not None else "generic"
+        MQTT_GATEWAY.send(
+            OutboundEnvelope(robot_id=cmd.robot_id, brand=brand, command=cmd)
+        )
+
+
+def _background_tick(stop_event: threading.Event) -> None:
+    """Periodic platform tick + MQTT flush loop.
+
+    Runs as a daemon thread so it exits cleanly when the HTTP server stops.
+    """
+    while not stop_event.is_set():
+        now = time.monotonic()
+        result = COORDINATOR.tick(now)
+        _publish_tick_result(result)
+        stop_event.wait(TICK_INTERVAL)
+
+
 # ── Bootstrap: load facility map and register adapters ───────────
 MAP_PATH = os.environ.get("TC_MAP_PATH", "")
 facility = load_facility_map(MAP_PATH if MAP_PATH else None)
@@ -97,10 +147,11 @@ if facility.warnings:
         print(f"[bootstrap] WARNING: {w}")
 
 if facility.fmap.all_lanes():
-    # Map loaded successfully from YAML
-    print(f"[bootstrap] loaded facility '{facility.facility_name}' "
-          f"with {len(facility.fmap.all_lanes())} lanes, "
-          f"{len(facility.intersections)} intersections")
+    print(
+        f"[bootstrap] loaded facility '{facility.facility_name}' "
+        f"with {len(facility.fmap.all_lanes())} lanes, "
+        f"{len(facility.intersections)} intersections"
+    )
     for lane in facility.fmap.all_lanes():
         COORDINATOR.add_lane(lane)
     for iid in facility.intersections:
@@ -110,19 +161,34 @@ if facility.fmap.all_lanes():
     for lift in facility.lift_ids:
         COORDINATOR.register_lift(lift["id"])
 else:
-    # DEMO fallback: seed a minimal map so endpoints are usable out of the box
     print("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
     COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
     COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
     COORDINATOR.register_intersection("X1")
 
-# Register brand adapters (generic pass-through until Phase 2)
-bootstrap_adapters(COORDINATOR)
+# Register brand adapters (VDA5050 with real strategies + generic fallback)
+REGISTERED_ADAPTERS = bootstrap_adapters(COORDINATOR)
+
+# Start MQTT gateway + background ticker
+_TICK_STOP = threading.Event()
+_TICK_THREAD: threading.Thread | None = None
+
+if MQTT_ENABLED:
+    MQTT_GATEWAY.start(_on_mqtt_inbound)
+    _TICK_THREAD = threading.Thread(
+        target=_background_tick, args=(_TICK_STOP,), daemon=True, name="tc-tick-loop"
+    )
+    _TICK_THREAD.start()
+    print(
+        f"[mqtt] gateway started — broker={MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}, "
+        f"tick_interval={TICK_INTERVAL}s"
+    )
+else:
+    print("[mqtt] gateway disabled (MQTT_ENABLED=0)")
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, _format: str, *args) -> None:  # noqa: ANN002
-        # Suppress default logging noise in container.
+    def log_message(self, _format: str, *args) -> None:
         pass
 
     def _json(self, status: int, body: dict) -> None:
@@ -147,12 +213,13 @@ class Handler(BaseHTTPRequestHandler):
             self.log_error("Error reading request body: %s", e)
             return None
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
 
         if path == "/health":
             checks = _check_mode()
+            mqtt_online = MQTT_GATEWAY._client is not None if MQTT_ENABLED else False
             self._json(
                 503 if checks else 200,
                 {
@@ -160,6 +227,8 @@ class Handler(BaseHTTPRequestHandler):
                     "mode": MODE,
                     "version": CONFIG.supported_versions[0],
                     "supported_versions": list(CONFIG.supported_versions),
+                    "mqtt": "connected" if mqtt_online else "disabled",
+                    "online_robots": MQTT_GATEWAY.online_robots(),
                     "checks": checks,
                 },
             )
@@ -185,7 +254,10 @@ class Handler(BaseHTTPRequestHandler):
                         "active_assignments": state.active_assignments,
                         "pending_commands": state.pending_commands,
                         "metrics": state.metrics.__dict__,
-                        "robots": {rid: {"mode": r.mode.name, "pose": (r.pose.x, r.pose.y)} for rid, r in state.robots.items()},
+                        "robots": {
+                            rid: {"mode": r.mode.name, "pose": (r.pose.x, r.pose.y)}
+                            for rid, r in state.robots.items()
+                        },
                     },
                 )
             else:
@@ -193,7 +265,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         now = time.monotonic()
@@ -213,7 +285,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "invalid brand identifier"})
                 return
             events = COORDINATOR.ingest_uplink(brand, body, now)
-            COORDINATOR.tick(now)
+            result = COORDINATOR.tick(now)
+            _publish_tick_result(result)
             self._json(200, {"events": events})
             return
 
@@ -237,7 +310,8 @@ class Handler(BaseHTTPRequestHandler):
                 priority=body.get("priority", 0),
             )
             plan = COORDINATOR.submit_order(order)
-            COORDINATOR.tick(now)
+            result = COORDINATOR.tick(now)
+            _publish_tick_result(result)
             self._json(
                 200,
                 {
@@ -256,7 +330,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(400, {"error": "invalid order_id"})
                     return
                 ok = COORDINATOR.cancel_order(order_id, now)
-                COORDINATOR.tick(now)
+                result = COORDINATOR.tick(now)
+                _publish_tick_result(result)
                 self._json(200, {"cancelled": ok})
                 return
 
@@ -268,10 +343,18 @@ def main() -> None:
     if checks:
         raise RuntimeError(checks[0])
 
+    from http.server import ThreadingHTTPServer
+
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
     print(f"v5.0 Traffic Coordinator listening on 0.0.0.0:{PORT} mode={MODE}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        _TICK_STOP.set()
+        if _TICK_THREAD is not None:
+            _TICK_THREAD.join(timeout=2.0)
+        MQTT_GATEWAY.stop()
 
 
 if __name__ == "__main__":

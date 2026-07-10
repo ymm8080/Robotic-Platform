@@ -32,7 +32,7 @@ class _StrategyLike(Protocol):
         """Convert strategy-native RobotState → core FleetState."""
         ...
 
-    def to_capability_vector(self) -> "CapabilityVector":  # noqa: F821
+    def to_capability_vector(self) -> CapabilityVector:  # noqa: F821
         """Return brand-specific CapabilityVector."""
         ...
 

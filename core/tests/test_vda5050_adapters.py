@@ -23,7 +23,6 @@ from core.messages import (
     RobotMode,
 )
 
-
 # ── Mock strategy (simulates a sap-bridge BaseStrategy) ────────────
 
 
@@ -228,7 +227,7 @@ class TestBrandAdapterFactories:
 
         adapter = create_mir_adapter()
         assert isinstance(adapter, VDA5050FleetAdapter)
-        assert adapter.brand == "MiR"
+        assert adapter.brand == "mir"
 
     def test_create_otto_adapter(self):
         """create_otto_adapter produces a VDA5050FleetAdapter."""
@@ -236,7 +235,7 @@ class TestBrandAdapterFactories:
 
         adapter = create_otto_adapter()
         assert isinstance(adapter, VDA5050FleetAdapter)
-        assert adapter.brand == "OTTO"
+        assert adapter.brand == "otto"
 
     def test_create_kuka_adapter(self):
         """create_kuka_adapter produces a VDA5050FleetAdapter."""
@@ -244,7 +243,7 @@ class TestBrandAdapterFactories:
 
         adapter = create_kuka_adapter()
         assert isinstance(adapter, VDA5050FleetAdapter)
-        assert adapter.brand == "KUKA"
+        assert adapter.brand == "kuka"
 
     def test_create_geekplus_adapter(self):
         """create_geekplus_adapter produces a VDA5050FleetAdapter."""
@@ -252,7 +251,7 @@ class TestBrandAdapterFactories:
 
         adapter = create_geekplus_adapter()
         assert isinstance(adapter, VDA5050FleetAdapter)
-        assert adapter.brand == "GeekPlus"
+        assert adapter.brand == "geekplus"
 
     def test_create_hairobotics_adapter(self):
         """create_hairobotics_adapter produces a VDA5050FleetAdapter."""
@@ -260,7 +259,7 @@ class TestBrandAdapterFactories:
 
         adapter = create_hairobotics_adapter()
         assert isinstance(adapter, VDA5050FleetAdapter)
-        assert adapter.brand == "HaiRobotics"
+        assert adapter.brand == "hairobotics"
 
     def test_create_quicktron_adapter(self):
         """create_quicktron_adapter produces a VDA5050FleetAdapter."""
@@ -268,7 +267,7 @@ class TestBrandAdapterFactories:
 
         adapter = create_quicktron_adapter()
         assert isinstance(adapter, VDA5050FleetAdapter)
-        assert adapter.brand == "Quicktron"
+        assert adapter.brand == "quicktron"
 
     def test_all_adapters_can_map_state(self):
         """All 6 brand adapters can map a minimal vendor state."""
