@@ -38,8 +38,6 @@ from strategies.registry import UnknownBrandError
 
 # ── v5.0 Traffic Coordinator integration ─────────────────────────
 ENABLE_V5 = os.getenv("ENABLE_V5", "0").lower() in ("1", "true", "yes")
-if ENABLE_V5:
-    logger.info("v5.0 Traffic Coordinator integration ENABLED (ENABLE_V5=true)")
 
 _redis_client = redis_from_url(
     os.getenv("REDIS_URL", "redis://redis:6379/1"),
@@ -54,6 +52,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+if ENABLE_V5:
+    logger.info("v5.0 Traffic Coordinator integration ENABLED (ENABLE_V5=true)")
 
 # ──────────────────────────────────────────────
 # API Key authentication
@@ -334,7 +335,7 @@ class DispatchRequest(BaseModel):
 
 
 @app.post("/api/v1/dispatch")
-async def dispatch_order(req: DispatchRequest):
+async def dispatch_order(req: DispatchRequest, request: Request):
     """Dispatch an order to a robot using the brand strategy pattern.
 
     v4.1: This endpoint replaces the legacy direct-MQTT-publish flow.

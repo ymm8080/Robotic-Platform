@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from core.messages import CapabilityVector, FleetState
@@ -178,7 +178,7 @@ class BaseStrategy(ABC):
 
     # ── v5.0 bridge: strategy → core FleetState ──────────────────
 
-    def to_fleet_state(self, robot_state: RobotState) -> "FleetState":
+    def to_fleet_state(self, robot_state: RobotState) -> FleetState:
         """Convert a normalized RobotState into a core v5.0 FleetState.
 
         This bridges the sap-bridge strategy layer to the core coordinator.
@@ -235,7 +235,7 @@ class BaseStrategy(ABC):
             capability=self.to_capability_vector(),
         )
 
-    def to_capability_vector(self) -> "CapabilityVector":
+    def to_capability_vector(self) -> CapabilityVector:
         """Return a brand-specific CapabilityVector for the v5.0 allocator.
 
         Override in subclasses to set real payload, speed, model, and
