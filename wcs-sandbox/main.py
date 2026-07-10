@@ -14,13 +14,13 @@ Usage:
 TEST_TIMEOUT prefix: prepend to any order_id/robot_id to inject artificial delay
   e.g., "TEST_TIMEOUT_5000_R001" delays response by 5000ms
 """
-import json
+import asyncio
+import logging
 import os
 import time
-import logging
-from datetime import datetime, timezone
-from typing import Optional
-from fastapi import FastAPI, HTTPException, Query, Request
+from datetime import UTC, datetime
+
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -58,18 +58,18 @@ DEFAULT_BEHAVIORS = {
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-def _check_test_timeout(identifier: str):
-    """If identifier starts with TEST_TIMEOUT_N, sleep N ms."""
+async def _check_test_timeout(identifier: str):
+    """If identifier starts with TEST_TIMEOUT_N, await N ms."""
     if identifier and identifier.startswith("TEST_TIMEOUT_"):
         parts = identifier.split("_")
         if len(parts) >= 3 and parts[2].isdigit():
             delay_ms = int(parts[2])
             logger.info(f"⏰ TEST_TIMEOUT: sleeping {delay_ms}ms")
-            time.sleep(delay_ms / 1000.0)
+            await asyncio.sleep(delay_ms / 1000.0)
 
 
 def _make_response(success: bool, data: dict = None, error: str = None) -> dict:
-    resp = {"success": success, "timestamp": datetime.now(timezone.utc).isoformat()}
+    resp = {"success": success, "timestamp": datetime.now(UTC).isoformat()}
     if data:
         resp.update(data)
     if error:
@@ -117,7 +117,7 @@ async def acquire_zone_lock(req: ZoneLockRequest):
 
     WCS must support this API per RFQ不可协商条款.
     """
-    _check_test_timeout(req.robot_id)
+    await _check_test_timeout(req.robot_id)
 
     # Check brand support
     behavior = brand_behaviors.get(req.brand.lower(), DEFAULT_BEHAVIORS.get(req.brand.lower(), {}))
@@ -125,7 +125,9 @@ async def acquire_zone_lock(req: ZoneLockRequest):
         logger.warning(f"⚠ {req.brand} attempted zone lock but brand does not support it")
         return JSONResponse(
             status_code=501,
-            content=_make_response(False, error=f"Brand {req.brand} does not support zone_lock API"),
+            content=_make_response(
+                False, error=f"Brand {req.brand} does not support zone_lock API"
+            ),
         )
 
     existing = zone_locks.get(req.zone_id)
@@ -134,10 +136,12 @@ async def acquire_zone_lock(req: ZoneLockRequest):
             # Same robot — extend lock
             zone_locks[req.zone_id] = {
                 **existing,
-                "acquired_at": datetime.now(timezone.utc).isoformat(),
+                "acquired_at": datetime.now(UTC).isoformat(),
                 "expires_at": time.time() + req.duration_seconds,
             }
-            return _make_response(True, data={"zone_token": existing["zone_token"], "extended": True})
+            return _make_response(
+                True, data={"zone_token": existing["zone_token"], "extended": True}
+            )
 
         # Different robot — locked
         return JSONResponse(
@@ -155,7 +159,7 @@ async def acquire_zone_lock(req: ZoneLockRequest):
         "robot_id": req.robot_id,
         "brand": req.brand,
         "zone_token": zone_token,
-        "acquired_at": datetime.now(timezone.utc).isoformat(),
+        "acquired_at": datetime.now(UTC).isoformat(),
         "expires_at": time.time() + req.duration_seconds,
     }
     logger.info(f"🔒 Zone lock acquired: {req.zone_id} → {req.robot_id} ({req.brand})")
@@ -165,16 +169,19 @@ async def acquire_zone_lock(req: ZoneLockRequest):
 @app.delete("/api/zone_lock/{zone_id}")
 async def release_zone_lock(zone_id: str, robot_id: str = Query(...), zone_token: str = Query(...)):
     """Release a zone lock. Requires valid zone_token."""
-    _check_test_timeout(robot_id)
+    await _check_test_timeout(robot_id)
 
     lock = zone_locks.get(zone_id)
     if not lock:
         return _make_response(True, data={"note": "zone not locked"})
 
     if lock["zone_token"] != zone_token:
-        return JSONResponse(status_code=403, content=_make_response(False, error="invalid zone_token"))
+        return JSONResponse(
+            status_code=403,
+            content=_make_response(False, error="invalid zone_token"),
+        )
 
-    zone_locks[zone_id]["released_at"] = datetime.now(timezone.utc).isoformat()
+    zone_locks[zone_id]["released_at"] = datetime.now(UTC).isoformat()
     del zone_locks[zone_id]
     logger.info(f"🔓 Zone lock released: {zone_id} by {robot_id}")
     return _make_response(True, data={"zone_id": zone_id})
@@ -203,22 +210,22 @@ async def task_callback(req: TaskStatusRequest):
 
     Standard fields: task_id, status, location, timestamp, error_code (max 5).
     """
-    _check_test_timeout(req.task_id)
+    await _check_test_timeout(req.task_id)
     # Simulate brand-specific delay
     behavior = brand_behaviors.get("default", DEFAULT_BEHAVIORS.get("geekplus", {}))
     delay = behavior.get("callback_delay_ms", 200)
     if req.task_id and req.task_id.startswith("TEST_TIMEOUT_"):
         pass  # already handled by _check_test_timeout
     else:
-        time.sleep(delay / 1000.0)
+        await asyncio.sleep(delay / 1000.0)
 
     record = {
         "task_id": req.task_id,
         "status": req.status,
         "location": req.location,
-        "timestamp": req.timestamp or datetime.now(timezone.utc).isoformat(),
+        "timestamp": req.timestamp or datetime.now(UTC).isoformat(),
         "error_code": req.error_code,
-        "received_at": datetime.now(timezone.utc).isoformat(),
+        "received_at": datetime.now(UTC).isoformat(),
     }
     task_callbacks.append(record)
     logger.info(f"📞 Task callback: {req.task_id} → {req.status}")

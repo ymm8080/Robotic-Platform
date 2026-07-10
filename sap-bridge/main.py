@@ -32,6 +32,7 @@ from metrics import (
     sap_connected,
 )
 from mqtt_publisher import get_publisher
+from rate_limiter import RateLimitMiddleware
 from redis_client import redis_from_url
 from strategies import get_registry
 from strategies.registry import UnknownBrandError
@@ -172,6 +173,9 @@ app = FastAPI(
 
 # Register Prometheus metrics middleware
 app.add_middleware(MetricsMiddleware)
+
+# Register Redis-backed rate limiter (fail-open if Redis unavailable)
+app.add_middleware(RateLimitMiddleware, redis_client=_redis_client)
 
 
 @app.middleware("http")
@@ -438,7 +442,7 @@ async def dispatch_order(req: DispatchRequest, request: Request):
             "payload_kg": 0.0,
             "priority": req.priority,
         }
-        v5_response = tc.submit_order(tc_order)
+        v5_response = await tc.submit_order_async(tc_order)
         if not v5_response.ok:
             logger.warning("v5.0 coordinator rejected order %s: %s", req.orderId, v5_response.error)
 
@@ -1253,7 +1257,7 @@ async def v5_platform_state(request: Request):
     tc = getattr(request.app.state, "tc_client", None)
     if tc is None:
         return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
-    result = tc.state()
+    result = await tc.state_async()
     if not result.ok:
         return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
     return result.data
@@ -1265,7 +1269,7 @@ async def v5_coordinator_health(request: Request):
     tc = getattr(request.app.state, "tc_client", None)
     if tc is None:
         return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
-    result = tc.health()
+    result = await tc.health_async()
     if not result.ok:
         return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
     return result.data
@@ -1308,7 +1312,7 @@ async def v5_ingest_state(brand: str, request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse(status_code=400, content={"error": "invalid_json"})
-    result = tc.ingest_state(brand, body)
+    result = await tc.ingest_state_async(brand, body)
     if not result.ok:
         return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
     return result.data

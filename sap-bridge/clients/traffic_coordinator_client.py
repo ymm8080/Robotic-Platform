@@ -8,9 +8,14 @@ Usage::
     health = client.health()
     client.ingest_state("mir", {"serialNumber": "mir-001", ...})
     result = client.submit_order(order_dict)
+
+The synchronous methods below are safe for use outside an async event loop.
+Inside the async SAP Bridge app, use the ``*_async`` variants to avoid
+blocking the event loop on network I/O.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -132,3 +137,33 @@ class TrafficCoordinatorClient:
         except (TimeoutError, OSError) as exc:
             logger.warning("coordinator timeout at %s: %s", url, exc)
             return ClientResult(ok=False, error=f"timeout: {exc}")
+
+    # ── async variants (do not block the FastAPI event loop) ─────
+
+    async def health_async(self) -> ClientResult:
+        """Async wrapper for :meth:`health`."""
+        return await asyncio.to_thread(self.health)
+
+    async def version_async(self) -> ClientResult:
+        """Async wrapper for :meth:`version`."""
+        return await asyncio.to_thread(self.version)
+
+    async def state_async(self) -> ClientResult:
+        """Async wrapper for :meth:`state`."""
+        return await asyncio.to_thread(self.state)
+
+    async def metrics_async(self) -> ClientResult:
+        """Async wrapper for :meth:`metrics`."""
+        return await asyncio.to_thread(self.metrics)
+
+    async def ingest_state_async(self, brand: str, payload: dict) -> ClientResult:
+        """Async wrapper for :meth:`ingest_state`."""
+        return await asyncio.to_thread(self.ingest_state, brand, payload)
+
+    async def submit_order_async(self, order: dict) -> ClientResult:
+        """Async wrapper for :meth:`submit_order`."""
+        return await asyncio.to_thread(self.submit_order, order)
+
+    async def cancel_order_async(self, order_id: str) -> ClientResult:
+        """Async wrapper for :meth:`cancel_order`."""
+        return await asyncio.to_thread(self.cancel_order, order_id)
