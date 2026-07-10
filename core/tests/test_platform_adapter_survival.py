@@ -15,7 +15,7 @@ from core.platform.failover_degrade import FailoverDegrade
 from core.platform.fixed_lane_map import FixedLaneMap, Lane, SpeedClass
 from core.platform.lift_manager import LiftManager, LiftState
 from core.platform.robot_as_obstacle import RobotAsObstacle
-from core.survival.version_router import VersionRouter, VersionedMessage
+from core.survival.version_router import VersionedMessage, VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
 
 

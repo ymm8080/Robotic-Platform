@@ -311,7 +311,10 @@ class FixedLaneMap:
         if start_node == goal_node and start != goal:
             lane = self._lanes.get(start)
             if lane and lane.to_node == goal_node and _allowed(lane):
-                return [start]
+                result = [start]
+                if lane_filter is None:
+                    self._path_cache[cache_key] = list(result)
+                return result
 
         first_lanes = [
             lid
