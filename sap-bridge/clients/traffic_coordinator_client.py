@@ -15,7 +15,6 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
