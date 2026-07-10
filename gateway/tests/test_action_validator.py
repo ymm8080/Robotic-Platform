@@ -11,7 +11,7 @@ from gateway.app.models import ActionType, CallbackAction, TargetType
 def validator():
     v = ActionValidator()
     v._redis = AsyncMock()
-    v._http = AsyncMock()
+    v._http_client = AsyncMock()
     return v
 
 
@@ -89,7 +89,7 @@ async def test_permission_has_permission_passes(validator, action, card_context)
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"state": "EXECUTING"}
-    validator._http.get = AsyncMock(return_value=mock_resp)
+    validator._http_client.get = AsyncMock(return_value=mock_resp)
 
     # Mock for pre-execution (safe mode check)
     validator._redis.get = AsyncMock(side_effect=[
@@ -139,7 +139,7 @@ async def test_dangerous_action_requires_confirm(validator, action, card_context
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"state": "EXECUTING"}
-    validator._http.get = AsyncMock(return_value=mock_resp)
+    validator._http_client.get = AsyncMock(return_value=mock_resp)
 
     validator._redis.set = AsyncMock(return_value=True)  # anti-replay passes
     validator._redis.hset = AsyncMock(return_value=True)
@@ -159,7 +159,7 @@ async def test_readonly_action_no_confirm_needed():
     """Read-only actions should not require secondary confirmation."""
     v = ActionValidator()
     v._redis = AsyncMock()
-    v._http = AsyncMock()
+    v._http_client = AsyncMock()
 
     readonly_action = CallbackAction(
         action_type=ActionType.DISMISS,

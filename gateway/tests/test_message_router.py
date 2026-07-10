@@ -15,9 +15,6 @@ def router():
 
 def test_resolve_channels_with_specific_request(router):
     """Specific channel requests should filter by enabled."""
-    with patch.object(router, '_MessageRouter__init__'):
-        pass
-
     # Mock settings
     import gateway.app.config as config
     original = config.settings.enabled_channels
