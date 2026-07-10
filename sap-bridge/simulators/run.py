@@ -17,10 +17,10 @@ import signal
 import sys
 import time
 
-from sap_bridge.simulators.base_simulator import BaseRobotSimulator
-from sap_bridge.simulators.kuka_simulator import KukaSimulator
-from sap_bridge.simulators.mir_simulator import MirSimulator
-from sap_bridge.simulators.otto_simulator import OttoSimulator
+from simulators.base_simulator import BaseRobotSimulator
+from simulators.kuka_simulator import KukaSimulator
+from simulators.mir_simulator import MirSimulator
+from simulators.otto_simulator import OttoSimulator
 
 logging.basicConfig(
     level=logging.INFO,

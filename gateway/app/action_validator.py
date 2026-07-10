@@ -10,6 +10,7 @@ Six layers (all must pass, any failure = reject):
 """
 import hashlib
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -59,8 +60,19 @@ class ActionValidator:
 
     async def init(self):
         """Initialize async resources."""
-        self._redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        redis_kwargs = {"decode_responses": True}
+        if settings.REDIS_URL.startswith("rediss://") or os.getenv("REDIS_SSL", "false").lower() == "true":
+            redis_kwargs["ssl"] = True
+            redis_kwargs["ssl_cert_reqs"] = os.getenv("REDIS_SSL_CERT_REQS", "required")
+        self._redis = aioredis.from_url(settings.REDIS_URL, **redis_kwargs)
         self._http_client = httpx.AsyncClient(timeout=10.0)
+
+    def _core_headers(self) -> dict:
+        """Headers for core-platform object-validation requests."""
+        headers = {"Accept": "application/json"}
+        if settings.core_platform_api_key:
+            headers["X-API-Key"] = settings.core_platform_api_key
+        return headers
 
     async def close(self):
         """Cleanup async resources."""
@@ -194,7 +206,8 @@ class ActionValidator:
         try:
             if action.target_type == TargetType.ROBOT:
                 resp = await self._http_client.get(
-                    f"{settings.CORE_PLATFORM_URL}/api/robot/{action.target_id}/status"
+                    f"{settings.CORE_PLATFORM_URL}/api/robot/{action.target_id}/status",
+                    headers=self._core_headers(),
                 )
                 if resp.status_code == 404:
                     return ValidationResult(
@@ -218,7 +231,8 @@ class ActionValidator:
 
             elif action.target_type == TargetType.ORDER:
                 resp = await self._http_client.get(
-                    f"{settings.CORE_PLATFORM_URL}/api/order/{action.target_id}"
+                    f"{settings.CORE_PLATFORM_URL}/api/order/{action.target_id}",
+                    headers=self._core_headers(),
                 )
                 if resp.status_code == 404:
                     return ValidationResult(
@@ -241,7 +255,8 @@ class ActionValidator:
 
             elif action.target_type == TargetType.ZONE:
                 resp = await self._http_client.get(
-                    f"{settings.CORE_PLATFORM_URL}/api/zone/{action.target_id}/status"
+                    f"{settings.CORE_PLATFORM_URL}/api/zone/{action.target_id}/status",
+                    headers=self._core_headers(),
                 )
                 if resp.status_code == 404:
                     return ValidationResult(

@@ -28,6 +28,9 @@ services:
     environment:
       - TZ=UTC
       - NODE_OPTIONS=--max-old-space-size=512
+      # Redis TLS（Node-RED settings.js 需同步启用 TLS 才会生效）
+      - REDIS_SSL=${REDIS_SSL:-false}
+      - REDIS_SSL_CERT_REQS=${REDIS_SSL_CERT_REQS:-required}
       # 🟡 修正：删除 NODE_RED_ENABLE_SAFE_MODE=false，由 Watchdog 通过 Redis 动态控制
       # 飞书配置
       - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL:-}
@@ -41,9 +44,9 @@ services:
       - WECOM_ENCODING_AES_KEY=${WECOM_ENCODING_AES_KEY:-}
       # 急救页 IP 白名单
       - RESCUE_DASHBOARD_ALLOWED_IPS=${RESCUE_DASHBOARD_ALLOWED_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
-      - RESCUE_OPS_PHONE=${RESCUE_OPS_PHONE:-13800000000}
+      - RESCUE_OPS_PHONE=${RESCUE_OPS_PHONE:-}
       # Redis 连接
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       # SAP 桥接层地址（内部网络）
       - SAP_BRIDGE_URL=http://sap-bridge:8000
       # v3.5: Kafka 连接（消息网关事件生产者）
@@ -93,12 +96,20 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379" # 仅本机访问，禁止公网
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$${REDIS_PASSWORD}" ]; then
+          echo "ERROR: REDIS_PASSWORD is required" >&2
+          exit 1
+        fi
+        exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$${REDIS_PASSWORD}"
     volumes:
       - redis-data:/data
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -147,7 +158,9 @@ services:
     environment:
       - TZ=UTC
       - PYTHONUNBUFFERED=1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/1
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - REDIS_SSL=${REDIS_SSL:-false}
+      - REDIS_SSL_CERT_REQS=${REDIS_SSL_CERT_REQS:-required}
       - SAP_ASHOST=${SAP_ASHOST}
       - SAP_SYSNR=${SAP_SYSNR}
       - SAP_CLIENT=${SAP_CLIENT}
@@ -165,6 +178,17 @@ services:
       - PG_DB=robot_platform
       - PG_USER=robot_platform
       - PG_PASSWORD_FILE=/run/secrets/pg_password
+      # SAP Bridge 内部 API 认证
+      - SAP_BRIDGE_API_KEY_FILE=/run/secrets/sap_bridge_api_key
+      # Watchdog API 认证（system_health 聚合调用）
+      - WATCHDOG_API_KEY_FILE=/run/secrets/watchdog_api_key
+      # MQTT 发布/订阅安全传输（v5.x 零信任）
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD_FILE=/run/secrets/mqtt_password
+      - MQTT_CA_CERT=${MQTT_CA_CERT:-}
+      - MQTT_CLIENT_CERT=${MQTT_CLIENT_CERT:-}
+      - MQTT_CLIENT_KEY=${MQTT_CLIENT_KEY:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -181,6 +205,9 @@ services:
     secrets:
       - sap_password
       - pg_password
+      - sap_bridge_api_key
+      - mqtt_password
+      - watchdog_api_key
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -426,7 +453,9 @@ services:
     environment:
       - TZ=UTC
       - PYTHONUNBUFFERED=1
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - REDIS_SSL=${REDIS_SSL:-false}
+      - REDIS_SSL_CERT_REQS=${REDIS_SSL_CERT_REQS:-required}
       # 🔴 修复3：通过代理连接 Docker，不再直接挂载 docker.sock
       - DOCKER_HOST=tcp://docker-socket-proxy:2375
       - NODE_RED_CONTAINER=robot-platform-nodered
@@ -444,10 +473,13 @@ services:
       - LLM_DAILY_LIMIT=1000
       - LLM_HOURLY_LIMIT=100
       - WATCHDOG_HTTP_PORT=9090
+      - WATCHDOG_API_KEY_FILE=/run/secrets/watchdog_api_key
       - FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL:-}
       - FEISHU_WEBHOOK_SECRET=${FEISHU_WEBHOOK_SECRET:-}
       - RESCUE_OPS_PHONE=${RESCUE_OPS_PHONE:-13800000000}
       - HOST=${HOST:-localhost}
+    secrets:
+      - watchdog_api_key
     # 🟡 修正：depends_on 条件统一为 service_healthy
     depends_on:
       redis:
@@ -597,7 +629,7 @@ services:
     environment:
       - TZ=UTC
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_INSTALL_PLUGINS=
     volumes:
@@ -688,7 +720,7 @@ services:
       - TZ=UTC
       - discovery.type=single-node
       - xpack.security.enabled=true
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-robot-platform-es}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - ES_JAVA_OPTS=-Xms256m -Xmx256m
       - cluster.name=robot-platform-es
       - bootstrap.memory_lock=true
@@ -699,7 +731,7 @@ services:
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD:-robot-platform-es} http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -750,10 +782,14 @@ services:
       - KAFKA_CONSUMER_GROUP=message-gateway
       # Elasticsearch 连接
       - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD:-robot-platform-es}
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTICSEARCH_SSL=${ELASTICSEARCH_SSL:-false}
+      - ELASTICSEARCH_SSL_VERIFY=${ELASTICSEARCH_SSL_VERIFY:-true}
       - ELASTICSEARCH_INDEX_PREFIX=gateway_audit
       # Redis 连接（共享）
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/2
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
+      - REDIS_SSL=${REDIS_SSL:-false}
+      - REDIS_SSL_CERT_REQS=${REDIS_SSL_CERT_REQS:-required}
       # 企业微信配置
       - WECOM_CORP_ID=${WECOM_CORP_ID:-}
       - WECOM_AGENT_ID=${WECOM_AGENT_ID:-}
@@ -779,6 +815,9 @@ services:
       - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
       # 核心业务主板回调地址
       - CORE_PLATFORM_URL=http://nodered:1880
+      - CORE_PLATFORM_API_KEY_FILE=/run/secrets/core_platform_api_key
+      # 网关内部 API 认证
+      - GATEWAY_API_KEY_FILE=/run/secrets/gateway_api_key
       # 二次确认超时（秒）
       - CONFIRM_TIMEOUT_SECONDS=300
       # 审计日志保留天数
@@ -800,6 +839,8 @@ services:
       - internal
     secrets:
       - smtp_password
+      - gateway_api_key
+      - core_platform_api_key
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -907,6 +948,18 @@ secrets:
   # v4.0: PostgreSQL password
   pg_password:
     file: ./secrets/pg_password.txt
+  # v5.x: 服务间 API 认证（空文件表示未启用认证，生产环境必须写入真实密钥）
+  gateway_api_key:
+    file: ./secrets/gateway_api_key.txt
+  core_platform_api_key:
+    file: ./secrets/core_platform_api_key.txt
+  sap_bridge_api_key:
+    file: ./secrets/sap_bridge_api_key.txt
+  watchdog_api_key:
+    file: ./secrets/watchdog_api_key.txt
+  # v5.x: MQTT 认证密码（空文件表示未启用 MQTT 认证）
+  mqtt_password:
+    file: ./secrets/mqtt_password.txt
 
 # =============================================================================
 # [v4.0] WCS 影子沙箱（品牌适配 Mock 服务）

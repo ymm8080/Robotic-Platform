@@ -1,5 +1,7 @@
 """WeChat (企业微信) platform adapter."""
 import hashlib
+import hmac
+import json
 import logging
 from typing import Any, Optional
 
@@ -31,19 +33,25 @@ class WeChatAdapter:
             await self._http.aclose()
 
     async def _get_access_token(self) -> str:
-        """Fetch and cache access token."""
+        """Fetch and cache access token with HTTP/JSON error handling."""
         import time
         if self._access_token and time.time() < self._token_expires - 60:
             return self._access_token
 
-        resp = await self._http.get(
-            self.TOKEN_URL,
-            params={
-                "corpid": settings.WECOM_CORP_ID,
-                "corpsecret": settings.WECOM_SECRET,
-            },
-        )
-        data = resp.json()
+        try:
+            resp = await self._http.get(
+                self.TOKEN_URL,
+                params={
+                    "corpid": settings.WECOM_CORP_ID,
+                    "corpsecret": settings.WECOM_SECRET,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as e:
+            logger.error("[WeChat] Token request failed: %s", e)
+            return ""
+
         if data.get("errcode") != 0:
             logger.error("[WeChat] Failed to get access token: %s", data)
             return ""
@@ -78,6 +86,7 @@ class WeChatAdapter:
                 params={"access_token": token},
                 json=payload,
             )
+            resp.raise_for_status()
             data = resp.json()
             if data.get("errcode") == 0:
                 msg_id = data.get("msgid", "")
@@ -86,9 +95,12 @@ class WeChatAdapter:
             else:
                 logger.error("[WeChat] Send failed: %s", data)
                 return {"status": "failed", "message_id": None, "error": str(data)}
-        except httpx.RequestError as e:
-            logger.error("[WeChat] Request error: %s", e)
+        except httpx.HTTPError as e:
+            logger.error("[WeChat] HTTP error: %s", e)
             return {"status": "failed", "message_id": None, "error": str(e)}
+        except json.JSONDecodeError as e:
+            logger.error("[WeChat] Non-JSON response: %s", e)
+            return {"status": "failed", "message_id": None, "error": "non_json_response"}
 
     def verify_signature(
         self,
@@ -110,13 +122,7 @@ class WeChatAdapter:
         parts = sorted([verify_token, timestamp, nonce])
         computed = hashlib.sha1("".join(parts).encode()).hexdigest()
 
-        if computed == signature:
-            return True
-
-        logger.warning(
-            "[WeChat] Signature mismatch: expected=%s, got=%s", computed, signature
-        )
-        return False
+        return hmac.compare_digest(computed, signature)
 
     def parse_callback(self, raw_body: dict) -> Optional[PlatformCallback]:
         """Parse WeChat callback into unified format."""

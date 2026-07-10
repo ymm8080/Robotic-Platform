@@ -17,6 +17,7 @@ import logging.handlers
 import hashlib
 import base64
 import hmac
+import secrets
 import subprocess
 import threading
 from datetime import datetime, timezone, timedelta
@@ -201,8 +202,22 @@ WECOM_WEBHOOK_URL = os.getenv('WECOM_WEBHOOK_URL', '')
 WECOM_CORP_ID = os.getenv('WECOM_CORP_ID', '')
 WECOM_AGENT_ID = os.getenv('WECOM_AGENT_ID', '')
 WECOM_SECRET = os.getenv('WECOM_SECRET', '')
-OPS_PHONE = os.getenv('RESCUE_OPS_PHONE', '13800000000')
+OPS_PHONE = os.getenv('RESCUE_OPS_PHONE', '')
 HOST = os.getenv('HOST', 'localhost')
+
+# Watchdog HTTP API authentication
+WATCHDOG_API_KEY_FILE = os.getenv('WATCHDOG_API_KEY_FILE', '/run/secrets/watchdog_api_key')
+
+
+def _load_watchdog_api_key() -> str:
+    """Load API key for Watchdog HTTP endpoints from Docker secret or env var."""
+    try:
+        return Path(WATCHDOG_API_KEY_FILE).read_text().strip()
+    except (FileNotFoundError, PermissionError):
+        return os.getenv('WATCHDOG_API_KEY', '')
+
+
+WATCHDOG_API_KEY = _load_watchdog_api_key()
 
 # ==========================================
 # 日志配置
@@ -265,14 +280,17 @@ class RedisClient:
 
     def _connect(self):
         try:
-            self._client = redis.from_url(
-                self.url,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-                health_check_interval=30,
-                retry_on_timeout=True
-            )
+            kwargs = {
+                'decode_responses': True,
+                'socket_connect_timeout': 5,
+                'socket_timeout': 5,
+                'health_check_interval': 30,
+                'retry_on_timeout': True,
+            }
+            if self.url.startswith('rediss://') or os.getenv('REDIS_SSL', 'false').lower() == 'true':
+                kwargs['ssl'] = True
+                kwargs['ssl_cert_reqs'] = os.getenv('REDIS_SSL_CERT_REQS', 'required')
+            self._client = redis.from_url(self.url, **kwargs)
             self._client.ping()
             logger.info("✅ Redis 连接成功")
         except Exception as e:
@@ -398,6 +416,7 @@ class FeishuAlerter:
             return ''
         string_to_sign = f"{timestamp}\n{self.secret}"
         hmac_code = hmac.new(
+            self.secret.encode('utf-8'),
             string_to_sign.encode('utf-8'),
             digestmod=hashlib.sha256
         ).digest()
@@ -829,10 +848,10 @@ class WatchdogEngine:
         """从 Redis 恢复上次状态（防止 Watchdog 重启后状态丢失）"""
         try:
             sm = redis_client.get('system:safe_mode')
-            if sm:
+            if sm and sm.lower() == 'true':
                 self.safe_mode_active = True
-                self.safe_mode_reason = sm
-                logger.warning(f"🔄 从 Redis 恢复安全模式状态: {sm}")
+                self.safe_mode_reason = redis_client.get('system:safe_mode_reason') or 'UNKNOWN'
+                logger.warning(f"🔄 从 Redis 恢复安全模式状态: {self.safe_mode_reason}")
 
             tr = redis_client.get('system:throttle_mode')
             if tr:
@@ -864,8 +883,9 @@ class WatchdogEngine:
             self.throttle_active = False
             self.throttle_rate = 0
 
-            # 写入 Redis（Node-RED 读取后停止派单）
-            redis_client.set('system:safe_mode', reason, ex=3600)
+            # 写入 Redis（Node-RED 读取 system:safe_mode 后停止派单；原因单独存储）
+            redis_client.set('system:safe_mode', 'true', ex=3600)
+            redis_client.set('system:safe_mode_reason', reason, ex=3600)
             redis_client.delete('system:throttle_mode')
             redis_client.set('system:safe_mode_triggered_at', datetime.now(timezone.utc).isoformat())
 
@@ -897,7 +917,7 @@ class WatchdogEngine:
             self.safe_mode_active = False
             self.safe_mode_reason = ''
 
-            redis_client.delete('system:safe_mode')
+            redis_client.delete('system:safe_mode', 'system:safe_mode_reason')
             redis_client.set('system:safe_mode_cleared_at', datetime.now(timezone.utc).isoformat())
 
             logger.info(f"🟢 安全模式已解除，原因: {reason}")
@@ -1255,11 +1275,27 @@ import threading
 class WatchdogHTTPHandler(BaseHTTPRequestHandler):
     """极简 HTTP 接口，供 Prometheus / 运维脚本采集"""
 
+    MAX_BODY_BYTES = 1_048_576  # 1 MB
+
     def log_message(self, format, *args):
         # 静默日志，避免污染
         pass
 
+    def _check_auth(self) -> bool:
+        """Require X-API-Key or Authorization: Bearer for all endpoints except /health when configured."""
+        if not WATCHDOG_API_KEY or self.path == '/health':
+            return True
+        provided = self.headers.get('X-API-Key', '')
+        if not provided:
+            auth = self.headers.get('Authorization', '')
+            if auth.lower().startswith('bearer '):
+                provided = auth[7:].strip()
+        return secrets.compare_digest(WATCHDOG_API_KEY, provided)
+
     def do_GET(self):
+        if not self._check_auth():
+            self._send_json({'error': 'unauthorized'}, 401)
+            return
         if self.path == '/health':
             self._send_json({'status': 'ok', 'pid': os.getpid()})
         elif self.path == '/metrics':
@@ -1295,11 +1331,17 @@ class WatchdogHTTPHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         """Accept Alertmanager webhook alerts and forward via Feishu/WeCom."""
+        if not self._check_auth():
+            self._send_json({'error': 'unauthorized'}, 401)
+            return
         if self.path == '/api/v1/alert/prometheus':
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
                 if content_length == 0:
                     self._send_json({'error': 'empty body'}, 400)
+                    return
+                if content_length > self.MAX_BODY_BYTES:
+                    self._send_json({'error': 'body too large'}, 413)
                     return
                 body = self.rfile.read(content_length)
                 data = json.loads(body)

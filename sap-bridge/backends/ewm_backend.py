@@ -20,6 +20,7 @@ import httpx
 import redis as rd
 
 from models.warehouse_task import WarehouseTask
+from redis_client import redis_from_url
 
 from .base import WarehouseBackend
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # ── Defaults ───────────────────────────────────────────────
 
-DEFAULT_BASE_URL = os.getenv("SAP_BASE_URL", "http://sap-ewm:8000")
+DEFAULT_BASE_URL = os.getenv("SAP_EWM_BASE_URL", os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"))
 DEFAULT_CLIENT = os.getenv("SAP_CLIENT", "100")
 DEFAULT_USER = os.getenv("SAP_USER", "")
 DEFAULT_PASSWORD_FILE = os.getenv("SAP_PASSWORD_FILE", "/run/secrets/sap_password")
@@ -48,8 +49,8 @@ def _read_password(password_file: str) -> str:
         with open(password_file) as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.warning(f"SAP password file not found: {password_file}")
-        return os.getenv("SAP_PASSWORD", "")
+        logger.error(f"SAP password file not found: {password_file}")
+        raise
 
 
 # ── CSRF Token Manager ─────────────────────────────────────
@@ -125,7 +126,7 @@ class EwmBackend(WarehouseBackend):
     def _ensure_redis(self) -> rd.Redis:
         """Get or create Redis connection (lazy init)."""
         if self._redis is None:
-            self._redis = rd.from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
+            self._redis = redis_from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
         return self._redis
 
     def _ensure_csrf(self) -> CsrfTokenManager:
@@ -145,7 +146,8 @@ class EwmBackend(WarehouseBackend):
     # ── HTTP helpers ─────────────────────────────────────
 
     def _get_client(self) -> httpx.Client:
-        verify_ssl = os.getenv("SAP_VERIFY_SSL", "false").lower() == "true"
+        # Default to verified TLS; only disable when explicitly requested for dev/test.
+        verify_ssl = os.getenv("SAP_VERIFY_SSL", "true").lower() != "false"
         return httpx.Client(timeout=30.0, verify=verify_ssl)
 
     def _get_headers(self, csrf_token: str | None = None) -> dict:
@@ -200,8 +202,7 @@ class EwmBackend(WarehouseBackend):
             return self.list_tasks(warehouse, status, top, skip)
         else:
             logger.error(f"SAP error {resp.status_code}: {resp.text[:200]}")
-            resp.raise_for_status()  # raises HTTPStatusError
-            raise AssertionError("unreachable — raise_for_status always raises on failure")
+            resp.raise_for_status()
 
     def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
         self._throttle()
@@ -211,7 +212,8 @@ class EwmBackend(WarehouseBackend):
         with self._get_client() as client:
             resp = client.get(url, headers=self._get_headers(), auth=self._auth)
             if resp.status_code == 200:
-                return self._parse_task(resp.json().get("d", resp.json()))
+                data = resp.json()
+                return self._parse_task(data.get("d", data))
             elif resp.status_code == 404:
                 return None
             resp.raise_for_status()
@@ -237,7 +239,8 @@ class EwmBackend(WarehouseBackend):
 
             if resp.status_code in (200, 201):
                 logger.info(f"Created warehouse task for {task.product}")
-                return self._parse_task(resp.json().get("d", resp.json()))
+                data = resp.json()
+                return self._parse_task(data.get("d", data))
             elif resp.status_code == 403:
                 logger.info("CSRF token expired, refreshing...")
                 csrf = self._ensure_csrf()
@@ -246,7 +249,8 @@ class EwmBackend(WarehouseBackend):
                 headers["Cookie"] = cookies
                 resp = client.post(url, json=payload, headers=headers, auth=self._auth)
                 if resp.status_code in (200, 201):
-                    return self._parse_task(resp.json().get("d", resp.json()))
+                    data = resp.json()
+                    return self._parse_task(data.get("d", data))
             elif resp.status_code == 429:
                 retry_after = int(resp.headers.get("Retry-After", 2))
                 delay = min(retry_after, 30)

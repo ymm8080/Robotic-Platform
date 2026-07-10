@@ -229,6 +229,81 @@ def init_schema():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox_events(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_outbox_order ON outbox_events(order_id)")
 
+        # ── Shared canonical facility map tables ────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS facility_maps (
+                id              SERIAL PRIMARY KEY,
+                name            TEXT NOT NULL,
+                version         INTEGER NOT NULL DEFAULT 1,
+                map_data        JSONB DEFAULT '{}',
+                origin_x        DOUBLE PRECISION DEFAULT 0,
+                origin_y        DOUBLE PRECISION DEFAULT 0,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(name, version)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS map_nodes (
+                id              SERIAL PRIMARY KEY,
+                map_id          INTEGER NOT NULL REFERENCES facility_maps(id),
+                node_id         TEXT NOT NULL,
+                x               DOUBLE PRECISION NOT NULL,
+                y               DOUBLE PRECISION NOT NULL,
+                theta           DOUBLE PRECISION DEFAULT 0,
+                properties      JSONB DEFAULT '{}',
+                UNIQUE(map_id, node_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_map_nodes_map ON map_nodes(map_id)")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS map_edges (
+                id              SERIAL PRIMARY KEY,
+                map_id          INTEGER NOT NULL REFERENCES facility_maps(id),
+                edge_id         TEXT NOT NULL,
+                start_node_id   TEXT NOT NULL,
+                end_node_id     TEXT NOT NULL,
+                properties      JSONB DEFAULT '{}',
+                UNIQUE(map_id, edge_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_map_edges_map ON map_edges(map_id)")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS map_zones (
+                id              SERIAL PRIMARY KEY,
+                map_id          INTEGER NOT NULL REFERENCES facility_maps(id),
+                zone_id         TEXT NOT NULL,
+                zone_type       TEXT NOT NULL DEFAULT 'EXCLUSION'
+                                    CHECK(zone_type IN ('EXCLUSION', 'CHARGING', 'STAGING', 'PICKING', 'CUSTOM')),
+                polygon         JSONB NOT NULL,
+                properties      JSONB DEFAULT '{}'
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_map_zones_map ON map_zones(map_id)")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS brand_calibrations (
+                id              SERIAL PRIMARY KEY,
+                brand           TEXT NOT NULL,
+                map_id          INTEGER NOT NULL REFERENCES facility_maps(id),
+                scale_x         DOUBLE PRECISION DEFAULT 1.0,
+                scale_y         DOUBLE PRECISION DEFAULT 1.0,
+                shear           DOUBLE PRECISION DEFAULT 0.0,
+                rotation_deg    DOUBLE PRECISION DEFAULT 0.0,
+                translate_x     DOUBLE PRECISION DEFAULT 0.0,
+                translate_y     DOUBLE PRECISION DEFAULT 0.0,
+                reference_points JSONB NOT NULL DEFAULT '[]',
+                residual_error_mm DOUBLE PRECISION,
+                calibrated_at   TIMESTAMPTZ DEFAULT NOW(),
+                calibrated_by   TEXT,
+                valid_until     TIMESTAMPTZ,
+                UNIQUE(brand, map_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_calibrations_brand ON brand_calibrations(brand)")
+
         conn.commit()
         logger.info("Schema initialized (PostgreSQL)")
     finally:

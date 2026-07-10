@@ -98,7 +98,7 @@ class BrandConfigRequest(BaseModel):
     zone_lock_support: bool = True
     callback_delay_ms: int = 200
     response_format: str = "standard"
-    known_deviations: list[str] = []
+    known_deviations: list[str] = Field(default_factory=list)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────

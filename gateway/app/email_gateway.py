@@ -1,4 +1,5 @@
 """Email Gateway - Send alert notifications via SMTP."""
+import asyncio
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -21,7 +22,7 @@ class EmailGateway:
         subject: str,
         html_body: str,
     ) -> dict:
-        """Send email to recipients.
+        """Send email to recipients asynchronously.
 
         Returns dict with status and message_id.
         """
@@ -33,6 +34,18 @@ class EmailGateway:
             logger.warning("[Email] No recipients specified")
             return {"status": "skipped", "message_id": None, "error": "no recipients"}
 
+        return await asyncio.to_thread(
+            self._send_sync, notification, recipients, subject, html_body
+        )
+
+    def _send_sync(
+        self,
+        notification: NotificationRequest,
+        recipients: list[str],
+        subject: str,
+        html_body: str,
+    ) -> dict:
+        """Synchronous SMTP send (runs in thread pool)."""
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject

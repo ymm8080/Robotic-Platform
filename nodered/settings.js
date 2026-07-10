@@ -78,11 +78,19 @@ module.exports = {
     uiHost: process.env.HOST || '0.0.0.0',
 
     // --- 安全：Admin 认证（等保三级-双因素认证预留） ---
+    // 禁止硬编码默认密码；启动时必须通过 NODE_RED_ADMIN_PASS 提供 bcrypt 哈希密码。
     adminAuth: {
         type: "credentials",
         users: [{
             username: process.env.NODE_RED_ADMIN_USER || "admin",
-            password: process.env.NODE_RED_ADMIN_PASS || "$2a$08$zZWtXTja0fB1pzD4sHCMyOCMYz2Z6dNbM6tlbUCJYWp6J2p/ikDqG", // 默认密码 'admin'，生产必须修改
+            password: (() => {
+                const p = process.env.NODE_RED_ADMIN_PASS;
+                if (!p) {
+                    console.error('[FATAL] NODE_RED_ADMIN_PASS 未设置，禁止以默认/空密码启动 Node-RED');
+                    process.exit(1);
+                }
+                return p;
+            })(),
             permissions: "*"
         }],
         // Removed custom authenticate function - incompatible with Node-RED 3.x
@@ -109,10 +117,11 @@ module.exports = {
         const allowedIPsStr = process.env.RESCUE_DASHBOARD_ALLOWED_IPS || '127.0.0.1';
         const allowedIPs = allowedIPsStr.split(',').map(s => s.trim());
 
-        // [Gap #7 修复] 保护所有 API 路径，不仅限急救路径
+        // 仅对急救/管理 API 路径做 IP 白名单；外部平台 Webhook 的 POST 请求
+        // 由网关层独立认证，不能在此全部拦截。
         const apiPostPaths = ['/api/safe-mode', '/api/restore-mode', '/api/orders', '/api/force_sync', '/api/zone_lock'];
-        const isProtectedPath = apiPostPaths.some(p => req.path === p || req.path.startsWith(p))
-            || req.method === 'POST';
+        const isProtectedPath = req.method === 'POST' &&
+            apiPostPaths.some(p => req.path === p || req.path.startsWith(p));
 
         if (isProtectedPath) {
             const isAllowed = allowedIPs.some(allowed => {
@@ -328,7 +337,7 @@ module.exports = {
         //         host: process.env.REDIS_HOST || "redis",
         //         port: process.env.REDIS_PORT || 6379,
         //         db: 0,
-        //         password: process.env.REDIS_PASSWORD || "robot-platform-redis",
+        //         password: process.env.REDIS_PASSWORD,
         //         prefix: "nodered-context:"
         //     }
         // }
@@ -369,11 +378,29 @@ module.exports = {
                     const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE);
 
                     db.run(
-                        `INSERT INTO audit_log (timestamp, event, user, path, type, message) VALUES (?, ?, ?, ?, ?, ?)`,
-                        [logEntry.timestamp, logEntry.event, logEntry.user, logEntry.path, logEntry.type, JSON.stringify(logEntry.msg)],
-                        function(err) {
-                            if (err) console.error('[AUDIT] 写入失败:', err.message);
-                            db.close();
+                        `CREATE TABLE IF NOT EXISTS audit_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            timestamp TEXT NOT NULL,
+                            event TEXT,
+                            user TEXT,
+                            path TEXT,
+                            type TEXT,
+                            message TEXT
+                        )`,
+                        function(errCreate) {
+                            if (errCreate) {
+                                console.error('[AUDIT] 建表失败:', errCreate.message);
+                                db.close();
+                                return;
+                            }
+                            db.run(
+                                `INSERT INTO audit_log (timestamp, event, user, path, type, message) VALUES (?, ?, ?, ?, ?, ?)`,
+                                [logEntry.timestamp, logEntry.event, logEntry.user, logEntry.path, logEntry.type, JSON.stringify(logEntry.msg)],
+                                function(err) {
+                                    if (err) console.error('[AUDIT] 写入失败:', err.message);
+                                    db.close();
+                                }
+                            );
                         }
                     );
                 };

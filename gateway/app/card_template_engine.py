@@ -6,11 +6,15 @@ Supports three platforms:
 - DingTalk (钉钉): action_card messages
 """
 import logging
+import os
 from typing import Any
 
 from .models import ActionType, NotificationRequest, Priority, TargetType
 
 logger = logging.getLogger(__name__)
+
+# Public URL used in card action links. Must point to the gateway's webhook endpoint.
+GATEWAY_PUBLIC_URL = os.getenv("GATEWAY_PUBLIC_URL", "https://ewma.example.com")
 
 
 class CardTemplateEngine:
@@ -82,7 +86,7 @@ class CardTemplateEngine:
                 "sub_title_text": notification.content,
                 "card_action": {
                     "type": 1,
-                    "url": f"https://ewma.example.com/{notification.target.target_type.value}/{notification.target.target_id}",
+                    "url": f"{GATEWAY_PUBLIC_URL}/{notification.target.target_type.value}/{notification.target.target_id}",
                 },
             },
         }
@@ -195,7 +199,7 @@ class CardTemplateEngine:
                     {
                         "title": button_text,
                         "action_url": (
-                            f"https://ewma.example.com/api/callback?"
+                            f"{GATEWAY_PUBLIC_URL}/webhook/dingtalk?"
                             f"action={notification.action_type.value}"
                             f"&target={notification.target.target_id}"
                             f"&type={notification.target.target_type.value}"
@@ -206,7 +210,7 @@ class CardTemplateEngine:
                     {
                         "title": "查看详情",
                         "action_url": (
-                            f"https://ewma.example.com/{notification.target.target_type.value}/"
+                            f"{GATEWAY_PUBLIC_URL}/{notification.target.target_type.value}/"
                             f"{notification.target.target_id}"
                         ),
                     },
@@ -364,7 +368,7 @@ class CardTemplateEngine:
                         {
                             "title": f"确认执行: {button_text}",
                             "action_url": (
-                                f"https://ewma.example.com/api/callback?"
+                                f"{GATEWAY_PUBLIC_URL}/webhook/dingtalk?"
                                 f"action={action_type.value}&target={target_id}"
                                 f"&type={target_type.value}&token={confirm_token}"
                                 f"&alert_id={alert_id}"
@@ -372,7 +376,7 @@ class CardTemplateEngine:
                         },
                         {
                             "title": "取消",
-                            "action_url": "https://ewma.example.com/api/callback?action=dismiss",
+                            "action_url": f"{GATEWAY_PUBLIC_URL}/webhook/dingtalk?action=dismiss",
                         },
                     ],
                 },

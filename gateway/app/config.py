@@ -18,7 +18,7 @@ class Settings:
 
     # Elasticsearch
     ELASTICSEARCH_URL: str = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
-    ELASTICSEARCH_PASSWORD: str = os.getenv("ELASTICSEARCH_PASSWORD", "robot-platform-es")
+    ELASTICSEARCH_PASSWORD: str = os.getenv("ELASTICSEARCH_PASSWORD", "")
     ELASTICSEARCH_INDEX_PREFIX: str = os.getenv("ELASTICSEARCH_INDEX_PREFIX", "gateway_audit")
 
     # Redis
@@ -53,6 +53,11 @@ class Settings:
 
     # Core Platform
     CORE_PLATFORM_URL: str = os.getenv("CORE_PLATFORM_URL", "http://nodered:1880")
+    CORE_PLATFORM_API_KEY: str = os.getenv("CORE_PLATFORM_API_KEY", "")
+    CORE_PLATFORM_API_KEY_FILE: str = os.getenv("CORE_PLATFORM_API_KEY_FILE", "/run/secrets/core_platform_api_key")
+
+    # Gateway internal API authentication
+    GATEWAY_API_KEY_FILE: str = os.getenv("GATEWAY_API_KEY_FILE", "/run/secrets/gateway_api_key")
 
     # Validation
     CONFIRM_TIMEOUT_SECONDS: int = int(os.getenv("CONFIRM_TIMEOUT_SECONDS", "300"))
@@ -65,6 +70,22 @@ class Settings:
             return Path(self.SMTP_PASSWORD_FILE).read_text().strip()
         except (FileNotFoundError, PermissionError):
             return ""
+
+    @property
+    def core_platform_api_key(self) -> str:
+        """Read core-platform API key from Docker Secret or env var."""
+        try:
+            return Path(self.CORE_PLATFORM_API_KEY_FILE).read_text().strip()
+        except (FileNotFoundError, PermissionError):
+            return self.CORE_PLATFORM_API_KEY
+
+    @property
+    def gateway_api_key(self) -> str:
+        """Read gateway internal API key from Docker Secret or env var."""
+        try:
+            return Path(self.GATEWAY_API_KEY_FILE).read_text().strip()
+        except (FileNotFoundError, PermissionError):
+            return os.getenv("GATEWAY_API_KEY", "")
 
     @property
     def enabled_channels(self) -> list[str]:

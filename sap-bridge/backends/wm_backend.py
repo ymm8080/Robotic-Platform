@@ -98,7 +98,8 @@ class WmBackend(WarehouseBackend):
                 with open(pw_file) as f:
                     password = f.read().strip()
             except FileNotFoundError:
-                password = os.getenv("SAP_PASSWORD", "")
+                logger.error(f"SAP password file not found: {pw_file}")
+                raise
 
         return {
             "ashost": self._cfg.get("rfc_ashost", DEFAULT_RFC_HOST),
