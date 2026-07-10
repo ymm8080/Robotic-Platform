@@ -37,7 +37,7 @@ from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from core.platform.lift_manager import LiftManager
 from core.platform.robot_as_obstacle import RobotAsObstacle
 from core.safety.safe_distance import SafeDistanceCalculator
-from core.scheduling.task_allocator import Task, TaskAllocator, _model_of
+from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
@@ -416,7 +416,7 @@ class RobotPlatformCoordinator:
                 continue
             # find nearest reachable charger lane respecting robot capability
             cap = robot.capability
-            models = cap.supported_models or [_model_of(robot)]
+            models = cap.supported_models or [model_of(robot)]
 
             def _filter(lane: Lane) -> bool:
                 return (
@@ -564,7 +564,7 @@ class RobotPlatformCoordinator:
     def _build_assignment(self, robot: FleetState, task: Task) -> TaskAssignment:
         """Resolve a robot-specific route and clamp speed."""
         cap = robot.capability
-        models = cap.supported_models or [_model_of(robot)]
+        models = cap.supported_models or [model_of(robot)]
 
         def _lane_filter(lane: Lane) -> bool:
             if not self.fmap.is_traversable(lane.lane_id):
