@@ -16,9 +16,9 @@
       "fieldConfig": {
         "defaults": { "unit": "ops" },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Created" }, "properties": [{ "id": "color", "value": "blue" }] },
-          { "matcher": { "id": "byName", "options": "Completed" }, "properties": [{ "id": "color", "value": "green" }] },
-          { "matcher": { "id": "byName", "options": "Failed" }, "properties": [{ "id": "color", "value": "red" }] }
+          { "matcher": { "id": "byRegexp", "options": ".*Created.*" }, "properties": [{ "id": "color", "value": "blue" }] },
+          { "matcher": { "id": "byRegexp", "options": ".*Completed.*" }, "properties": [{ "id": "color", "value": "green" }] },
+          { "matcher": { "id": "byRegexp", "options": ".*Failed.*" }, "properties": [{ "id": "color", "value": "red" }] }
         ]
       },
       "targets": [

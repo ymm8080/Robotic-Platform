@@ -45,7 +45,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
-          "mappings": [{ "options": { "0": { "text": "NORMAL", "color": "green" }, "1": { "text": "SAFE MODE", "color": "red" } }, "type": "value" }]
+          "mappings": [{ "options": { "0": { "text": "NORMAL", "color": "green" }, "1": { "text": "SAFE MODE", "color": "red" } }, "type": "value" }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
         }
       },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
