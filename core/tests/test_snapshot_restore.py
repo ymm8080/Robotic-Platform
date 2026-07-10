@@ -153,6 +153,18 @@ class TestRestore:
         assert ActionPrimitive.PICK in rs.capability.action_primitives
         assert rs.capability.supports_reverse is True
 
+    def test_restore_preserves_fleet_state_version(self):
+        """FleetState.version must survive snapshot-restore round-trip."""
+        coord = RobotPlatformCoordinator()
+        coord._robot_states["R1"] = _make_robot()
+        coord._robot_states["R1"].version = "5.1"
+        snap = coord.snapshot()
+        assert snap["robot_states"]["R1"]["version"] == "5.1"
+
+        coord2 = RobotPlatformCoordinator()
+        coord2.restore(snap)
+        assert coord2._robot_states["R1"].version == "5.1"
+
     def test_snapshot_captures_robot_brands(self):
         coord = RobotPlatformCoordinator()
         coord.register_adapter(FleetAdapter(brand="mir"))

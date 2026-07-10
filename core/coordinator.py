@@ -843,6 +843,7 @@ class RobotPlatformCoordinator:
             Pose,
             RobotMode,
             SensorHealth,
+            TaskAssignment,
         )
         from core.orders import Order, OrderPlan, OrderStatus
         from core.scheduling.task_allocator import Task
@@ -891,6 +892,7 @@ class RobotPlatformCoordinator:
                 last_seen_monotonic=fs_data.get("last_seen_monotonic", 0.0),
                 capability=cap,
                 degraded=fs_data.get("degraded", False),
+                version=fs_data.get("version", "5.0"),
             )
             self._robot_states[rid] = fs
 
@@ -901,7 +903,6 @@ class RobotPlatformCoordinator:
                 self._robot_adapter[rid] = adapter
 
         # Restore active assignments
-        from core.messages import TaskAssignment
         for rid, a_data in data.get("active_assignments", {}).items():
             self._active_assignments[rid] = TaskAssignment(
                 task_id=a_data["task_id"],
