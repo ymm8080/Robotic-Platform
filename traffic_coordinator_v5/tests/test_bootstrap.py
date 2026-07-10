@@ -46,7 +46,7 @@ class TestCreateGenericAdapter:
 
     def test_map_vendor_state_passthrough(self):
         """The pass-through mapper should return a FleetState from a dict."""
-        from core.messages import FleetState
+        from core.messages import FleetState, HealthStatus, SensorHealth
 
         adapter = _create_generic_adapter("generic")
         raw = {
@@ -57,7 +57,12 @@ class TestCreateGenericAdapter:
             "velocity": 0.5,
             "battery_percent": 92.0,
             "mode": "IDLE",
-            "sensor_health": 0.95,
+            "sensorHealth": {
+                "velocity_sensor": "HEALTHY",
+                "lidar": "DEGRADED",
+                "camera": "HEALTHY",
+                "time_sync": "HEALTHY",
+            },
         }
         state = adapter.map_vendor_state(raw)
         assert isinstance(state, FleetState)
@@ -66,11 +71,13 @@ class TestCreateGenericAdapter:
         assert state.pose.y == 4.0
         assert state.velocity == 0.5
         assert state.battery_percent == 92.0
-        assert state.sensor_health == 0.95
+        assert isinstance(state.sensor_health, SensorHealth)
+        assert state.sensor_health.lidar == HealthStatus.DEGRADED
+        assert state.sensor_health.degraded is True
 
     def test_passthrough_minimal_payload(self):
         """Minimal payload should get sensible defaults."""
-        from core.messages import FleetState
+        from core.messages import FleetState, SensorHealth
 
         adapter = _create_generic_adapter("generic")
         state = adapter.map_vendor_state({})
@@ -78,7 +85,33 @@ class TestCreateGenericAdapter:
         assert state.robot_id == "unknown"
         assert state.pose.x == 0.0
         assert state.battery_percent == 100.0
-        assert state.sensor_health == 1.0
+        assert isinstance(state.sensor_health, SensorHealth)
+        assert state.sensor_health.velocity_sensor.name == "HEALTHY"
+
+    def test_passthrough_capability_vector(self):
+        """Capability fields should be parsed into a CapabilityVector."""
+        from core.messages import ActionPrimitive, CapabilityVector, FleetState
+
+        adapter = _create_generic_adapter("generic")
+        raw = {
+            "robot_id": "test-002",
+            "capability": {
+                "payload_kg": 50.0,
+                "max_speed": 1.2,
+                "supported_models": ["AMR"],
+                "action_primitives": ["MOVE", "PICK"],
+                "supports_reverse": True,
+            },
+        }
+        state = adapter.map_vendor_state(raw)
+        assert isinstance(state, FleetState)
+        assert isinstance(state.capability, CapabilityVector)
+        assert state.capability.payload_kg == 50.0
+        assert state.capability.max_speed == 1.2
+        assert state.capability.supported_models == ["AMR"]
+        assert ActionPrimitive.MOVE in state.capability.action_primitives
+        assert ActionPrimitive.PICK in state.capability.action_primitives
+        assert state.capability.supports_reverse is True
 
     def test_passthrough_with_errors(self):
         adapter = _create_generic_adapter("generic")
