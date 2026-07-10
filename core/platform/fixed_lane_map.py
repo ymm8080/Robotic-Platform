@@ -102,6 +102,7 @@ class FixedLaneMap:
         self._adjacency: dict[str, list[str]] = {}
         self.overlay = SemanticOverlay()
         self._occupancy: dict[str, str] = {}  # lane_id -> robot_id
+        self._path_cache: dict[tuple[str, str, str], list[str]] = {}
 
     # ── lane occupancy ─────────────────────────────────────────
     def occupy_lane(self, lane_id: str, robot_id: str) -> None:
@@ -122,6 +123,7 @@ class FixedLaneMap:
     def add_lane(self, lane: Lane) -> None:
         self._lanes[lane.lane_id] = lane
         self._adjacency.setdefault(lane.from_node, []).append(lane.lane_id)
+        self._path_cache.clear()
 
     def lane(self, lane_id: str) -> Lane | None:
         return self._lanes.get(lane_id)
@@ -190,9 +192,11 @@ class FixedLaneMap:
     # ── semantic layer (volatile) ──────────────────────────────
     def block_lane(self, lane_id: str) -> None:
         self.overlay.blocked_lanes.add(lane_id)
+        self._path_cache.clear()
 
     def unblock_lane(self, lane_id: str) -> None:
         self.overlay.blocked_lanes.discard(lane_id)
+        self._path_cache.clear()
 
     def add_virtual_wall(self, x: float, y: float, radius: float) -> None:
         self.overlay.virtual_walls.append((x, y, radius))
@@ -273,6 +277,12 @@ class FixedLaneMap:
         ``cost`` may be ``"length"`` (metres) or ``"time"`` (seconds at lane
         max_speed).
         """
+        # Cache only unfiltered queries; filtered results depend on the
+        # callable which is not hashable.
+        cache_key = (start, goal, cost)
+        if lane_filter is None and cache_key in self._path_cache:
+            return list(self._path_cache[cache_key])
+
         import heapq
 
         def _to_node(ref: str) -> str:
@@ -321,6 +331,8 @@ class FixedLaneMap:
                 continue
             node = lane.to_node
             if node == goal_node:
+                if lane_filter is None:
+                    self._path_cache[cache_key] = list(path)
                 return path
             if node in visited:
                 continue

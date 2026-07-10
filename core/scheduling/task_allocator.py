@@ -95,7 +95,7 @@ class TaskAllocator:
         lane = self._lane(lane_id)
         if lane is None:
             return True  # no lane data → assume compatible (lenient default)
-        models = cap.supported_models or [_model_of(robot)]
+        models = cap.supported_models or [model_of(robot)]
         if not lane.allows_any(models):
             return False
         if not cap.can_traverse(lane.env):
@@ -166,7 +166,7 @@ class TaskAllocator:
         )
 
 
-def _model_of(robot: FleetState) -> str:
+def model_of(robot: FleetState) -> str:
     """Derive a model tag for lane allowed_models matching.
 
     Real deployments carry the model on the robot registry; until then we

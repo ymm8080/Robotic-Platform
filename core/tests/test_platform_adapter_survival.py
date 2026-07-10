@@ -1,11 +1,8 @@
 """Tests for platform service layer, adapter, governance, survival."""
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.shadow_state_machine import CircuitState, ShadowStateMachine

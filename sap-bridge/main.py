@@ -36,6 +36,11 @@ from redis_client import redis_from_url
 from strategies import get_registry
 from strategies.registry import UnknownBrandError
 
+# ── v5.0 Traffic Coordinator integration ─────────────────────────
+ENABLE_V5 = os.getenv("ENABLE_V5", "0").lower() in ("1", "true", "yes")
+if ENABLE_V5:
+    logger.info("v5.0 Traffic Coordinator integration ENABLED (ENABLE_V5=true)")
+
 _redis_client = redis_from_url(
     os.getenv("REDIS_URL", "redis://redis:6379/1"),
     decode_responses=True,
@@ -133,6 +138,22 @@ async def lifespan(app: FastAPI):
     worker = QueueWorker()
     worker.start()
     app.state.worker = worker
+
+    # ── v5.0 Traffic Coordinator integration ──────────────────
+    app.state.tc_client = None
+    if ENABLE_V5:
+        try:
+            from clients.traffic_coordinator_client import TrafficCoordinatorClient
+            tc = TrafficCoordinatorClient()
+            health = tc.health()
+            if health.ok:
+                logger.info("v5.0 coordinator reachable at %s: %s", tc.base_url, health.data)
+            else:
+                logger.warning("v5.0 coordinator at %s returned: %s", tc.base_url, health.error)
+            app.state.tc_client = tc
+        except Exception as exc:
+            logger.warning("v5.0 coordinator client init failed: %s", exc)
+
     logger.info("SAP Bridge started (MQTT + queue worker + heartbeat)")
     yield
     if heartbeat is not None:
@@ -404,6 +425,22 @@ async def dispatch_order(req: DispatchRequest):
         f"protocol={result.protocol} mid={mid}"
     )
 
+    # ── v5.0: forward to traffic coordinator ──────────────────
+    v5_response = None
+    if ENABLE_V5 and getattr(request.app.state, "tc_client", None) is not None:
+        tc = request.app.state.tc_client
+        tc_order = {
+            "order_id": req.orderId,
+            "origin_lane": req.source or "",
+            "destination_lane": req.target or "",
+            "actions": [req.taskType] if req.taskType else ["MOVE"],
+            "payload_kg": 0.0,
+            "priority": req.priority,
+        }
+        v5_response = tc.submit_order(tc_order)
+        if not v5_response.ok:
+            logger.warning("v5.0 coordinator rejected order %s: %s", req.orderId, v5_response.error)
+
     return {
         "status": "dispatched",
         "orderId": req.orderId,
@@ -411,6 +448,7 @@ async def dispatch_order(req: DispatchRequest):
         "protocol": result.protocol,
         "mqttMid": mid,
         "payload": result.payload,
+        "v5Coordinator": v5_response.data if v5_response and v5_response.ok else None,
     }
 
 
@@ -1201,6 +1239,78 @@ async def system_health():
         "fleet": fleet,
         "version": os.getenv("RUNTIME_VERSION", "v4.1"),
     }
+
+
+# ──────────────────────────────────────────────
+# v5.0 Traffic Coordinator proxy endpoints
+# ──────────────────────────────────────────────
+
+
+@app.get("/api/v1/v5/state")
+async def v5_platform_state(request: Request):
+    """Proxy GET /state from the v5.0 traffic coordinator."""
+    tc = getattr(request.app.state, "tc_client", None)
+    if tc is None:
+        return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
+    result = tc.state()
+    if not result.ok:
+        return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
+    return result.data
+
+
+@app.get("/api/v1/v5/health")
+async def v5_coordinator_health(request: Request):
+    """Proxy GET /health from the v5.0 traffic coordinator."""
+    tc = getattr(request.app.state, "tc_client", None)
+    if tc is None:
+        return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
+    result = tc.health()
+    if not result.ok:
+        return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
+    return result.data
+
+
+@app.post("/api/v1/v5/zone/{zone_id}/lock")
+async def v5_zone_lock(zone_id: str, request: Request):
+    """Lock a zone via the v5.0 coordinator (SOP-RED: emergency stop)."""
+    tc = getattr(request.app.state, "tc_client", None)
+    if tc is None:
+        return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
+    # The coordinator's emergency_stop is a POST /order variant;
+    # we use a dedicated zone-lock endpoint that maps to lane blocking.
+    # For now this is a stub — full zone lockdown lands in Phase 3.
+    return JSONResponse(
+        status_code=501,
+        content={"status": "not_implemented", "zone_id": zone_id, "note": "Phase 3 zone lockdown endpoint"},
+    )
+
+
+@app.post("/api/v1/v5/zone/{zone_id}/unlock")
+async def v5_zone_unlock(zone_id: str, request: Request):
+    """Unlock a zone via the v5.0 coordinator."""
+    tc = getattr(request.app.state, "tc_client", None)
+    if tc is None:
+        return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
+    return JSONResponse(
+        status_code=501,
+        content={"status": "not_implemented", "zone_id": zone_id, "note": "Phase 3 zone unlock endpoint"},
+    )
+
+
+@app.post("/api/v1/v5/ingest/{brand}")
+async def v5_ingest_state(brand: str, request: Request):
+    """Forward a robot state update to the v5.0 coordinator."""
+    tc = getattr(request.app.state, "tc_client", None)
+    if tc is None:
+        return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+    result = tc.ingest_state(brand, body)
+    if not result.ok:
+        return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
+    return result.data
 
 
 # ──────────────────────────────────────────────

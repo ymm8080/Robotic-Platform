@@ -3,7 +3,8 @@ import { CONFIG } from '../config'
 import { useSettings } from '../context/SettingsContext'
 import { useAuth } from '../context/AuthContext'
 import type { MqttState } from '../hooks/useMqtt'
-import { toRobotSummary } from '../types/vda5050'
+import { usePlatformState } from '../hooks/usePlatformState'
+import { toRobotSummary, deriveSensorHealth } from '../types/vda5050'
 import { useAreaAccess } from '../hooks/useAreaAccess'
 
 /** CowAgent alert push endpoint — use same hostname as dashboard for LAN access */
@@ -53,6 +54,7 @@ export function AlertPanel({ mqtt, apiRobots }: Props) {
   const { settings } = useSettings()
   const { isAdmin, canViewRobot } = useAreaAccess()
   const { currentUser } = useAuth()
+  const v5 = usePlatformState()
   const [alerts, setAlerts] = useState<AlertEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -289,9 +291,68 @@ export function AlertPanel({ mqtt, apiRobots }: Props) {
     return () => { active = false; clearInterval(id) }
   }, [settings.cpuThreshold, settings.memoryThreshold, settings.errorRateThresholdPct])
 
+  // ── v5 coordinator alerts ──
+  const v5Alerts = useMemo<AlertEntry[]>(() => {
+    const entries: AlertEntry[] = []
+    if (!v5.state) return entries
+
+    // Degraded robots
+    Object.entries(v5.state.robots).forEach(([robotId, r]) => {
+      if (r.degraded) {
+        entries.push({
+          id: `v5-degraded-${robotId}`,
+          level: 'P1',
+          service: 'coordinator',
+          message: `🤖 ${robotId}: Robot is DEGRADED. Sensor health: ${r.sensor_health !== undefined ? (r.sensor_health * 100).toFixed(0) + '%' : 'unknown'}`,
+        })
+      }
+      const health = deriveSensorHealth(r.sensor_health)
+      if (health === 'CRITICAL') {
+        entries.push({
+          id: `v5-sensor-crit-${robotId}`,
+          level: 'P0',
+          service: 'coordinator',
+          message: `🤖 ${robotId}: Sensor health CRITICAL (${r.sensor_health !== undefined ? (r.sensor_health * 100).toFixed(0) + '%' : 'unknown'}). Robot may be unsafe.`,
+        })
+      }
+    })
+
+    // Zone lockdowns
+    if (v5.state.locked_zones.length > 0) {
+      entries.push({
+        id: 'v5-zones-locked',
+        level: 'P2',
+        service: 'coordinator',
+        message: `🔒 ${v5.state.locked_zones.length} zone(s) locked: ${v5.state.locked_zones.join(', ')}`,
+      })
+    }
+
+    // Coordinator health degraded
+    if (v5.health && v5.health.status !== 'healthy') {
+      entries.push({
+        id: 'v5-coordinator-health',
+        level: v5.health.status === 'degraded' ? 'P1' : 'P0',
+        service: 'coordinator',
+        message: `v5 Coordinator status: ${v5.health.status}. Mode: ${v5.health.mode}.`,
+      })
+    }
+
+    // Coordinator disconnected
+    if (!v5.connected && v5.error) {
+      entries.push({
+        id: 'v5-coordinator-down',
+        level: 'P1',
+        service: 'coordinator',
+        message: `v5 Coordinator unreachable: ${v5.error}`,
+      })
+    }
+
+    return entries
+  }, [v5.state, v5.health, v5.connected, v5.error])
+
   // Merge all alert sources
   const allAlerts = useMemo(() => {
-    const merged = [...alerts, ...robotAlerts, ...taskAlerts]
+    const merged = [...alerts, ...robotAlerts, ...taskAlerts, ...v5Alerts]
     // Dedup by id (robotAlerts have stable ids)
     const seen = new Set<string>()
     return merged.filter(a => {

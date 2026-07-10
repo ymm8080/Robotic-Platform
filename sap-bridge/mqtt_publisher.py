@@ -39,8 +39,10 @@ VDA5050_VERSION = "2.0.0"
 # Allowed VDA5050 topic suffixes to prevent arbitrary topic publishes.
 ALLOWED_TOPIC_SUFFIXES = {"connection", "state", "order", "instantActions", "visualization"}
 
-# Safe topic path component (alphanumeric, underscore, hyphen, dot)
-_TOPIC_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_\.\-]+$")
+# Safe topic path component (alphanumeric, underscore, hyphen only).
+# Dots excluded: not needed for VDA5050 manufacturer/serial fields and
+# avoids any ambiguity with MQTT wildcard patterns.
+_TOPIC_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 # ──────────────────────────────────────────────
 # MQTT Client

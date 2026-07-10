@@ -1,12 +1,6 @@
 """Tests for the v5.0 core scheduling + safety modules."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# make ``core`` importable when run from repo root without install
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from core.config import TrafficConfig
 from core.messages import HealthStatus, Pose, RobotMode, SensorHealth
 from core.safety.safe_distance import SafeDistanceCalculator

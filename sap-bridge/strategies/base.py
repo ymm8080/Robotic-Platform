@@ -3,10 +3,17 @@ Base robot strategy providing default VDA5050 behavior.
 All brand-specific strategies inherit from this class.
 
 v4.1: Added dispatch() method for strategy-pattern order routing.
+v5.0: Added to_fleet_state() and to_capability_vector() to bridge
+      strategy layer → core coordinator FleetState.
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.messages import CapabilityVector, FleetState
 
 # Minimum VDA5050 version required (v4.1 verification matrix item 3)
 MIN_VDA5050_VERSION = "1.1.0"
@@ -168,6 +175,86 @@ class BaseStrategy(ABC):
             }
             for e in errors
         ]
+
+    # ── v5.0 bridge: strategy → core FleetState ──────────────────
+
+    def to_fleet_state(self, robot_state: RobotState) -> "FleetState":
+        """Convert a normalized RobotState into a core v5.0 FleetState.
+
+        This bridges the sap-bridge strategy layer to the core coordinator.
+        Override in subclasses to add brand-specific pose transforms or
+        capability tweaks.
+        """
+        from core.messages import FleetState, Pose, RobotMode, SensorHealth
+
+        pos = robot_state.position
+        pose = Pose(
+            x=float(pos.get("x", 0.0)),
+            y=float(pos.get("y", 0.0)),
+            theta=float(pos.get("theta", 0.0)),
+            last_node_id=str(pos.get("lastNodeId", "")),
+            position_initialized=bool(pos.get("positionInitialized", False)),
+        )
+
+        # Map strategy status string → RobotMode enum
+        _STATUS_MODE: dict[str, RobotMode] = {
+            "IDLE": RobotMode.IDLE,
+            "MOVING": RobotMode.TASKING,
+            "EXECUTING": RobotMode.TASKING,
+            "CHARGING": RobotMode.CHARGING,
+            "ERROR": RobotMode.ERROR,
+            "UNAVAILABLE": RobotMode.ERROR,
+            "PAUSED": RobotMode.IDLE,
+        }
+        mode = _STATUS_MODE.get(robot_state.status.upper(), RobotMode.IDLE)
+
+        # Stringify error dicts into the FleetState error list format
+        error_strings: list[str] = []
+        for e in robot_state.errors:
+            if isinstance(e, dict):
+                error_strings.append(
+                    f"{e.get('errorType', 'UNKNOWN')}:{e.get('errorLevel', 'WARN')}:"
+                    f"{e.get('errorDescription', '')}"
+                )
+            else:
+                error_strings.append(str(e))
+
+        # Derive velocity: extract from raw state if available, else 0.0
+        raw = robot_state.raw or {}
+        velocity = float(raw.get("velocity", 0.0))
+
+        return FleetState(
+            robot_id=str(raw.get("serialNumber", raw.get("robotId", "unknown"))),
+            boot_id=str(raw.get("bootId", raw.get("boot_id", ""))),
+            pose=pose,
+            battery_percent=robot_state.battery.percent,
+            mode=mode,
+            errors=error_strings,
+            sensor_health=SensorHealth(),  # healthy by default
+            velocity=velocity,
+            capability=self.to_capability_vector(),
+        )
+
+    def to_capability_vector(self) -> "CapabilityVector":
+        """Return a brand-specific CapabilityVector for the v5.0 allocator.
+
+        Override in subclasses to set real payload, speed, model, and
+        environment limits per brand.
+        """
+        from core.messages import ActionPrimitive, CapabilityVector, EnvConstraints
+
+        return CapabilityVector(
+            payload_kg=500.0,
+            max_speed=1.5,
+            supported_models=[],
+            action_primitives={
+                ActionPrimitive.MOVE,
+                ActionPrimitive.DOCK,
+                ActionPrimitive.CHARGE,
+            },
+            env=EnvConstraints(max_grade=0.05, floor_threshold=0.01, min_friction=0.4),
+            supports_reverse=True,
+        )
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} brand={self.brand} versions={self.supported_versions}>"
