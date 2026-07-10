@@ -35,7 +35,7 @@
         }
       },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "expr": "count(time() - sap_bridge_robot_last_seen > 30)", "legendFormat": "Offline" }]
+      "targets": [{ "refId": "A", "expr": "count(sap_bridge_robot_last_seen < time() - 30)", "legendFormat": "Offline" }]
     },
     {
       "id": 3,

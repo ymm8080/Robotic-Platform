@@ -67,7 +67,7 @@
         }
       },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "expr": "up{job=\"sap-bridge\"}", "legendFormat": "SAP Bridge" }]
+      "targets": [{ "refId": "A", "expr": "min(up{job=\"sap-bridge\"})", "legendFormat": "SAP Bridge" }]
     },
     {
       "id": 5,
@@ -107,7 +107,7 @@
       },
       "targets": [{
         "refId": "A",
-        "expr": "rate(sap_bridge_orders_failed_total[5m]) / clamp_min(rate(sap_bridge_orders_created_total[5m]), 1)",
+        "expr": "(rate(sap_bridge_orders_failed_total[5m]) / rate(sap_bridge_orders_created_total[5m])) or vector(0)",
         "legendFormat": "Error Rate"
       }]
     }
