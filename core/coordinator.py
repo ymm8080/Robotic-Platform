@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from core.adapter.fleet_adapter import AdapterCommand, FleetAdapter
@@ -739,8 +739,6 @@ class RobotPlatformCoordinator:
         task queue, and order plans. Adapters are NOT serialized (they
         are rebuilt by bootstrap on restart).
         """
-        from dataclasses import asdict
-
         def _fleet_state_dict(fs: FleetState) -> dict:
             return {
                 "robot_id": fs.robot_id,
@@ -857,7 +855,10 @@ class RobotPlatformCoordinator:
                 payload_kg=cap_data.get("payload_kg", 0.0),
                 max_speed=cap_data.get("max_speed", 1.5),
                 supported_models=cap_data.get("supported_models", []),
-                action_primitives={ActionPrimitive(a) for a in cap_data.get("action_primitives", [0])},
+                action_primitives={
+                    ActionPrimitive(a)
+                    for a in cap_data.get("action_primitives", [0])
+                },
                 env=EnvConstraints(
                     max_grade=env_data.get("max_grade", 0.0),
                     floor_threshold=env_data.get("floor_threshold", 0.0),
@@ -919,7 +920,10 @@ class RobotPlatformCoordinator:
                 priority=t_data.get("priority", 0),
                 created_at=t_data.get("created_at", 0.0),
                 deadline=t_data.get("deadline", 0.0),
-                action_primitives={ActionPrimitive(a) for a in t_data.get("action_primitives", [0])},
+                action_primitives={
+                    ActionPrimitive(a)
+                    for a in t_data.get("action_primitives", [0])
+                },
                 required_payload_kg=t_data.get("required_payload_kg", 0.0),
             ))
 
@@ -944,7 +948,10 @@ class RobotPlatformCoordinator:
                     priority=t_data.get("priority", 0),
                     created_at=t_data.get("created_at", 0.0),
                     deadline=t_data.get("deadline", 0.0),
-                    action_primitives={ActionPrimitive(a) for a in t_data.get("action_primitives", [0])},
+                    action_primitives={
+                        ActionPrimitive(a)
+                        for a in t_data.get("action_primitives", [0])
+                    },
                     required_payload_kg=t_data.get("required_payload_kg", 0.0),
                 )
                 for t_data in p_data["tasks"]

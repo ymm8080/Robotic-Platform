@@ -1,9 +1,13 @@
 """Tests for coordinator snapshot/restore — state persistence."""
 
 import json
+from unittest.mock import MagicMock
+
+import pytest
 
 from core.adapter.fleet_adapter import FleetAdapter
 from core.coordinator import RobotPlatformCoordinator
+from core.infra.state_store import RedisStateStore
 from core.messages import (
     ActionPrimitive,
     CapabilityVector,
@@ -44,6 +48,16 @@ def _make_robot(robot_id="R1", mode=RobotMode.IDLE, battery=80.0):
         ),
         degraded=False,
     )
+
+
+@pytest.fixture
+def redis_mock():
+    return MagicMock()
+
+
+@pytest.fixture
+def redis_store(redis_mock):
+    return RedisStateStore(redis_mock)
 
 
 class TestSnapshot:
@@ -266,50 +280,26 @@ class TestRoundTrip:
 
 
 class TestRedisStateStore:
-    def test_set_get(self):
-        from unittest.mock import MagicMock
-        from core.infra.state_store import RedisStateStore
-        mock = MagicMock()
-        mock.get.return_value = b'{"key": "value"}'
-        store = RedisStateStore(mock)
-        assert store.get("k") == {"key": "value"}
+    def test_set_get(self, redis_mock, redis_store):
+        redis_mock.get.return_value = b'{"key": "value"}'
+        assert redis_store.get("k") == {"key": "value"}
 
-    def test_set_with_ttl(self):
-        from unittest.mock import MagicMock
-        from core.infra.state_store import RedisStateStore
-        mock = MagicMock()
-        store = RedisStateStore(mock)
-        store.set("k", "v", ttl=60)
-        mock.setex.assert_called_once()
+    def test_set_with_ttl(self, redis_mock, redis_store):
+        redis_store.set("k", "v", ttl=60)
+        redis_mock.setex.assert_called_once()
 
-    def test_set_without_ttl(self):
-        from unittest.mock import MagicMock
-        from core.infra.state_store import RedisStateStore
-        mock = MagicMock()
-        store = RedisStateStore(mock)
-        store.set("k", "v")
-        mock.set.assert_called_once()
+    def test_set_without_ttl(self, redis_mock, redis_store):
+        redis_store.set("k", "v")
+        redis_mock.set.assert_called_once()
 
-    def test_delete(self):
-        from unittest.mock import MagicMock
-        from core.infra.state_store import RedisStateStore
-        mock = MagicMock()
-        store = RedisStateStore(mock)
-        store.delete("k")
-        mock.delete.assert_called_once_with("k")
+    def test_delete(self, redis_mock, redis_store):
+        redis_store.delete("k")
+        redis_mock.delete.assert_called_once_with("k")
 
-    def test_exists(self):
-        from unittest.mock import MagicMock
-        from core.infra.state_store import RedisStateStore
-        mock = MagicMock()
-        mock.exists.return_value = 1
-        store = RedisStateStore(mock)
-        assert store.exists("k") is True
+    def test_exists(self, redis_mock, redis_store):
+        redis_mock.exists.return_value = 1
+        assert redis_store.exists("k") is True
 
-    def test_get_none(self):
-        from unittest.mock import MagicMock
-        from core.infra.state_store import RedisStateStore
-        mock = MagicMock()
-        mock.get.return_value = None
-        store = RedisStateStore(mock)
-        assert store.get("missing") is None
+    def test_get_none(self, redis_mock, redis_store):
+        redis_mock.get.return_value = None
+        assert redis_store.get("missing") is None
