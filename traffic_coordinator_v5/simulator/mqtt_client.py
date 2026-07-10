@@ -38,10 +38,22 @@ class MqttVDAClient:
         self._on_order = on_order
         self._on_instant_actions = on_instant_actions
         self._client: mqtt.Client | None = None
+        self._connected: bool = False
         self._robot_ids: set[str] = set()
 
     def _client_id(self) -> str:
         return f"{self._brand}-sim-{uuid.uuid4().hex[:8]}"
+
+    def set_callbacks(
+        self,
+        on_order: Callable[[str, dict], None] | None = None,
+        on_instant_actions: Callable[[str, dict], None] | None = None,
+    ) -> None:
+        """Set or update order/instant-action callbacks."""
+        if on_order is not None:
+            self._on_order = on_order
+        if on_instant_actions is not None:
+            self._on_instant_actions = on_instant_actions
 
     def add_robot(self, robot_id: str) -> None:
         """Register a robot so its topics are subscribed on connect."""
@@ -78,6 +90,7 @@ class MqttVDAClient:
             )
         except Exception:
             logger.exception("Simulator failed to connect to MQTT broker")
+            self._client = None
 
     def disconnect(self) -> None:
         """Publish offline for all robots and disconnect."""
@@ -92,6 +105,7 @@ class MqttVDAClient:
 
     def _on_connect(self, client: mqtt.Client, _userdata: Any, _flags: Any, rc: int, _props: Any = None) -> None:
         if rc == 0:
+            self._connected = True
             for robot_id in self._robot_ids:
                 self._subscribe_for(robot_id)
                 self.publish_connection(robot_id, "ONLINE")
@@ -100,6 +114,7 @@ class MqttVDAClient:
             logger.error("Simulator MQTT connection failed, rc=%s", rc)
 
     def _on_disconnect(self, _client: mqtt.Client, _userdata: Any, _rc: int, _props: Any = None) -> None:
+        self._connected = False
         logger.warning("Simulator MQTT disconnected; will retry")
 
     def _subscribe_for(self, robot_id: str) -> None:
@@ -132,7 +147,7 @@ class MqttVDAClient:
 
     def publish_state(self, robot_id: str, state: dict) -> None:
         """Publish a state message for ``robot_id``."""
-        if self._client is None:
+        if self._client is None or not self._connected:
             return
         topic = STATE_TOPIC.format(manufacturer=self._brand, serialNumber=robot_id)
         try:

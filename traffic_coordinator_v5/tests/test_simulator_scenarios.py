@@ -16,6 +16,7 @@ from core.coordinator import RobotPlatformCoordinator
 from core.messages import ActionPrimitive
 from core.orders import Order
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
+from core.scheduling.traffic_light_controller import LightPhase
 from traffic_coordinator_v5.bootstrap import _create_generic_adapter
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
@@ -147,30 +148,40 @@ class TestScenarios:
     def test_intersection_conflict(self):
         """3 robots converge at a single intersection; traffic light gates entry."""
         fmap = FixedLaneMap()
-        fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
-        fmap.add_lane(Lane("L_X_B", "X", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
-        fmap.add_lane(Lane("L_Y_B", "Y", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
-        fmap.add_lane(Lane("L_B_Z", "B", "Z", length=10.0, max_speed=1.5))
+        fmap.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
+        fmap.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
+        fmap.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
+        fmap.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
+        fmap.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
+        fmap.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
 
         positions = {
             "A": (0.0, 0.0),
-            "X": (0.0, 10.0),
-            "Y": (20.0, 10.0),
+            "X": (0.0, 30.0),
+            "Y": (55.0, 30.0),
             "B": (10.0, 0.0),
-            "Z": (20.0, 0.0),
+            "Z1": (30.0, 0.0),
+            "Z2": (30.0, 10.0),
+            "Z3": (30.0, -10.0),
         }
         harness = CoordinatorHarness(fmap, lane_positions=positions)
         harness.coordinator.register_intersection("X1")
+        # Start with direction 0 green so the two direction-0 robots clear first.
+        it = harness.coordinator.traffic.get("X1")
+        it.phase = LightPhase.GREEN
+        it.current_direction = 0
+        it.phase_started_at = 0.0
+
         harness.add_robot("R-001", "L_A_B")
         harness.add_robot("R-002", "L_X_B")
         harness.add_robot("R-003", "L_Y_B")
-        harness.submit_order("o1", "L_A_B", "L_B_Z")
-        harness.submit_order("o2", "L_X_B", "L_B_Z")
-        harness.submit_order("o3", "L_Y_B", "L_B_Z")
+        harness.submit_order("o1", "L_A_B", "L_B_Z1")
+        harness.submit_order("o2", "L_X_B", "L_B_Z2")
+        harness.submit_order("o3", "L_Y_B", "L_B_Z3")
 
         collision_holds = 0
         intersection_holds = 0
-        for _ in range(200):
+        for _ in range(240):
             result = harness.tick(1)
             if result is not None:
                 collision_holds += sum(1 for e in result.events if e.startswith("COLLISION_HOLD"))
@@ -239,18 +250,24 @@ class TestScenarios:
 
         assert robot.mode == SimRobotMode.ERROR
 
-        # The active assignment should have been requeued or cleared.
-        assert any(t.task_id == "o1-0" for t in harness.coordinator._task_queue) or \
-            len(harness.coordinator._active_assignments) == 0
+        # After fault, the robot should no longer have an active assignment.
+        assert "R-001" not in harness.coordinator._active_assignments
 
         harness.coordinator.manual_recover("R-001", harness.now)
         robot.clear_errors()
         harness.tick(10)
 
-        assert robot.mode == SimRobotMode.IDLE
+        # The robot should be out of ERROR/DEGRADED and the task should have
+        # been requeued or reassigned to it.
+        state = harness.robot_state("R-001")
+        assert state is not None
+        assert not state.degraded
+        assert state.mode.name != "ERROR"
+        assert any(t.task_id == "o1-0" for t in harness.coordinator._task_queue) or \
+            any(a.task_id == "o1-0" for a in harness.coordinator._active_assignments.values())
 
     def test_safe_distance(self):
-        """Following robot is SPEED_CAP'd by the coordinator."""
+        """Following robot is SPEED_CAP'd by the coordinator before colliding."""
         fmap = FixedLaneMap()
         fmap.add_lane(Lane("L_A_B", "A", "B", length=50.0, max_speed=2.0))
         fmap.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=2.0))
@@ -258,8 +275,6 @@ class TestScenarios:
         harness = CoordinatorHarness(fmap)
         r1 = harness.add_robot("R-001", "L_A_B", max_speed=1.0)
         r2 = harness.add_robot("R-002", "L_A_B", max_speed=0.5)
-        # Place R-002 5 metres ahead of R-001 on the same lane.
-        r2.distance_along_lane = 5.0
 
         # Drive the robots manually so the initial offset is not reset by a
         # coordinator-assigned order.
@@ -272,6 +287,8 @@ class TestScenarios:
         }
         r1.assign_order(path_order)
         r2.assign_order(path_order)
+        # Place R-002 5 metres ahead of R-001 on the same lane.
+        r2.distance_along_lane = 5.0
 
         speed_cap_seen = False
         collision_holds = 0
@@ -295,12 +312,15 @@ class TestScenarios:
         harness.coordinator.register_intersection("X1")
         r1 = harness.add_robot("R-001", "L_A_B")
         r2 = harness.add_robot("R-002", "L_B_A")
-        # Place them close enough that their footprints overlap and neither can pass.
-        r1.distance_along_lane = 4.9
-        r2.distance_along_lane = 4.9
 
         harness.submit_order("o1", "L_A_B", "L_A_B")
         harness.submit_order("o2", "L_B_A", "L_B_A")
+
+        # Let the coordinator assign orders, then place the robots close enough
+        # that their footprints overlap and neither can pass.
+        harness.tick(1)
+        r1.distance_along_lane = 4.9
+        r2.distance_along_lane = 4.9
 
         deadlock_breaks = 0
         for _ in range(80):

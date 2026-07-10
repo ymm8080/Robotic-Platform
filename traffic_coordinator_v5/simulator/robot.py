@@ -214,10 +214,9 @@ class SimulatedRobot:
         self._path = []
         self._path_index = 0
         self.velocity = 0.0
-        if self.current_lane_id in self.lane_graph.charger_lanes():
-            self.mode = SimRobotMode.CHARGING
-        else:
-            self.mode = SimRobotMode.IDLE
+        # Rest at the destination node (end of the final lane).
+        self.distance_along_lane = self.lane_graph.length(self.current_lane_id)
+        self.mode = SimRobotMode.IDLE
 
     def _pose(self) -> tuple[float, float, float]:
         """Return current (x, y, theta) by interpolating along the lane."""

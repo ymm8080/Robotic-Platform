@@ -34,8 +34,10 @@ class FleetSimulator:
         self._robots: dict[str, SimulatedRobot] = {}
         self._mqtt = mqtt_client
         if self._mqtt is not None:
-            self._mqtt._on_order = self._route_order
-            self._mqtt._on_instant_actions = self._route_instant_actions
+            self._mqtt.set_callbacks(
+                on_order=self._route_order,
+                on_instant_actions=self._route_instant_actions,
+            )
         self._publish_interval = publish_interval
         self._last_publish: dict[str, float] = {}
         self._running = False
