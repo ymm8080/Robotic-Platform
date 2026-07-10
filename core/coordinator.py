@@ -824,6 +824,9 @@ class RobotPlatformCoordinator:
             "order_completion": {oid: list(s) for oid, s in self._order_completion.items()},
             "task_retries": dict(self._task_retries),
             "robot_lane": dict(self._robot_lane),
+            "robot_brands": {
+                rid: adapter.brand for rid, adapter in self._robot_adapter.items()
+            },
         }
 
     def restore(self, data: dict) -> None:
@@ -889,9 +892,11 @@ class RobotPlatformCoordinator:
                 degraded=fs_data.get("degraded", False),
             )
             self._robot_states[rid] = fs
-            # Re-link robot → adapter if brand matches
-            adapter = self._adapters.get(fs_data.get("brand", ""))
-            if adapter is not None:
+
+        # Re-link robot → adapter if brand mapping was saved
+        for rid, brand in data.get("robot_brands", {}).items():
+            adapter = self._adapters.get(brand)
+            if adapter is not None and rid in self._robot_states:
                 self._robot_adapter[rid] = adapter
 
         # Restore active assignments
@@ -901,6 +906,7 @@ class RobotPlatformCoordinator:
                 task_id=a_data["task_id"],
                 path=a_data.get("path", []),
                 max_speed=a_data.get("max_speed", 1.5),
+                version=a_data.get("version", "5.0"),
             )
 
         # Restore task queue

@@ -2,6 +2,7 @@
 
 import json
 
+from core.adapter.fleet_adapter import FleetAdapter
 from core.coordinator import RobotPlatformCoordinator
 from core.messages import (
     ActionPrimitive,
@@ -138,6 +139,40 @@ class TestRestore:
         assert ActionPrimitive.PICK in rs.capability.action_primitives
         assert rs.capability.supports_reverse is True
 
+    def test_snapshot_captures_robot_brands(self):
+        coord = RobotPlatformCoordinator()
+        coord.register_adapter(FleetAdapter(brand="mir"))
+        coord._robot_states["R1"] = _make_robot()
+        coord._robot_adapter["R1"] = coord._adapters["mir"]
+        snap = coord.snapshot()
+        assert snap["robot_brands"] == {"R1": "mir"}
+
+    def test_restore_relinks_adapter(self):
+        coord = RobotPlatformCoordinator()
+        coord.register_adapter(FleetAdapter(brand="mir"))
+        coord._robot_states["R1"] = _make_robot()
+        coord._robot_adapter["R1"] = coord._adapters["mir"]
+        snap = coord.snapshot()
+
+        coord2 = RobotPlatformCoordinator()
+        coord2.register_adapter(FleetAdapter(brand="mir"))
+        coord2.restore(snap)
+        assert "R1" in coord2._robot_adapter
+        assert coord2._robot_adapter["R1"].brand == "mir"
+
+    def test_restore_robot_state_without_registered_adapter(self):
+        coord = RobotPlatformCoordinator()
+        coord.register_adapter(FleetAdapter(brand="mir"))
+        coord._robot_states["R1"] = _make_robot()
+        coord._robot_adapter["R1"] = coord._adapters["mir"]
+        snap = coord.snapshot()
+
+        coord2 = RobotPlatformCoordinator()
+        # no mir adapter registered
+        coord2.restore(snap)
+        assert "R1" in coord2._robot_states
+        assert "R1" not in coord2._robot_adapter
+
     def test_restore_task_queue(self):
         coord = RobotPlatformCoordinator()
         coord._task_queue.append(Task(task_id="T1", start_lane="A", end_lane="B"))
@@ -170,6 +205,17 @@ class TestRestore:
         assert "R1" in coord2._active_assignments
         assert coord2._active_assignments["R1"].task_id == "T1"
         assert coord2._active_assignments["R1"].path == ["L1", "L2"]
+        assert coord2._active_assignments["R1"].version == "5.0"
+
+    def test_restore_active_assignment_preserves_custom_version(self):
+        coord = RobotPlatformCoordinator()
+        coord._active_assignments["R1"] = TaskAssignment(
+            task_id="T1", path=["L1"], max_speed=1.0, version="5.1",
+        )
+        snap = coord.snapshot()
+        coord2 = RobotPlatformCoordinator()
+        coord2.restore(snap)
+        assert coord2._active_assignments["R1"].version == "5.1"
 
     def test_restore_simple_maps(self):
         coord = RobotPlatformCoordinator()

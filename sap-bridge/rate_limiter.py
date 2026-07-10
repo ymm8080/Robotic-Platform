@@ -30,6 +30,18 @@ _EXEMPT_PATHS = frozenset({"/health", "/ready", "/live", "/metrics"})
 # Redis key prefix
 _REDIS_PREFIX = "ratelimit"
 
+# Atomic INCR + EXPIRE Lua script (fixes race between INCR and EXPIRE)
+_INCR_SCRIPT = """
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local current = redis.call('INCR', key)
+if current == 1 then
+    redis.call('EXPIRE', key, window)
+end
+return current
+"""
+
 
 def _client_ip(request: Request) -> str:
     """Extract client IP, respecting X-Forwarded-For from reverse proxies."""
@@ -70,16 +82,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window_key = f"{_REDIS_PREFIX}:{ip}:{request.method}:{int(time.time()) // _WINDOW_SECONDS}"
 
         try:
-            count = self._redis.incr(window_key)
-            if count == 1:
-                self._redis.expire(window_key, _WINDOW_SECONDS)
+            count = int(
+                self._redis.eval(_INCR_SCRIPT, 1, window_key, limit, _WINDOW_SECONDS)
+            )
         except Exception as exc:
             logger.warning("rate limiter Redis error (fail-open): %s", exc)
             return await call_next(request)
 
         if count > limit:
             retry_after = _WINDOW_SECONDS - (int(time.time()) % _WINDOW_SECONDS)
-            logger.warning("rate limit exceeded: ip=%s method=%s path=%s count=%d/%d", ip, request.method, path, count, limit)
+            logger.warning(
+                "rate limit exceeded: ip=%s method=%s path=%s count=%d/%d",
+                ip, request.method, path, count, limit,
+            )
             return JSONResponse(
                 status_code=429,
                 content={
