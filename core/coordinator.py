@@ -258,13 +258,16 @@ class RobotPlatformCoordinator:
         tasks = sorted(self._task_queue, key=lambda t: (-t.priority, t.created_at))
         self._task_queue.clear()
 
+        assigned_robots: set[str] = set()
         for task in tasks:
             if self._is_expired_or_exhausted(task, now):
                 continue
 
             candidates = [
                 r for r in self._robot_states.values()
-                if not r.degraded
+                if r.robot_id not in assigned_robots
+                and r.robot_id not in self._active_assignments
+                and not r.degraded
                 and not self.failover.is_offline(r.robot_id)
                 and self.failover.accepts_new_tasks(r.robot_id, now)
                 and self._breaker_closed(r.robot_id)
@@ -283,6 +286,7 @@ class RobotPlatformCoordinator:
                 continue
 
             adapter = self.adapter_for(robot.robot_id)
+            assigned_robots.add(robot.robot_id)
             if adapter is None:
                 if self._requeue_task(task, now, "no_adapter"):
                     remaining.append(task)
