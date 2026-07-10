@@ -48,16 +48,14 @@ afterEach(() => {
 
 describe('usePlatformState', () => {
   it('starts with disconnected state', () => {
-    let captured: ReturnType<typeof usePlatformState> | null = null
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
 
-    render(<HookTester expose={r => { captured = r }} />)
+    render(<HookTester expose={() => {}} />)
 
     expect(screen.getByTestId('connected').textContent).toBe('false')
-    expect(captured?.state).toBeNull()
-    expect(captured?.health).toBeNull()
-    expect(captured?.connected).toBe(false)
-    expect(captured?.error).toBeNull()
+    expect(screen.getByTestId('error').textContent).toBe('null')
+    expect(screen.getByTestId('has-state').textContent).toBe('false')
+    expect(screen.getByTestId('has-health').textContent).toBe('false')
   })
 
   it('fetches health and state on mount', async () => {
@@ -160,7 +158,7 @@ describe('usePlatformState', () => {
     fetchSpy.mockResolvedValue({ ok: true, json: async () => mockHealth } as Response)
 
     let captured: ReturnType<typeof usePlatformState> | null = null
-    render(<HookTester expose={r => { captured = r }} />)
+    render(<HookTester expose={(r) => { captured = r }} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('connected').textContent).toBe('true')
@@ -169,7 +167,7 @@ describe('usePlatformState', () => {
 
     // Trigger refresh
     await act(async () => {
-      captured?.refresh()
+      ;(captured as ReturnType<typeof usePlatformState>).refresh()
     })
 
     // refresh calls fetchData directly → 2 more calls (health + state)
