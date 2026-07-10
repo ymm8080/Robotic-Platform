@@ -67,7 +67,7 @@ jobs:
       - name: TypeScript type check (dashboard)
         run: |
           cd dashboard
-          npm ci
+          npm install
           npx tsc --noEmit || echo "TS checks pending — non-blocking"
 
   # ===========================================================================
@@ -207,7 +207,7 @@ jobs:
       - name: Build dashboard (Vite + TypeScript)
         run: |
           cd dashboard
-          npm ci
+          npm install
           npm run build
 
       - name: Verify Docker Compose config
