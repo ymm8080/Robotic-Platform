@@ -4,16 +4,15 @@ import logging
 from unittest.mock import MagicMock
 
 import pytest
-
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from rate_limiter import (
+    _READ_LIMIT,
+    _WRITE_LIMIT,
     RateLimitMiddleware,
     _client_ip,
     _tier_for,
-    _READ_LIMIT,
-    _WRITE_LIMIT,
 )
 
 logging.getLogger("rate_limiter").setLevel(logging.CRITICAL)
