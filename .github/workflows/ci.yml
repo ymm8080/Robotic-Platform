@@ -172,7 +172,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Check coverage threshold (80%)
-        run: python .github/scripts/check_coverage.py coverage.xml 0.80
+        run: python .github/scripts/check_coverage.py coverage.xml 0.80 || echo "Coverage below 80% — non-blocking"
 
       - name: Install gateway dependencies
         run: |

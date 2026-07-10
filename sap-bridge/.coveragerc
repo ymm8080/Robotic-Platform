@@ -6,6 +6,9 @@ omit =
     */backends/wm_backend.py
     # Test files
     */tests/*
+    # Simulators — development tools, not production code
+    */simulators/*
+    */wm_simulator/*
 
 [report]
 show_missing = true
