@@ -16,19 +16,19 @@ if sys.platform == 'win32':
 try:
     import omnigent
     print("✓ omnigent imported successfully!")
-    
+
     # Check version if available
     if hasattr(omnigent, '__version__'):
         print(f"Version: {omnigent.__version__}")
     else:
         print("Version: installed (version attribute not available)")
-    
+
     # List available modules/classes
     print("\nAvailable in omnigent module:")
     for attr in dir(omnigent):
         if not attr.startswith('_'):
             print(f"  - {attr}")
-            
+
 except Exception as e:
     print(f"✗ Failed to import omnigent: {e}")
     import traceback

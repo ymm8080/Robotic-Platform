@@ -1,0 +1,56 @@
+# Global Docker build context exclusions
+# Primarily benefits the traffic_coordinator_v5 build (context: repo root).
+# Service-specific builds (sap-bridge, gateway, watchdog) use their own contexts.
+
+# Version control
+.git
+.gitignore
+
+# IDE / editor configs
+.cursor
+.qoder
+.claude
+.vscode
+.obsidian
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Node.js
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Documentation and large assets not needed at build time
+*.md
+!README_v5.md
+!core/README.md
+traffic_coordinator_v5/**/*.md
+traffic_coordinator_v5/**/*.json
+traffic_coordinator_v5/**/*.yaml
+traffic_coordinator_v5/**/*.yml
+traffic_coordinator_v5/monitoring
+
+# Secrets
+secrets
+.env
+.env.*
+
+# Logs
+*.log
+logs
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.swp
+*~

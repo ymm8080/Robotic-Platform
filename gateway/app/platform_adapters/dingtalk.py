@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import time
 from typing import Any, Optional
@@ -34,18 +35,24 @@ class DingTalkAdapter:
             await self._http.aclose()
 
     async def _get_access_token(self) -> str:
-        """Fetch and cache access token."""
+        """Fetch and cache access token with HTTP/JSON error handling."""
         if self._access_token and time.time() < self._token_expires - 60:
             return self._access_token
 
-        resp = await self._http.get(
-            self.TOKEN_URL,
-            params={
-                "appkey": settings.DINGTALK_APP_KEY,
-                "appsecret": settings.DINGTALK_APP_SECRET,
-            },
-        )
-        data = resp.json()
+        try:
+            resp = await self._http.get(
+                self.TOKEN_URL,
+                params={
+                    "appkey": settings.DINGTALK_APP_KEY,
+                    "appsecret": settings.DINGTALK_APP_SECRET,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as e:
+            logger.error("[DingTalk] Token request failed: %s", e)
+            return ""
+
         if data.get("errcode") != 0:
             logger.error("[DingTalk] Failed to get access token: %s", data)
             return ""
@@ -83,6 +90,7 @@ class DingTalkAdapter:
                 params={"access_token": token},
                 json=payload,
             )
+            resp.raise_for_status()
             data = resp.json()
             if data.get("errcode") == 0:
                 task_id = str(data.get("task_id", ""))
@@ -91,9 +99,12 @@ class DingTalkAdapter:
             else:
                 logger.error("[DingTalk] Send failed: %s", data)
                 return {"status": "failed", "message_id": None, "error": str(data)}
-        except httpx.RequestError as e:
-            logger.error("[DingTalk] Request error: %s", e)
+        except httpx.HTTPError as e:
+            logger.error("[DingTalk] HTTP error: %s", e)
             return {"status": "failed", "message_id": None, "error": str(e)}
+        except json.JSONDecodeError as e:
+            logger.error("[DingTalk] Non-JSON response: %s", e)
+            return {"status": "failed", "message_id": None, "error": "non_json_response"}
 
     def verify_sign(
         self, timestamp: str, sign: str, secret: str = ""
@@ -115,13 +126,7 @@ class DingTalkAdapter:
         ).digest()
         computed = base64.b64encode(hmac_code).decode()
 
-        if computed == sign:
-            return True
-
-        logger.warning(
-            "[DingTalk] Signature mismatch: expected=%s, got=%s", computed, sign
-        )
-        return False
+        return hmac.compare_digest(computed, sign)
 
     def parse_callback(self, body: dict) -> Optional[PlatformCallback]:
         """Parse DingTalk callback into unified format."""

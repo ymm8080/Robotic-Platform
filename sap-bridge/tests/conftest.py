@@ -84,7 +84,11 @@ def _truncate_tables():
     from db import DB_URL
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
-    cur.execute("TRUNCATE TABLE orders, dead_letter_queue, outbox_events CASCADE")
+    cur.execute(
+        "TRUNCATE TABLE orders, dead_letter_queue, outbox_events, "
+        "brand_calibrations, map_zones, map_edges, map_nodes, "
+        "facility_maps CASCADE"
+    )
     conn.commit()
     cur.close()
     conn.close()

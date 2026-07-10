@@ -5,15 +5,18 @@ Supports both SAP EWM (OData) and SAP Classic WM (RFC) via backend abstraction.
 """
 import logging
 import os
+import re
+import secrets
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 
 # Shared Redis connection (avoid per-request from_url)
-import redis as _redis_module
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
 from metrics import (
@@ -29,10 +32,11 @@ from metrics import (
     sap_connected,
 )
 from mqtt_publisher import get_publisher
+from redis_client import redis_from_url
 from strategies import get_registry
 from strategies.registry import UnknownBrandError
 
-_redis_client = _redis_module.from_url(
+_redis_client = redis_from_url(
     os.getenv("REDIS_URL", "redis://redis:6379/1"),
     decode_responses=True,
 )
@@ -47,17 +51,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
-# App lifecycle
+# API Key authentication
+# ──────────────────────────────────────────────
+SAP_BRIDGE_API_KEY_FILE = os.getenv("SAP_BRIDGE_API_KEY_FILE", "/run/secrets/sap_bridge_api_key")
+
+
+def _load_api_key() -> str:
+    """Load API key from Docker secret file or env var."""
+    key_path = Path(SAP_BRIDGE_API_KEY_FILE)
+    if key_path.is_file():
+        return key_path.read_text().strip()
+    return os.getenv("SAP_BRIDGE_API_KEY", "")
+
+
+API_KEY = _load_api_key()
+if not API_KEY:
+    logger.warning(
+        "SAP_BRIDGE_API_KEY is not configured; /api/v1/ endpoints are unprotected. "
+        "Set SAP_BRIDGE_API_KEY or mount a secret at %s",
+        SAP_BRIDGE_API_KEY_FILE,
+    )
+
+# Watchdog API key used by the aggregated system health endpoint.
+WATCHDOG_API_KEY_FILE = os.getenv("WATCHDOG_API_KEY_FILE", "/run/secrets/watchdog_api_key")
+
+
+def _load_watchdog_api_key() -> str:
+    """Load Watchdog API key from Docker secret file or env var."""
+    key_path = Path(WATCHDOG_API_KEY_FILE)
+    if key_path.is_file():
+        return key_path.read_text().strip()
+    return os.getenv("WATCHDOG_API_KEY", "")
+
+
+WATCHDOG_API_KEY = _load_watchdog_api_key()
+
+_AUTH_EXEMPT_PREFIXES = {"/health", "/ready", "/live", "/metrics"}
+
+# Safe identifiers used in MQTT topics and database keys.
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\.\-]{1,64}$")
+
+
+def _validate_robot_id_parts(manufacturer: str, serial_number: str) -> str | None:
+    """Return error message if manufacturer or serial_number is unsafe for MQTT topics."""
+    if not _SAFE_ID_RE.match(manufacturer):
+        return f"invalid manufacturer: {manufacturer!r}"
+    if not _SAFE_ID_RE.match(serial_number):
+        return f"invalid serial_number: {serial_number!r}"
+    return None
+
+
+# ──────────────────────────────────────────────
+# App lifespan
 # ──────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: connect MQTT + start queue worker + heartbeat monitor. Shutdown: stop gracefully."""
+    # Security: refuse to start in production without API key (skip in tests)
+    _is_test = "pytest" in sys.modules
+    if not _is_test and os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not API_KEY:
+        raise RuntimeError(
+            "FATAL: SAP_BRIDGE_API_KEY is not configured in PRODUCTION mode."
+        )
+
     publisher = get_publisher()
     publisher.connect()
 
     # Start heartbeat monitor (subscribes to robot connection/state MQTT topics)
     # Gracefully handles MQTT unavailability (tests, CI) — logs warning and continues
+    heartbeat = None
     try:
         from heartbeat_monitor import HeartbeatMonitor
         heartbeat = HeartbeatMonitor()
@@ -87,6 +150,27 @@ app = FastAPI(
 
 # Register Prometheus metrics middleware
 app.add_middleware(MetricsMiddleware)
+
+
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    """Require X-API-Key header for all /api/v1/ endpoints.
+
+    Health/readiness/metrics endpoints are exempt so load balancers and
+    Watchdog can scrape them without authentication.
+    """
+    path = request.url.path
+    if API_KEY and path.startswith("/api/v1/") and not any(
+        path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES
+    ):
+        provided = request.headers.get("x-api-key", "")
+        if not provided or not secrets.compare_digest(API_KEY, provided):
+            logger.warning("API key auth failed for %s %s", request.method, path)
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"error": "unauthorized", "detail": "Missing or invalid X-API-Key header"},
+            )
+    return await call_next(request)
 
 
 @app.exception_handler(Exception)
@@ -157,7 +241,7 @@ async def robot_status():
     for key in keys:
         data = _redis_client.hgetall(key)
         robot_id = key.replace("robot:connection:", "")
-        brand = data.get("brand", "UNKNOWN")
+        brand = data.get("manufacturer", "UNKNOWN")
 
         # Normalize via brand strategy if raw_state is available
         strategy = registry.get(brand)
@@ -217,8 +301,8 @@ class DispatchRequest(BaseModel):
     serialNumber: str                   # Robot serial number
     orderId: str                        # Unique order ID
     orderUpdateId: int = 0              # VDA5050 order update ID
-    nodes: list = []                    # VDA5050 nodes
-    edges: list = []                    # VDA5050 edges
+    nodes: list = Field(default_factory=list)                    # VDA5050 nodes
+    edges: list = Field(default_factory=list)                    # VDA5050 edges
     robotModel: str = ""                # For dual-protocol brands (Geek+, Hai)
     robotType: str = ""                 # For Hai ACR vs HaiPort
     protocol: str = ""                  # For Quicktron proprietary fallback
@@ -244,6 +328,10 @@ async def dispatch_order(req: DispatchRequest):
     """
     if not get_publisher().is_connected:
         return JSONResponse(status_code=503, content={"error": "mqtt_disconnected"})
+
+    err = _validate_robot_id_parts(req.brand, req.serialNumber)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
 
     registry = get_registry()
 
@@ -307,6 +395,8 @@ async def dispatch_order(req: DispatchRequest):
         payload=result.payload,
         qos=1,
     )
+    if mid is None:
+        return JSONResponse(status_code=502, content={"error": "mqtt_publish_failed"})
 
     orders_created.labels(type="DISPATCH").inc()
     logger.info(
@@ -340,8 +430,8 @@ class CreateOrderRequest(BaseModel):
     orderId: str
     orderType: str = "MOVE"
     priority: int = 3
-    nodes: list = []
-    edges: list = []
+    nodes: list = Field(default_factory=list)
+    edges: list = Field(default_factory=list)
     source: str = ""
 
 
@@ -356,6 +446,17 @@ async def create_order(req: CreateOrderRequest):
     if not get_publisher().is_connected:
         return JSONResponse(status_code=503, content={"error": "mqtt_disconnected"})
 
+    # Validate order type first
+    order_type = None
+    try:
+        order_type = OrderType(req.orderType.upper())
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": f"invalid_order_type: {req.orderType}"})
+
+    err = _validate_robot_id_parts(req.manufacturer, req.serialNumber)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
+
     # Build VDA5050 payload
     vda5050_payload = {
         "orderId": req.orderId,
@@ -364,23 +465,7 @@ async def create_order(req: CreateOrderRequest):
         "edges": req.edges,
     }
 
-    # Publish to MQTT first
-    mid = get_publisher().publish(
-        manufacturer=req.manufacturer,
-        serial_number=req.serialNumber,
-        topic_suffix="order",
-        payload=vda5050_payload,
-        qos=1,
-    )
-
-    # Validate order type
-    order_type = None
-    try:
-        order_type = OrderType(req.orderType.upper())
-    except ValueError:
-        return JSONResponse(status_code=400, content={"error": f"invalid_order_type: {req.orderType}"})
-
-    # Persist order via OrderService (PostgreSQL in production)
+    # Persist order in CREATED state before attempting transport
     order = WarehouseOrder(
         order_no=req.orderId,
         type=order_type,
@@ -391,7 +476,24 @@ async def create_order(req: CreateOrderRequest):
         payload=vda5050_payload,
     )
     _order_service.create_order(order)
-    _order_service.assign_order(order.order_no, req.manufacturer, req.serialNumber)
+
+    # Publish to MQTT; only mark ASSIGNED after the broker accepts the message.
+    mid = get_publisher().publish(
+        manufacturer=req.manufacturer,
+        serial_number=req.serialNumber,
+        topic_suffix="order",
+        payload=vda5050_payload,
+        qos=1,
+    )
+    if mid is None:
+        _order_service.fail_order(order.order_no, "mqtt_publish_failed")
+        return JSONResponse(status_code=502, content={"error": "mqtt_publish_failed"})
+
+    assigned = _order_service.assign_order(order.order_no, req.manufacturer, req.serialNumber)
+    if assigned is None:
+        # Broker accepted the message but the order state changed concurrently.
+        # Return accepted because the robot will receive the order; log the mismatch.
+        logger.warning(f"Order {req.orderId} published but assign transition failed")
 
     orders_created.labels(type=req.orderType).inc()
 
@@ -986,6 +1088,10 @@ async def robot_command(robot_id: str, req: RobotCommandRequest):
             content={"error": "invalid_robot_id: use format 'manufacturer/serialNumber'"},
         )
 
+    err = _validate_robot_id_parts(manufacturer, serial_number)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
+
     # Build instantActions payload
     action_template = COMMAND_ACTIONS.get(req.action, COMMAND_ACTIONS["pause"])
     instant_actions = [dict(action_template)]
@@ -1003,6 +1109,8 @@ async def robot_command(robot_id: str, req: RobotCommandRequest):
         payload={"instantActions": instant_actions},
         qos=1,
     )
+    if mid is None:
+        return JSONResponse(status_code=502, content={"error": "mqtt_publish_failed"})
 
     logger.info(f"Command '{req.action}' → {manufacturer}/{serial_number} (mid={mid})")
     return {
@@ -1053,6 +1161,8 @@ async def system_health():
         def _fetch_watchdog():
             import urllib.request
             req = urllib.request.Request(wd_url)
+            if WATCHDOG_API_KEY:
+                req.add_header("X-API-Key", WATCHDOG_API_KEY)
             with urllib.request.urlopen(req, timeout=3) as resp:
                 return json_mod.loads(resp.read().decode())
         wd_data = await asyncio.to_thread(_fetch_watchdog)

@@ -9,7 +9,7 @@ from mqtt_publisher import VDA5050Publisher
 
 @pytest.fixture
 def publisher():
-    with patch("mqtt_publisher.redis.from_url") as mock_redis:
+    with patch("mqtt_publisher.redis_from_url") as mock_redis:
         mock_redis.return_value = MagicMock()
         pub = VDA5050Publisher()
         pub.client = MagicMock()

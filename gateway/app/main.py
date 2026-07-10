@@ -9,6 +9,9 @@ Endpoints:
 """
 import json
 import logging
+import os
+import secrets
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
@@ -58,11 +61,28 @@ _redis: Optional[aioredis.Redis] = None
 _http: Optional[httpx.AsyncClient] = None
 
 
+def _require_gateway_api_key(provided: str | None) -> None:
+    """Raise 401 if the provided key does not match the configured key."""
+    configured = settings.gateway_api_key
+    if not configured:
+        return
+    if not provided or not secrets.compare_digest(configured, provided):
+        logger.warning("Gateway API key auth failed")
+        raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key header")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown."""
     global _redis, _http
     logger.info("[Gateway] Starting message gateway v3.5...")
+
+    # Security: refuse to start in production without API key (skip in tests)
+    _is_test = "pytest" in sys.modules
+    if not _is_test and os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not settings.gateway_api_key:
+        raise RuntimeError(
+            "FATAL: GATEWAY_API_KEY is not configured in PRODUCTION mode."
+        )
 
     # Initialize all components
     await router.init()
@@ -71,7 +91,12 @@ async def lifespan(app: FastAPI):
     await wechat.init()
     await feishu.init()
     await dingtalk.init()
-    _redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+    redis_kwargs = {"decode_responses": True}
+    if settings.REDIS_URL.startswith("rediss://") or os.getenv("REDIS_SSL", "false").lower() == "true":
+        redis_kwargs["ssl"] = True
+        redis_kwargs["ssl_cert_reqs"] = os.getenv("REDIS_SSL_CERT_REQS", "required")
+    _redis = aioredis.from_url(settings.REDIS_URL, **redis_kwargs)
     _http = httpx.AsyncClient(timeout=10.0)
 
     logger.info("[Gateway] All components initialized. Enabled channels: %s", settings.enabled_channels)
@@ -108,6 +133,7 @@ async def health():
         "status": "ok",
         "version": "3.5.0",
         "channels": settings.enabled_channels,
+        "audit": audit.status,
         "timestamp": utc_now_iso(),
     }
 
@@ -115,12 +141,16 @@ async def health():
 # -- Send Notification --
 
 @app.post("/api/v1/notifications/send", response_model=NotificationResponse)
-async def send_notification(req: NotificationRequest):
+async def send_notification(
+    req: NotificationRequest,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
     """Send a notification to specified channels.
 
     System → Gateway: Core platform sends alert via this endpoint.
     Gateway routes to WeChat/Feishu/DingTalk/Email based on priority and config.
     """
+    _require_gateway_api_key(x_api_key)
     logger.info(
         "[Gateway] Notification received: alert_id=%s, priority=%s, action=%s",
         req.alert_id, req.priority, req.action_type,
@@ -235,7 +265,11 @@ async def platform_callback(
     Platforms (wechat/feishu/dingtalk) call this when user clicks a button.
     All callbacks must pass signature verification before processing.
     """
-    body = await request.json()
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        logger.warning("[Gateway] Invalid JSON in callback body")
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     # 1. Handle Feishu URL verification challenge
     if platform == "feishu":
@@ -426,6 +460,9 @@ async def platform_callback(
     await _redis.expire(f"gateway:op:{execution_id}", 86400)
 
     # 7. Call core platform API to execute the action
+    headers = {"Content-Type": "application/json"}
+    if settings.core_platform_api_key:
+        headers["X-API-Key"] = settings.core_platform_api_key
     try:
         core_resp = await _http.post(
             f"{settings.CORE_PLATFORM_URL}/api/execute",
@@ -438,16 +475,30 @@ async def platform_callback(
                 "params": callback.action.params,
                 "correlation_id": callback.card_context.correlation_id,
             },
+            headers=headers,
         )
-        core_data = core_resp.json()
-        success = core_resp.status_code == 200 and core_data.get("success", False)
-
-        if success:
-            final_status = OperationStatus.SUCCESS.value
-            result_data = core_data.get("result", {})
+        if core_resp.status_code == 200:
+            try:
+                core_data = core_resp.json()
+            except json.JSONDecodeError:
+                logger.error("[Gateway] Core platform returned non-JSON 200 response")
+                final_status = OperationStatus.FAILED.value
+                result_data = {"error": "core_platform_non_json_response"}
+            else:
+                success = core_data.get("success", False)
+                if success:
+                    final_status = OperationStatus.SUCCESS.value
+                    result_data = core_data.get("result", {})
+                else:
+                    final_status = OperationStatus.FAILED.value
+                    result_data = {"error": core_data.get("error", "Unknown error")}
         else:
             final_status = OperationStatus.FAILED.value
-            result_data = {"error": core_data.get("error", "Unknown error")}
+            try:
+                error_text = core_resp.text
+            except Exception:
+                error_text = f"HTTP {core_resp.status_code}"
+            result_data = {"error": f"HTTP {core_resp.status_code}: {error_text[:200]}"}
     except httpx.RequestError as e:
         logger.error("[Gateway] Core platform call failed: %s", e)
         final_status = OperationStatus.FAILED.value
@@ -494,8 +545,12 @@ async def platform_callback(
 # -- Query Operation Status --
 
 @app.get("/api/v1/operations/{execution_id}")
-async def get_operation(execution_id: str):
+async def get_operation(
+    execution_id: str,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
     """Query the status of an operation by execution_id."""
+    _require_gateway_api_key(x_api_key)
     key = f"gateway:op:{execution_id}"
     data = await _redis.hgetall(key)
 
@@ -532,8 +587,10 @@ async def query_audit_logs(
     target_id: str = Query("", description="Filter by target ID"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
 ):
     """Query audit logs with filters."""
+    _require_gateway_api_key(x_api_key)
     result = await audit.query_logs(
         start_time=start_time,
         end_time=end_time,

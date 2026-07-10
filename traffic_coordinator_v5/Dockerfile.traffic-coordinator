@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install minimal runtime dependencies only if needed later.
+# For the skeleton phase we rely on the Python standard library.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the v5.0 core package and the traffic coordinator entrypoint.
+COPY core /app/core
+COPY traffic_coordinator_v5/traffic_coordinator_main.py /app/traffic_coordinator_main.py
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV TC_HTTP_PORT=8000
+ENV MODE=PRODUCTION
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["python", "traffic_coordinator_main.py"]

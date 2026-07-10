@@ -1,6 +1,7 @@
 """Feishu (飞书) platform adapter."""
 import hashlib
 import hmac
+import json
 import logging
 from typing import Any, Optional
 
@@ -32,19 +33,25 @@ class FeishuAdapter:
             await self._http.aclose()
 
     async def _get_access_token(self) -> str:
-        """Fetch and cache tenant access token."""
+        """Fetch and cache tenant access token with HTTP/JSON error handling."""
         import time
         if self._access_token and time.time() < self._token_expires - 60:
             return self._access_token
 
-        resp = await self._http.post(
-            self.TOKEN_URL,
-            json={
-                "app_id": settings.FEISHU_APP_ID,
-                "app_secret": settings.FEISHU_APP_SECRET,
-            },
-        )
-        data = resp.json()
+        try:
+            resp = await self._http.post(
+                self.TOKEN_URL,
+                json={
+                    "app_id": settings.FEISHU_APP_ID,
+                    "app_secret": settings.FEISHU_APP_SECRET,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as e:
+            logger.error("[Feishu] Token request failed: %s", e)
+            return ""
+
         if data.get("code") != 0:
             logger.error("[Feishu] Failed to get access token: %s", data)
             return ""
@@ -61,7 +68,6 @@ class FeishuAdapter:
         if not token:
             return {"status": "failed", "message_id": None, "error": "no access token"}
 
-        import json
         results = []
         for recipient in recipients:
             payload = {
@@ -76,6 +82,7 @@ class FeishuAdapter:
                     headers={"Authorization": f"Bearer {token}"},
                     json=payload,
                 )
+                resp.raise_for_status()
                 data = resp.json()
                 if data.get("code") == 0:
                     msg_id = data.get("data", {}).get("message_id", "")
@@ -84,9 +91,12 @@ class FeishuAdapter:
                 else:
                     results.append({"status": "failed", "error": str(data)})
                     logger.error("[Feishu] Send failed for %s: %s", recipient, data)
-            except httpx.RequestError as e:
+            except httpx.HTTPError as e:
                 results.append({"status": "failed", "error": str(e)})
-                logger.error("[Feishu] Request error: %s", e)
+                logger.error("[Feishu] HTTP error: %s", e)
+            except json.JSONDecodeError as e:
+                results.append({"status": "failed", "error": "non_json_response"})
+                logger.error("[Feishu] Non-JSON response: %s", e)
 
         # Return first result (or aggregate)
         if results and all(r.get("status") == "sent" for r in results):
@@ -106,11 +116,12 @@ class FeishuAdapter:
         return None
 
     def verify_token(self, token: str) -> bool:
-        """Verify Feishu event verification token."""
-        if not settings.FEISHU_VERIFICATION_TOKEN:
+        """Verify Feishu event verification token (constant-time)."""
+        configured = settings.FEISHU_VERIFICATION_TOKEN
+        if not configured:
             logger.error("[Feishu] No verification token configured")
             return False
-        return token == settings.FEISHU_VERIFICATION_TOKEN
+        return hmac.compare_digest(configured, token)
 
     def parse_callback(self, body: dict) -> Optional[PlatformCallback]:
         """Parse Feishu callback into unified format."""

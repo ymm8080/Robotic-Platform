@@ -9,12 +9,20 @@ import re
 from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
-import redis
+
+from redis_client import redis_from_url
 
 logger = logging.getLogger(__name__)
 
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mqtt")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() == "true"
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD_FILE = os.getenv("MQTT_PASSWORD_FILE", "/run/secrets/mqtt_password")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+MQTT_CA_CERT = os.getenv("MQTT_CA_CERT", "")
+MQTT_CLIENT_CERT = os.getenv("MQTT_CLIENT_CERT", "")
+MQTT_CLIENT_KEY = os.getenv("MQTT_CLIENT_KEY", "")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 TOPIC_CONNECTION = "vda5050/+/+/connection"
@@ -28,7 +36,7 @@ class HeartbeatMonitor:
     """Subscribes to VDA5050 connection/state topics and maintains Redis state."""
 
     def __init__(self):
-        self.redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        self.redis_client = redis_from_url(REDIS_URL, decode_responses=True)
         self.client = mqtt.Client(
             client_id="robot-platform-heartbeat-monitor",
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -38,7 +46,31 @@ class HeartbeatMonitor:
         self.client.on_message = self._on_message
         self._running = False
 
+    @staticmethod
+    def _load_mqtt_password() -> str:
+        """Read MQTT password from Docker secret, falling back to env var."""
+        try:
+            with open(MQTT_PASSWORD_FILE) as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            return MQTT_PASSWORD
+
     def start(self):
+        if MQTT_USE_TLS:
+            if MQTT_CA_CERT:
+                self.client.tls_set(
+                    ca_certs=MQTT_CA_CERT,
+                    certfile=MQTT_CLIENT_CERT or None,
+                    keyfile=MQTT_CLIENT_KEY or None,
+                )
+            else:
+                self.client.tls_set()
+            self.client.tls_insecure_set(False)
+            logger.info("Heartbeat monitor MQTT TLS enabled")
+        if MQTT_USERNAME:
+            password = self._load_mqtt_password()
+            self.client.username_pw_set(MQTT_USERNAME, password or None)
+
         self.client.connect(MQTT_BROKER, MQTT_PORT, 60)
         self.client.loop_start()
         self._running = True
@@ -131,5 +163,6 @@ class HeartbeatMonitor:
                 "driving": str(driving).lower(),
                 "paused": str(paused).lower(),
                 "operatingMode": operating_mode,
+                "raw_state": json.dumps(payload),
             })
             self.redis_client.expire(redis_key, ROBOT_TTL)

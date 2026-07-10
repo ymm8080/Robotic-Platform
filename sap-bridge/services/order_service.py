@@ -221,10 +221,14 @@ class OrderService:
     # ── Helpers ─────────────────────────────────────────
 
     def _update(self, order: WarehouseOrder):
-        """Persist order state changes. Raises on version conflict."""
+        """Persist order state changes with optimistic locking.
+
+        Increments the version only after a successful UPDATE to keep the
+        in-memory object consistent if the update fails.
+        """
         conn = self._connect()
         try:
-            order.version += 1
+            new_version = order.version + 1
             cur = conn.execute(
                 """UPDATE orders SET
                    status=?, robot_brand=?, robot_serial=?, payload=?,
@@ -238,8 +242,8 @@ class OrderService:
                     order.zone_id, order.location, order.weight,
                     order.expected_qty, order.assigned_rule_id,
                     order.error_message,
-                    order.updated_at, order.completed_at, order.version,
-                    order.order_no, order.version - 1,
+                    order.updated_at, order.completed_at, new_version,
+                    order.order_no, order.version,
                 ),
             )
             conn.commit()
@@ -251,6 +255,7 @@ class OrderService:
                 raise RuntimeError(
                     f"Order {order.order_no} was modified concurrently"
                 )
+            order.version = new_version
             logger.info(f"Order updated: {order.order_no} → {order.status.value} (v{order.version})")
         finally:
             conn.close()

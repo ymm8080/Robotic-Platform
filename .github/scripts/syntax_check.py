@@ -9,6 +9,7 @@ source and triggers ``IndentationError: unexpected indent``).
 import ast
 import glob
 import sys
+from pathlib import Path
 
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
@@ -17,12 +18,18 @@ for stream in (sys.stdout, sys.stderr):
         except (ValueError, OSError):
             pass
 
+# Resolve relative to this script so the check is cwd-independent.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 PATTERNS = ("sap-bridge/**/*.py", "scripts/*.py")
 
 errors = 0
 files = []
 for pattern in PATTERNS:
-    files.extend(glob.glob(pattern, recursive=True))
+    files.extend(REPO_ROOT.glob(pattern))
+
+if not files:
+    print(f"⚠️ No Python files found under {REPO_ROOT} for patterns {PATTERNS}", file=sys.stderr)
+    sys.exit(2)
 
 for f in sorted(files):
     with open(f, encoding="utf-8") as fh:

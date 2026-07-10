@@ -2,13 +2,14 @@
 Generate: D:/EWM ROBOT/REFERENCE/DESIGN/version-upgrade-verification-v3.4-to-v5.0.docx
 Includes: EWM + WM dual-system architecture section
 """
-from docx import Document
-from docx.shared import Pt, Cm, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml.ns import nsdecls
-from docx.oxml import parse_xml
 import os
+
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls
+from docx.shared import Cm, Pt, RGBColor
 
 doc = Document()
 

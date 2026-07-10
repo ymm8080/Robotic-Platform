@@ -1,0 +1,82 @@
+# =============================================================================
+# SAP-EWM 机器人调度平台 Docker Compose v5.0
+# =============================================================================
+# 说明：
+# - 通过 include 复用 v4.1 docker-compose.yml 的全部服务与网络。
+# - 本文件仅添加 traffic_coordinator_v5 服务及其持久化卷。
+# - v4.1 与 v5.0 可并行运行，通过 VersionRouter 实现 N-1 兼容。
+# =============================================================================
+
+include:
+  - docker-compose.yml
+
+services:
+  # ===========================================================================
+  # v5.0 Traffic Coordinator — 固定车道 + 路口信号灯核心调度
+  # ===========================================================================
+  traffic-coordinator:
+    build:
+      context: .
+      dockerfile: traffic_coordinator_v5/Dockerfile.traffic-coordinator
+    image: robot-platform-traffic-coordinator:v5.0
+    container_name: robot-platform-traffic-coordinator
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      - MODE=PRODUCTION
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-robot-platform-redis}@redis:6379/3
+      - REDIS_SSL=${REDIS_SSL:-false}
+      - REDIS_SSL_CERT_REQS=${REDIS_SSL_CERT_REQS:-required}
+      - WORM_SINK_PATH=/data/worm.jsonl
+      - TC_HTTP_PORT=8000
+      - TC_API_KEY_FILE=/run/secrets/tc_api_key
+    volumes:
+      - v5-worm-data:/data
+      - ./core:/app/core:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    secrets:
+      - tc_api_key
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# =============================================================================
+# v5.0 专用持久化卷
+# =============================================================================
+volumes:
+  v5-worm-data:
+    driver: local
+
+# =============================================================================
+# v5.0 专用 Docker Secrets
+# =============================================================================
+secrets:
+  tc_api_key:
+    file: ./secrets/tc_api_key.txt

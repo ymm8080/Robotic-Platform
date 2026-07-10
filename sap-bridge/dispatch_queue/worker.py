@@ -12,10 +12,9 @@ import os
 import threading
 import time
 
-import redis
-
 from models.order import OrderStatus, WarehouseOrder
 from mqtt_publisher import get_publisher
+from redis_client import redis_from_url
 from services.order_service import OrderService
 from strategies import get_registry
 
@@ -43,7 +42,7 @@ class QueueWorker:
         self._order_service = OrderService()
         self._publisher = get_publisher()
         self._registry = get_registry()
-        self._redis = redis.from_url(REDIS_URL, decode_responses=True)
+        self._redis = redis_from_url(REDIS_URL, decode_responses=True)
         self._running = False
         self._thread: threading.Thread | None = None
         self._retry_count: dict[str, int] = {}  # order_no → retry count

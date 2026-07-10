@@ -1,6 +1,7 @@
 """Message Router - Multi-channel distribution, priority, dedup, time control."""
 import hashlib
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -33,7 +34,11 @@ class MessageRouter:
         self._redis: Optional[aioredis.Redis] = None
 
     async def init(self):
-        self._redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        redis_kwargs = {"decode_responses": True}
+        if settings.REDIS_URL.startswith("rediss://") or os.getenv("REDIS_SSL", "false").lower() == "true":
+            redis_kwargs["ssl"] = True
+            redis_kwargs["ssl_cert_reqs"] = os.getenv("REDIS_SSL_CERT_REQS", "required")
+        self._redis = aioredis.from_url(settings.REDIS_URL, **redis_kwargs)
 
     async def close(self):
         if self._redis:
