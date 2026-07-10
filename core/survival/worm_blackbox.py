@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,6 +48,8 @@ class WormBlackbox:
         self._shard_dir = sink_path.parent if sink_path else None
         self._base_name = sink_path.stem if sink_path else None
         self._lock = threading.Lock()
+        if sink_path is not None:
+            self._load_from_disk()
 
     def write(self, timestamp: float, category: str, robot_id: str, payload: dict) -> WormRecord:
         """Append one record. Never overwrites; chains on the previous hash."""
@@ -136,8 +139,33 @@ class WormBlackbox:
     def records(self) -> list[WormRecord]:
         return list(self._records)
 
+    def _load_from_disk(self) -> None:
+        """Restore hash chain from existing JSONL sink on startup.
+
+        Without this, a restart breaks the chain: prev_hash resets to ""
+        and new records cannot link to prior history (铁律三 violation).
+        """
+        if self._sink is None or not self._sink.exists():
+            return
+        try:
+            with open(self._sink, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    rec = WormRecord(**json.loads(line))
+                    self._records.append(rec)
+            if self._records:
+                self._prev_hash = self._records[-1].hash
+                self._current_shard_start = self._records[0].timestamp
+        except (json.JSONDecodeError, TypeError, ValueError):
+            # Corrupt sink — start fresh, old data is forensic evidence on disk
+            pass
+
     def _persist(self, rec: WormRecord) -> None:
         if self._sink is None:
             return
         with open(self._sink, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(rec)) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
