@@ -46,6 +46,7 @@ mqtt/passwd
 # IDE
 .vscode/
 .idea/
+.zcode/
 *.swp
 *.swo
 
@@ -77,6 +78,8 @@ temp-skills/
 .cursor/skills/
 .qoder/
 .workbuddy/
+.claude/reference-snapshot.json
+.claude/today-session-context.json
 
 # 对话记录（自动生成的个人日志）
 transcripts/
@@ -91,6 +94,10 @@ SESSION_STATUS.md
 # Dashboard debug/temp files
 dashboard/tmp_*.png
 dashboard/dashboard_*_state.json
+dashboard/dashboard_state.json
 dashboard/debug_*.cjs
 dashboard/explore_*.cjs
 dashboard/test_login.cjs
+
+# 生成输出
+scripts/output/
