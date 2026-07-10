@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 
 from core.config import GovernanceConfig
 from core.governance.economic_model import EconomicModel
-from core.messages import ActionPrimitive, CapabilityVector, FleetState, RobotMode, TaskAssignment
 from core.governance.reputation_engine import ReputationEngine
+from core.messages import ActionPrimitive, CapabilityVector, FleetState, RobotMode, TaskAssignment
 
 
 @dataclass

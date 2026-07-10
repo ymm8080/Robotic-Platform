@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.shadow_state_machine import CircuitState
+from core.governance.reputation_engine import ReputationEngine
 from core.messages import (
     ActionPrimitive,
     CapabilityVector,
@@ -22,7 +23,6 @@ from core.scheduling.traffic_light_controller import (
     LightPhase,
     TrafficLightController,
 )
-from core.governance.reputation_engine import ReputationEngine
 
 
 def _robot(

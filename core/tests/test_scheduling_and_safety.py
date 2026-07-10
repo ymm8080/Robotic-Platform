@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 from core.config import TrafficConfig
+from core.governance.reputation_engine import ReputationEngine
 from core.messages import HealthStatus, Pose, RobotMode, SensorHealth
 from core.safety.safe_distance import SafeDistanceCalculator
+from core.scheduling.facility_manager import FacilityManager
 from core.scheduling.task_allocator import Task, TaskAllocator
 from core.scheduling.traffic_light_controller import (
     LightPhase,
     TrafficLightController,
 )
-from core.scheduling.facility_manager import FacilityManager
-from core.governance.reputation_engine import ReputationEngine
 
 
 # ── safety distance ───────────────────────────────────────────
