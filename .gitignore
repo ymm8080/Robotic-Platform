@@ -46,7 +46,6 @@ mqtt/passwd
 # IDE
 .vscode/
 .idea/
-.zcode/
 *.swp
 *.swo
 

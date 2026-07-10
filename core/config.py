@@ -58,6 +58,7 @@ class WormConfig:
     rotation_hours: float = 24.0     # 24h/文件 分片滚动
     retention_days: int = 180        # 180天保留
     disk_warn_pct: float = 20.0      # 剩余<20% 告警 (Runbook 图6)
+    sink_dir: str = "/data/worm"     # 磁盘持久化目录 (铁律 #9: 审计日志留存≥6个月)
 
 
 @dataclass(frozen=True)

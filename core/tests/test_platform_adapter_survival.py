@@ -175,6 +175,25 @@ def test_worm_disk_warning():
     assert not wb2.disk_warning()
 
 
+def test_worm_restart_preserves_chain():
+    """Restart must restore prev_hash so new records link to prior history."""
+    with tempfile.TemporaryDirectory() as d:
+        sink = Path(d) / "worm.jsonl"
+        wb1 = WormBlackbox(sink_path=sink)
+        wb1.write(100.0, "EVENT", "R1", {"v": 1})
+        wb1.write(101.0, "ERROR", "R1", {"code": "ERR_TIMEOUT"})
+        assert wb1.verify_chain()
+
+        # Simulate restart — new instance reads same sink file
+        wb2 = WormBlackbox(sink_path=sink)
+        assert len(wb2.records()) == 2
+        assert wb2.verify_chain()
+        # New record must chain to the last record from wb1
+        rec = wb2.write(102.0, "EVENT", "R2", {"action": "recover"})
+        assert rec.prev_hash == wb1.records()[-1].hash
+        assert wb2.verify_chain()
+
+
 # ── version router ────────────────────────────────────────────
 def test_version_router_upgrades_v4_fields():
     vr = VersionRouter()

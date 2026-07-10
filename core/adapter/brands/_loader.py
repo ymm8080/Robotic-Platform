@@ -1,57 +1,55 @@
-"""Lazy strategy loader — avoids hard imports from sap-bridge.
+"""Brand strategy loader — creates strategy instances from local definitions.
 
-The sap-bridge directory uses a hyphen in its name so it cannot be imported
-with a normal ``import`` statement.  Instead we use ``importlib`` with a
-sys.path entry pointing to the project root.
+Previously tried to import from ``sap-bridge/strategies/``, which does not
+exist yet.  v5.0 Phase 2 moves all strategy classes into
+``core/adapter/brands/strategies.py`` so the core has zero dependency on
+the sap-bridge layer.
+
+Each brand strategy implements the ``_StrategyLike`` protocol expected by
+``VDA5050FleetAdapter`` (handle_state, to_fleet_state, to_capability_vector,
+extract_errors, dispatch, brand).
 """
+
 from __future__ import annotations
 
-import importlib
-import os
-import sys
-from typing import Any
+from core.adapter.brands.strategies import (  # noqa: E402
+    GeekPlusStrategy,
+    HaiRoboticsStrategy,
+    KukaStrategy,
+    MirStrategy,
+    OttoStrategy,
+    QuicktronStrategy,
+)
+from core.adapter.map_transformer import MapTransformer
+
+_STRATEGY_FACTORY: dict[str, type] = {
+    "mir": MirStrategy,
+    "otto": OttoStrategy,
+    "kuka": KukaStrategy,
+    "geekplus": GeekPlusStrategy,
+    "hairobotics": HaiRoboticsStrategy,
+    "quicktron": QuicktronStrategy,
+}
 
 
-def _ensure_project_root() -> None:
-    """Add the project root to sys.path so 'sap-bridge' can be found."""
-    root = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..")
-    )
-    if root not in sys.path:
-        sys.path.insert(0, root)
+def load_strategy(
+    brand: str, transformer: MapTransformer | None = None
+) -> object:
+    """Return a brand strategy instance for use with VDA5050FleetAdapter.
 
-
-def _load_strategy(brand: str) -> Any:
-    """Import a brand strategy class from sap-bridge/strategies/.
-
-    Returns an *instance* of the strategy class.
+    Returns ``None`` for brands without a dedicated strategy
+    (e.g. "generic"), where the caller should fall back to the
+    generic pass-through adapter.
     """
-    _ensure_project_root()
+    cls = _STRATEGY_FACTORY.get(brand)
+    if cls is None:
+        raise KeyError(
+            f"No strategy defined for brand {brand!r}. "
+            f"Available: {list(_STRATEGY_FACTORY)}"
+        )
+    return cls(transformer=transformer)
 
-    _MODULE_MAP: dict[str, str] = {
-        "mir": "sap-bridge.strategies.mir",
-        "otto": "sap-bridge.strategies.otto",
-        "kuka": "sap-bridge.strategies.kuka",
-        "geekplus": "sap-bridge.strategies.geekplus",
-        "hairobotics": "sap-bridge.strategies.hairobotics",
-        "quicktron": "sap-bridge.strategies.quicktron",
-    }
 
-    _CLASS_MAP: dict[str, str] = {
-        "mir": "MirStrategy",
-        "otto": "OttoStrategy",
-        "kuka": "KukaStrategy",
-        "geekplus": "GeekPlusStrategy",
-        "hairobotics": "HaiRoboticsStrategy",
-        "quicktron": "QuicktronStrategy",
-    }
-
-    module_name = _MODULE_MAP.get(brand)
-    class_name = _CLASS_MAP.get(brand)
-
-    if module_name is None or class_name is None:
-        raise ValueError(f"Unknown brand: {brand!r}")
-
-    mod = importlib.import_module(module_name)
-    cls = getattr(mod, class_name)
-    return cls()
+def supported_brands() -> list[str]:
+    """Return the list of brands that have dedicated strategy classes."""
+    return list(_STRATEGY_FACTORY)

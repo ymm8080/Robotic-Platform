@@ -16,8 +16,8 @@ unified frame.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from core.messages import Pose
 
@@ -32,7 +32,7 @@ class MapTransformer:
     native_to_unified_lane: Callable[[str], str | None]
 
     @classmethod
-    def identity(cls, brand: str) -> "MapTransformer":
+    def identity(cls, brand: str) -> MapTransformer:
         """No-op transformer for fleets already operating in the unified frame."""
         return cls(
             brand=brand,

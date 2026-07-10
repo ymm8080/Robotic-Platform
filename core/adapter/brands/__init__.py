@@ -11,11 +11,11 @@ Usage::
 """
 from __future__ import annotations
 
-from core.adapter.brands.mir_adapter import create_mir_adapter
-from core.adapter.brands.otto_adapter import create_otto_adapter
-from core.adapter.brands.kuka_adapter import create_kuka_adapter
 from core.adapter.brands.geekplus_adapter import create_geekplus_adapter
 from core.adapter.brands.hairobotics_adapter import create_hairobotics_adapter
+from core.adapter.brands.kuka_adapter import create_kuka_adapter
+from core.adapter.brands.mir_adapter import create_mir_adapter
+from core.adapter.brands.otto_adapter import create_otto_adapter
 from core.adapter.brands.quicktron_adapter import create_quicktron_adapter
 
 BRAND_FACTORIES: dict[str, callable] = {

@@ -105,6 +105,8 @@ sap:
   warehouses:
     WM01:
       backend: ewm
+      # Auth mode: "basic" (default, legacy) or "oauth2" (S/4HANA 2023+)
+      auth_mode: basic
       base_url: "${SAP_EWM_BASE_URL:-http://sap-ewm:8000}"
       client: "${SAP_CLIENT:-100}"
       user: "${SAP_USER:-}"
@@ -112,6 +114,13 @@ sap:
       rate_limit: 80
       connection_timeout: 30
       odata_service: "/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001"
+      # ── OAuth2 mode (uncomment for S/4HANA) ──
+      # auth_mode: oauth2
+      # oauth2:
+      #   token_url: "${SAP_OAUTH_TOKEN_URL:-https://sap-s4hana:44300/sap/bc/sec/oauth2/token}"
+      #   client_id: "${SAP_OAUTH_CLIENT_ID:-}"
+      #   client_secret_file: "${SAP_OAUTH_CLIENT_SECRET_FILE:-/run/secrets/sap_oauth_client_secret}"
+      #   scope: ""  # optional; S/4HANA usually does not require scope
 
     # WM warehouse — dev/test mode uses HTTP simulator (no pyrfc needed)
     WM02:

@@ -11,7 +11,7 @@ renegotiation (白皮书 §2.1 降维打击).
 from __future__ import annotations
 
 from core.scheduling.facility_manager import FacilityManager, ZoneState
-from core.scheduling.task_allocator import TaskAllocator, AllocationResult, Task
+from core.scheduling.task_allocator import AllocationResult, Task, TaskAllocator
 from core.scheduling.traffic_light_controller import (
     DeadlockBreak,
     Intersection,

@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from core.adapter.fleet_adapter import AdapterCommand, FleetAdapter
 from core.config import CoreConfig
@@ -31,12 +32,12 @@ from core.messages import ActionPrimitive, FleetState, RobotMode, TaskAssignment
 from core.observability import CoreMetrics, MetricsSnapshot
 from core.orders import Order, OrderPlan, OrderSequencer, OrderStatus
 from core.platform.charger_reservation import ChargerReservation
-from core.scheduling.facility_manager import FacilityManager
 from core.platform.failover_degrade import FailoverDegrade
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from core.platform.lift_manager import LiftManager
 from core.platform.robot_as_obstacle import RobotAsObstacle
 from core.safety.safe_distance import SafeDistanceCalculator
+from core.scheduling.facility_manager import FacilityManager
 from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
@@ -98,7 +99,10 @@ class RobotPlatformCoordinator:
         self.facility = facility or FacilityManager()
         self.charger = charger or ChargerReservation(self.cfg.charger)
         self.lift = lift or LiftManager()
-        self.worm = worm or WormBlackbox(self.cfg.worm)
+        self.worm = worm or WormBlackbox(
+            self.cfg.worm,
+            sink_path=Path(self.cfg.worm.sink_dir) / "worm.jsonl",
+        )
         self.version_router = version_router or VersionRouter(self.cfg)
         self.sequencer = sequencer or OrderSequencer(self.fmap)
         self.metrics = metrics or CoreMetrics()

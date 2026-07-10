@@ -4,6 +4,10 @@ Extracted from services/ewm_warehouse_service.py into the WarehouseBackend ABC.
 Supports both V2 and V4 OData protocols with CSRF token management, rate limiting,
 and pagination.
 
+Auth modes (config-driven):
+  - basic (default): Basic Auth + CSRF token (legacy SAP EWM)
+  - oauth2: OAuth2 client_credentials + Bearer token (S/4HANA 2023+)
+
 References:
   REFERENCE/05_reference/sap/odata-warehouse-task-api.md
   REFERENCE/05_reference/sap/auth/csrf-token-flow.md
@@ -23,6 +27,7 @@ from models.warehouse_task import WarehouseTask
 from redis_client import redis_from_url
 
 from .base import WarehouseBackend
+from .oauth2_token_manager import OAuth2TokenManager, read_client_secret
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +54,7 @@ def _read_password(password_file: str) -> str:
         with open(password_file) as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.error(f"SAP password file not found: {password_file}")
+        logger.error("SAP password file not found at configured path")
         raise
 
 
@@ -58,9 +63,15 @@ def _read_password(password_file: str) -> str:
 class CsrfTokenManager:
     """Manages SAP OData CSRF tokens with Redis caching."""
 
-    def __init__(self, redis_client: rd.Redis, auth: tuple[str, str] | None = None):
+    def __init__(
+        self,
+        redis_client: rd.Redis,
+        auth: tuple[str, str] | None = None,
+        auth_headers: dict | None = None,
+    ):
         self._redis = redis_client
-        self._auth = auth
+        self._auth = auth  # Basic Auth tuple (user, password) or None
+        self._auth_headers = auth_headers  # Extra headers (e.g., Bearer token)
 
     def get_token(self) -> tuple[str, str] | None:
         token = self._redis.get("sap:csrf_token")
@@ -76,11 +87,17 @@ class CsrfTokenManager:
         pipe.set("sap:csrf_last_refresh", str(time.time()))
         pipe.execute()
 
-    def fetch_new(self, client: httpx.Client, base_url: str, odata_service: str) -> tuple[str, str]:
+    def fetch_new(
+        self,
+        client: httpx.Client,
+        base_url: str,
+        odata_service: str,
+    ) -> tuple[str, str]:
         url = f"{base_url}{odata_service}/$metadata"
-        resp = client.get(
-            url, headers={"X-CSRF-Token": "Fetch"}, auth=self._auth,
-        )
+        headers = {"X-CSRF-Token": "Fetch"}
+        if self._auth_headers:
+            headers.update(self._auth_headers)
+        resp = client.get(url, headers=headers, auth=self._auth)
         resp.raise_for_status()
         token = resp.headers.get("X-CSRF-Token", "")
         if not token:
@@ -113,27 +130,86 @@ class EwmBackend(WarehouseBackend):
         self._rate_limit = int(self._cfg.get("rate_limit", MAX_REQUESTS_PER_MINUTE))
         self._token_interval = 60.0 / self._rate_limit
 
+        # Auth mode: "basic" (default) or "oauth2"
+        self._auth_mode = self._cfg.get("auth_mode", "basic")
+        self._auth: tuple[str, str] | None = None
+        self._oauth2: OAuth2TokenManager | None = None
+        self._oauth2_cfg: dict = {}
+
+        # Lazy init — set BEFORE _init_* so __del__/close() is safe on early errors
+        self._redis: rd.Redis | None = None
+        self._csrf: CsrfTokenManager | None = None
+        self._last_request_time = 0.0
+
+        if self._auth_mode == "oauth2":
+            self._init_oauth2()
+        else:
+            self._init_basic_auth()
+
+    def _init_basic_auth(self) -> None:
+        """Initialize Basic Auth credentials from config or Docker secrets."""
         user = self._cfg.get("user", DEFAULT_USER)
         pw_file = self._cfg.get("password_file", DEFAULT_PASSWORD_FILE)
         password = self._cfg.get("password") or _read_password(pw_file)
         self._auth = (user, password) if user else None
 
-        # Lazy init — Redis connection created on first use
-        self._redis: rd.Redis | None = None
-        self._csrf: CsrfTokenManager | None = None
-        self._last_request_time = 0.0
+    def _init_oauth2(self) -> None:
+        """Initialize OAuth2 client_credentials config for S/4HANA."""
+        oauth2_cfg = self._cfg.get("oauth2", {})
+        token_url = oauth2_cfg.get("token_url", "")
+        client_id = oauth2_cfg.get("client_id", "")
+
+        # Validate required fields before attempting to read secrets
+        if not token_url or not client_id:
+            raise ValueError(
+                "OAuth2 auth_mode requires oauth2.token_url and oauth2.client_id"
+            )
+
+        secret_file = oauth2_cfg.get(
+            "client_secret_file",
+            "/run/secrets/sap_oauth_client_secret",
+        )
+        client_secret = oauth2_cfg.get("client_secret") or read_client_secret(secret_file)
+        scope = oauth2_cfg.get("scope", "")
+
+        self._oauth2_cfg = {
+            "token_url": token_url,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": scope,
+        }
 
     def _ensure_redis(self) -> rd.Redis:
         """Get or create Redis connection (lazy init)."""
         if self._redis is None:
-            self._redis = redis_from_url(self._cfg.get("redis_url", REDIS_URL), decode_responses=True)
+            self._redis = redis_from_url(
+                self._cfg.get("redis_url", REDIS_URL), decode_responses=True,
+            )
         return self._redis
 
     def _ensure_csrf(self) -> CsrfTokenManager:
         """Get or create CSRF token manager (lazy init)."""
         if self._csrf is None:
-            self._csrf = CsrfTokenManager(self._ensure_redis(), auth=self._auth)
+            auth_headers = None
+            if self._auth_mode == "oauth2":
+                # CSRF fetch needs Bearer token in headers
+                with self._get_client() as client:
+                    auth_headers = self._get_auth_headers(client)
+            self._csrf = CsrfTokenManager(
+                self._ensure_redis(),
+                auth=self._auth,
+                auth_headers=auth_headers,
+            )
         return self._csrf
+
+    def _ensure_oauth2(self) -> OAuth2TokenManager:
+        """Get or create OAuth2 token manager (lazy init)."""
+        if self._oauth2 is None:
+            self._oauth2 = OAuth2TokenManager(
+                redis_client=self._ensure_redis(),
+                **self._oauth2_cfg,
+            )
+        return self._oauth2
 
     # ── Rate limiting ────────────────────────────────────
 
@@ -150,7 +226,32 @@ class EwmBackend(WarehouseBackend):
         verify_ssl = os.getenv("SAP_VERIFY_SSL", "true").lower() != "false"
         return httpx.Client(timeout=30.0, verify=verify_ssl)
 
-    def _get_headers(self, csrf_token: str | None = None) -> dict:
+    def _get_auth_headers(self, client: httpx.Client) -> dict:
+        """Build auth-related headers for OAuth2 mode.
+
+        For Basic mode, returns empty dict (httpx handles via auth= param).
+        """
+        if self._auth_mode != "oauth2":
+            return {}
+        oauth2 = self._ensure_oauth2()
+        token = oauth2.get_valid_token(client)
+        return {"Authorization": f"Bearer {token}"}
+
+    def _get_auth_for_request(self) -> tuple[str, str] | None:
+        """Return auth tuple for httpx requests.
+
+        - basic mode: returns (user, password) tuple
+        - oauth2 mode: returns None (Bearer token injected via headers)
+        """
+        if self._auth_mode == "oauth2":
+            return None
+        return self._auth
+
+    def _get_headers(
+        self,
+        csrf_token: str | None = None,
+        client: httpx.Client | None = None,
+    ) -> dict:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -158,6 +259,8 @@ class EwmBackend(WarehouseBackend):
         }
         if csrf_token:
             headers["X-CSRF-Token"] = csrf_token
+        if client and self._auth_mode == "oauth2":
+            headers.update(self._get_auth_headers(client))
         return headers
 
     def _get_csrf_headers(self, client: httpx.Client) -> dict:
@@ -165,9 +268,9 @@ class EwmBackend(WarehouseBackend):
         cached = csrf.get_token()
         if cached:
             token, cookies = cached
-            return {**self._get_headers(token), "Cookie": cookies}
+            return {**self._get_headers(token, client), "Cookie": cookies}
         token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
-        return {**self._get_headers(token), "Cookie": cookies}
+        return {**self._get_headers(token, client), "Cookie": cookies}
 
     # ── Task CRUD ────────────────────────────────────────
 
@@ -185,13 +288,21 @@ class EwmBackend(WarehouseBackend):
 
         with self._get_client() as client:
             url = f"{self._base_url}{self._odata_service}/WarehouseTask"
-            resp = client.get(url, params=params, headers=self._get_headers(), auth=self._auth)
+            resp = client.get(
+                url,
+                params=params,
+                headers=self._get_headers(client=client),
+                auth=self._get_auth_for_request(),
+            )
 
         if resp.status_code == 200:
             data = resp.json()
             raw_list = data.get("d", {}).get("results", data.get("value", []))
             return [self._parse_task(item) for item in raw_list]
         elif resp.status_code == 401:
+            if self._auth_mode == "oauth2":
+                logger.info("OAuth2 token may be expired, invalidating...")
+                self._ensure_oauth2().invalidate()
             logger.error("SAP auth failed — check credentials")
             raise PermissionError("SAP authentication failed")
         elif resp.status_code == 429:
@@ -210,7 +321,11 @@ class EwmBackend(WarehouseBackend):
         url = f"{self._base_url}{self._odata_service}/WarehouseTask({key})"
 
         with self._get_client() as client:
-            resp = client.get(url, headers=self._get_headers(), auth=self._auth)
+            resp = client.get(
+                url,
+                headers=self._get_headers(client=client),
+                auth=self._get_auth_for_request(),
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 return self._parse_task(data.get("d", data))
@@ -235,7 +350,12 @@ class EwmBackend(WarehouseBackend):
         with self._get_client() as client:
             headers = self._get_csrf_headers(client)
             url = f"{self._base_url}{self._odata_service}/WarehouseTask"
-            resp = client.post(url, json=payload, headers=headers, auth=self._auth)
+            resp = client.post(
+                url,
+                json=payload,
+                headers=headers,
+                auth=self._get_auth_for_request(),
+            )
 
             if resp.status_code in (200, 201):
                 logger.info(f"Created warehouse task for {task.product}")
@@ -247,7 +367,12 @@ class EwmBackend(WarehouseBackend):
                 token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
                 headers["X-CSRF-Token"] = token
                 headers["Cookie"] = cookies
-                resp = client.post(url, json=payload, headers=headers, auth=self._auth)
+                resp = client.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    auth=self._get_auth_for_request(),
+                )
                 if resp.status_code in (200, 201):
                     data = resp.json()
                     return self._parse_task(data.get("d", data))
@@ -270,7 +395,12 @@ class EwmBackend(WarehouseBackend):
 
         with self._get_client() as client:
             headers = self._get_csrf_headers(client)
-            resp = client.post(url, json={}, headers=headers, auth=self._auth)
+            resp = client.post(
+                url,
+                json={},
+                headers=headers,
+                auth=self._get_auth_for_request(),
+            )
             if resp.status_code == 200:
                 logger.info(f"Confirmed task {task_id}")
                 return True
@@ -279,7 +409,12 @@ class EwmBackend(WarehouseBackend):
                 token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
                 headers["X-CSRF-Token"] = token
                 headers["Cookie"] = cookies
-                resp = client.post(url, json={}, headers=headers, auth=self._auth)
+                resp = client.post(
+                    url,
+                    json={},
+                    headers=headers,
+                    auth=self._get_auth_for_request(),
+                )
                 return resp.status_code == 200
             logger.error(f"Confirm task {task_id} failed: {resp.status_code}")
             return False
@@ -292,7 +427,12 @@ class EwmBackend(WarehouseBackend):
 
         with self._get_client() as client:
             headers = self._get_csrf_headers(client)
-            resp = client.post(url, json={}, headers=headers, auth=self._auth)
+            resp = client.post(
+                url,
+                json={},
+                headers=headers,
+                auth=self._get_auth_for_request(),
+            )
             if resp.status_code == 200:
                 logger.info(f"Cancelled task {task_id}")
                 return True
@@ -301,7 +441,12 @@ class EwmBackend(WarehouseBackend):
                 token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
                 headers["X-CSRF-Token"] = token
                 headers["Cookie"] = cookies
-                resp = client.post(url, json={}, headers=headers, auth=self._auth)
+                resp = client.post(
+                    url,
+                    json={},
+                    headers=headers,
+                    auth=self._get_auth_for_request(),
+                )
                 return resp.status_code == 200
             logger.error(f"Cancel task {task_id} failed: {resp.status_code}")
             return False
@@ -312,12 +457,18 @@ class EwmBackend(WarehouseBackend):
         try:
             with self._get_client() as client:
                 url = f"{self._base_url}{self._odata_service}/$metadata"
-                resp = client.get(url, headers=self._get_headers(), auth=self._auth, timeout=10)
+                resp = client.get(
+                    url,
+                    headers=self._get_headers(client=client),
+                    auth=self._get_auth_for_request(),
+                    timeout=10,
+                )
                 return {
                     "connected": resp.status_code == 200,
                     "backend": self.backend_type,
                     "mode": "odata",
-                    "warehouse_configured": self._auth is not None,
+                    "auth_mode": self._auth_mode,
+                    "warehouse_configured": self._is_configured(),
                     "details": {"status_code": resp.status_code},
                 }
         except Exception as e:
@@ -325,7 +476,8 @@ class EwmBackend(WarehouseBackend):
                 "connected": False,
                 "backend": self.backend_type,
                 "mode": "odata",
-                "warehouse_configured": self._auth is not None,
+                "auth_mode": self._auth_mode,
+                "warehouse_configured": self._is_configured(),
                 "error": str(e)[:200],
             }
 
@@ -337,6 +489,10 @@ class EwmBackend(WarehouseBackend):
             with contextlib.suppress(Exception):
                 self._csrf.close()
             self._csrf = None
+        if self._oauth2 is not None:
+            with contextlib.suppress(Exception):
+                self._oauth2.close()
+            self._oauth2 = None
         if self._redis is not None:
             with contextlib.suppress(Exception):
                 self._redis.close()
@@ -384,10 +540,22 @@ class EwmBackend(WarehouseBackend):
             return "CHARGE"
         return "MOVE"
 
+    def _is_configured(self) -> bool:
+        """Check if auth is properly configured."""
+        if self._auth_mode == "oauth2":
+            return bool(self._oauth2_cfg.get("token_url"))
+        return self._auth is not None and bool(self._auth[0])
+
     def validate_config(self) -> list[str]:
         errors = []
-        if not self._auth or not self._auth[0]:
-            errors.append("SAP EWM user not configured")
+        if self._auth_mode == "oauth2":
+            if not self._oauth2_cfg.get("token_url"):
+                errors.append("OAuth2 token_url not configured")
+            if not self._oauth2_cfg.get("client_id"):
+                errors.append("OAuth2 client_id not configured")
+        else:
+            if not self._auth or not self._auth[0]:
+                errors.append("SAP EWM user not configured")
         if not self._base_url or self._base_url == DEFAULT_BASE_URL:
             errors.append("SAP EWM base_url may be default — check config")
         return errors
