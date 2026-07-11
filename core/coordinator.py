@@ -727,7 +727,9 @@ class RobotPlatformCoordinator:
 
         This method is idempotent: ``report_progress`` internally calls
         ``adapter.advance_waypoint`` which returns ``False`` if the lane
-        has already been advanced, preventing duplicate progress reports.
+        has already been advanced.  When that happens, the search continues
+        to the next matching lane in case the robot traversed multiple lanes
+        since the last update.
         """
         assignment = self._active_assignments.get(robot_id)
         if assignment is None:

@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
-from core.messages import RobotMode
 from traffic_coordinator_v5.simulator.map import LaneGraph
 
 
@@ -188,9 +187,15 @@ class SimulatedRobot:
         distance_moved = 0.0
 
         # Safety: prevent infinite loop on degenerate lanes.  The guard is
-        # proportional to the path length plus a margin for large step
-        # distances that could traverse many short lanes in one tick.
-        _guard = len(self._path) + 100
+        # based on the theoretical maximum number of lanes the robot could
+        # traverse in this tick (step_distance / min_lane_length) plus a
+        # small margin for floating-point edge cases.
+        min_lane_len = min(
+            (self.lane_graph.length(lid) for lid in self._path
+             if self.lane_graph.length(lid) > 0.001),
+            default=0.1,
+        )
+        _guard = int(step_distance / min_lane_len) + len(self._path) + 1
         while step_distance > 0.0001 and self._path_index < len(self._path):
             _guard -= 1
             if _guard <= 0:

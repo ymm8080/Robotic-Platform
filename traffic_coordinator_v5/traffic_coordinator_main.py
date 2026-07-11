@@ -86,6 +86,7 @@ def _load_api_key() -> str:
 
 
 TC_API_KEY = _load_api_key()
+TC_ALLOW_UNAUTHENTICATED = os.environ.get("TC_ALLOW_UNAUTHENTICATED", "0") == "1"
 
 if not TC_API_KEY:
     if MODE == "PRODUCTION":
@@ -94,9 +95,14 @@ if not TC_API_KEY:
               file=sys.stderr)
         sys.exit(1)
     else:
-        print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints "
-              "are unauthenticated (DEMO mode). DO NOT USE IN PRODUCTION!",
-              file=sys.stderr)
+        if TC_ALLOW_UNAUTHENTICATED:
+            print("[security] WARNING: TC_API_KEY not set and TC_ALLOW_UNAUTHENTICATED=1 "
+                  "— all HTTP endpoints are unauthenticated. DO NOT USE IN PRODUCTION!",
+                  file=sys.stderr)
+        else:
+            print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints return 401. "
+                  "Set TC_API_KEY, or set TC_ALLOW_UNAUTHENTICATED=1 for local development.",
+                  file=sys.stderr)
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -104,11 +110,9 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
 def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
     if not TC_API_KEY:
-        # In PRODUCTION mode, deny all requests when no API key is configured.
-        # In DEMO mode, allow unauthenticated access for convenience.
-        if MODE == "PRODUCTION":
-            return False
-        return True
+        # Without an API key, deny all requests unless explicitly allowed
+        # via TC_ALLOW_UNAUTHENTICATED=1 (e.g. for local development).
+        return TC_ALLOW_UNAUTHENTICATED
     provided = handler.headers.get("X-API-Key", "")
     import secrets
 
