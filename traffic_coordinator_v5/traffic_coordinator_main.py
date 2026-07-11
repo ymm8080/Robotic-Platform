@@ -36,7 +36,7 @@ import time
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 try:
     from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
@@ -419,6 +419,35 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
                 self.end_headers()
                 self.wfile.write("\n".join(lines).encode())
+        elif path == "/playback":
+            if not _check_auth(self):
+                self._json(401, {"error": "unauthorized"})
+                return
+            qs = parse_qs(parsed.query)
+            robot_id = qs.get("robot_id", [None])[0]
+            try:
+                duration = float(qs.get("duration", ["60"])[0])
+            except (ValueError, TypeError):
+                self._json(400, {"error": "invalid duration"})
+                return
+            records = COORDINATOR.worm.replay_recent(duration, robot_id=robot_id)
+            self._json(
+                200,
+                {
+                    "count": len(records),
+                    "duration": duration,
+                    "robot_id": robot_id,
+                    "records": [
+                        {
+                            "timestamp": r.timestamp,
+                            "category": r.category,
+                            "robot_id": r.robot_id,
+                            "payload": r.payload,
+                        }
+                        for r in records
+                    ],
+                },
+            )
         else:
             self._json(404, {"error": "not found"})
 
@@ -446,6 +475,14 @@ class Handler(BaseHTTPRequestHandler):
             if not _SAFE_ID_RE.match(brand):
                 self._json(400, {"error": "invalid brand identifier"})
                 return
+            # Version Router: normalise v4.x messages to v5.0 field names
+            if "version" in body:
+                from core.survival.version_router import VersionedMessage
+                version = body.pop("version")
+                msg = VersionedMessage(version=version, body=body)
+                msg = COORDINATOR.version_router.normalise(msg)
+                body = msg.body
+                body["version"] = msg.version
             events = COORDINATOR.ingest_uplink(brand, body, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)

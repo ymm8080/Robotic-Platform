@@ -121,6 +121,7 @@ class RobotPlatformCoordinator:
         self.worm = worm or WormBlackbox(
             self.cfg.worm,
             sink_path=Path(self.cfg.worm.sink_dir) / "worm.jsonl",
+            mode=self.cfg.mode,
         )
         self.version_router = version_router or VersionRouter(self.cfg)
         self.sequencer = sequencer or OrderSequencer(self.fmap)

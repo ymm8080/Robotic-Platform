@@ -38,6 +38,7 @@ class WormBlackbox:
         config: WormConfig | None = None,
         sink_path: Path | None = None,
         disk_free_pct: float = 100.0,
+        mode: str = "PRODUCTION",
     ) -> None:
         self.cfg = config or WormConfig()
         self._sink = sink_path
@@ -47,6 +48,8 @@ class WormBlackbox:
         self._current_shard_start: float = 0.0
         self._shard_dir = sink_path.parent if sink_path else None
         self._base_name = sink_path.stem if sink_path else None
+        self._mode = mode
+        self._sink_failed = False
         self._lock = threading.Lock()
         if sink_path is not None:
             self._load_from_disk()
@@ -101,13 +104,17 @@ class WormBlackbox:
             if r.timestamp >= since and (robot_id is None or r.robot_id == robot_id)
         ]
 
-    def replay_recent(self, duration_seconds: float, robot_id: str | None = None) -> list[WormRecord]:
-        """Convenience: replay from wall-clock time minus ``duration_seconds``.
+    def replay_recent(self, duration_seconds: float, robot_id: str | None = None, now: float | None = None) -> list[WormRecord]:
+        """Convenience: replay from monotonic time minus ``duration_seconds``.
 
-        Used by the ``GET /playback`` HTTP endpoint for operator incident review.
+        Uses ``time.monotonic()`` (same clock as WORM record timestamps) so the
+        time window is consistent on all platforms.  Pass ``now`` to override the
+        reference time in tests.
         """
         import time as _time
-        since = _time.time() - duration_seconds
+        if now is None:
+            now = _time.monotonic()
+        since = now - duration_seconds
         return self.replay(robot_id=robot_id, since=since)
 
     # ── rotation (灰犀牛 #5: 24h/文件) ─────────────────────────
@@ -172,9 +179,29 @@ class WormBlackbox:
             pass
 
     def _persist(self, rec: WormRecord) -> None:
-        if self._sink is None:
+        if self._sink is None or self._sink_failed:
             return
-        with open(self._sink, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(asdict(rec)) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+        try:
+            with open(self._sink, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(asdict(rec)) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+        except (OSError, PermissionError) as exc:
+            ctx = {
+                "sink": str(self._sink),
+                "error": str(exc),
+                "record_ts": rec.timestamp,
+                "robot_id": rec.robot_id,
+            }
+            if self._mode == "DEMO":
+                self._sink_failed = True
+                rec.payload = dict(rec.payload, **{"worm_sink_fallback": True})
+                import sys
+                print(
+                    f"[WORM] DEMO mode: sink failed, falling back to in-memory \u2014 {ctx}",
+                    file=sys.stderr,
+                )
+                return
+            raise RuntimeError(
+                f"WORM sink write failed in {self._mode} mode: {ctx}"
+            ) from exc
