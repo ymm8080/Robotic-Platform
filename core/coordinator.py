@@ -850,7 +850,12 @@ class RobotPlatformCoordinator:
             adapter.expect(robot_id, RobotMode.IDLE)
             # Add robot to idle set immediately so it can be considered for
             # task assignment in the next tick without waiting for a state update.
-            if not self.failover.is_offline(robot_id):
+            # Only add if the robot is not offline and not degraded (matching
+            # the condition in _process_robot_state).
+            robot_state = self._robot_states.get(robot_id)
+            if (not self.failover.is_offline(robot_id)
+                    and robot_state is not None
+                    and not robot_state.degraded):
                 self._idle_robots.add(robot_id)
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
