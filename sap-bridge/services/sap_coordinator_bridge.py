@@ -16,9 +16,9 @@ Env vars:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +52,8 @@ class SapCoordinatorBridge:
         self._stop.set()
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("SAP-TC bridge stopped")
 
     async def _run(self) -> None:
@@ -65,10 +63,8 @@ class SapCoordinatorBridge:
                 await self._poll_coordinator_state()
             except Exception as exc:
                 logger.warning("SAP-TC bridge cycle error: %s", exc)
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL)
-            except asyncio.TimeoutError:
-                pass
 
     async def _poll_sap_tasks(self) -> None:
         """Fetch open SAP tasks and forward new ones to the Coordinator."""
