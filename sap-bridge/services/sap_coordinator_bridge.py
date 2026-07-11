@@ -24,10 +24,11 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = float(os.getenv("SAP_TC_POLL_INTERVAL", "5"))
 WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
-# When "0", tasks that disappear from the coordinator active list are NOT
+# When "0" (default), tasks that disappear from the coordinator active list are NOT
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
-# confirmation.  Set to "1" (default) for automatic confirmation.
-AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "1") == "1"
+# confirmation.  Set to "1" for automatic confirmation (risky: cannot
+# distinguish completed from failed tasks).
+AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
 
 
 class SapCoordinatorBridge:

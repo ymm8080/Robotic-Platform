@@ -19,6 +19,7 @@ objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
@@ -42,6 +43,8 @@ from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -306,9 +309,18 @@ class RobotPlatformCoordinator:
                     remaining.append(task)
                 continue
 
-            adapter.dispatch(robot.robot_id, assignment, now)
-            assigned_robots.add(robot.robot_id)
+            try:
+                adapter.dispatch(robot.robot_id, assignment, now)
+            except Exception as exc:
+                logger.error(
+                    "dispatch failed for robot %s task %s: %s",
+                    robot.robot_id, task.task_id, exc,
+                )
+                if self._requeue_task(task, now, "dispatch_exception"):
+                    remaining.append(task)
+                continue
             self._active_assignments[robot.robot_id] = assignment
+            assigned_robots.add(robot.robot_id)
             self._update_occupancy(robot.robot_id, assignment.path[0])
             assigned.append((robot.robot_id, assignment))
             self.metrics.inc("tasks_allocated")

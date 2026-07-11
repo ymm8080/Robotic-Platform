@@ -25,6 +25,7 @@ MQTT topics:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import re
@@ -144,17 +145,30 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
+    _snap_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="snapshot",
+    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+                snap = COORDINATOR.snapshot()
+                _snap_executor.submit(_save_snapshot, snap)
                 last_snapshot = now
             except Exception as exc:
-                print(f"[snapshot] save failed: {exc}")
+                print(f"[snapshot] submit failed: {exc}")
         stop_event.wait(TICK_INTERVAL)
+    _snap_executor.shutdown(wait=False)
+
+
+def _save_snapshot(snapshot_data) -> None:
+    """Save snapshot in background thread to avoid blocking tick loop."""
+    try:
+        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
+    except Exception as exc:
+        print(f"[snapshot] save failed: {exc}")
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
