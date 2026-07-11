@@ -156,8 +156,25 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("v5.0 coordinator client init failed: %s", exc)
 
+    # ── SAP ↔ Coordinator bridge (background polling) ───────────
+    app.state.sap_tc_bridge = None
+    bridge_en = os.getenv("SAP_TC_BRIDGE_ENABLED", "1" if ENABLE_V5 else "0") == "1"
+    if bridge_en and getattr(app.state, "tc_client", None) is not None:
+        try:
+            from services.sap_coordinator_bridge import SapCoordinatorBridge
+            _bridge = SapCoordinatorBridge(
+                tc_client=app.state.tc_client,
+                backend_provider=get_backend_for,
+            )
+            await _bridge.start()
+            app.state.sap_tc_bridge = _bridge
+        except Exception as exc:
+            logger.warning("SAP-TC bridge failed to start: %s", exc)
+
     logger.info("SAP Bridge started (MQTT + queue worker + heartbeat)")
     yield
+    if getattr(app.state, "sap_tc_bridge", None) is not None:
+        await app.state.sap_tc_bridge.stop()
     if heartbeat is not None:
         heartbeat.stop()
     worker.stop()
@@ -1281,13 +1298,10 @@ async def v5_zone_lock(zone_id: str, request: Request):
     tc = getattr(request.app.state, "tc_client", None)
     if tc is None:
         return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
-    # The coordinator's emergency_stop is a POST /order variant;
-    # we use a dedicated zone-lock endpoint that maps to lane blocking.
-    # For now this is a stub — full zone lockdown lands in Phase 3.
-    return JSONResponse(
-        status_code=501,
-        content={"status": "not_implemented", "zone_id": zone_id, "note": "Phase 3 zone lockdown endpoint"},
-    )
+    result = await tc.emergency_stop_async(zone_id)
+    if not result.ok:
+        return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
+    return result.data
 
 
 @app.post("/api/v1/v5/zone/{zone_id}/unlock")
@@ -1296,10 +1310,10 @@ async def v5_zone_unlock(zone_id: str, request: Request):
     tc = getattr(request.app.state, "tc_client", None)
     if tc is None:
         return JSONResponse(status_code=503, content={"error": "v5_coordinator_unavailable"})
-    return JSONResponse(
-        status_code=501,
-        content={"status": "not_implemented", "zone_id": zone_id, "note": "Phase 3 zone unlock endpoint"},
-    )
+    result = await tc.unblock_lane_async(zone_id)
+    if not result.ok:
+        return JSONResponse(status_code=502, content={"error": result.error, "status_code": result.status})
+    return result.data
 
 
 @app.post("/api/v1/v5/ingest/{brand}")

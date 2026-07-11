@@ -67,6 +67,57 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ===========================================================================
+  # v5.0 VDA5050 Mock Robot Simulator — protocol-level moving robots for tests
+  # ===========================================================================
+  v5-simulator:
+    build:
+      context: .
+      dockerfile: traffic_coordinator_v5/simulator/Dockerfile
+    image: robot-platform-v5-simulator:v5.0
+    container_name: robot-platform-v5-simulator
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - traffic_coordinator_v5.simulator
+      - --broker
+      - mqtt
+      - --port
+      - "1883"
+      - --map
+      - traffic_coordinator_v5/maps/facility_map.yaml
+      - --count
+      - "3"
+      - --speed
+      - "1.0"
+      - --initial-battery
+      - "80"
+    volumes:
+      - ./core:/app/core:ro
+      - ./traffic_coordinator_v5/simulator:/app/traffic_coordinator_v5/simulator:ro
+      - ./traffic_coordinator_v5/maps:/app/traffic_coordinator_v5/maps:ro
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # =============================================================================
 # v5.0 专用持久化卷
 # =============================================================================

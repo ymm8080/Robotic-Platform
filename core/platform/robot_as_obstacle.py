@@ -48,6 +48,7 @@ class RobotAsObstacle:
     """Maintains per-robot rectangular footprints and injects virtual walls."""
 
     MANUAL_WALL_RADIUS = 1.5  # SOP-YELLOW 步骤2a: 1.5m 半径虚拟墙
+    COLLISION_MARGIN = 0.05   # physical body overlap tolerance for HOLD commands
 
     def __init__(self, fmap: FixedLaneMap, safe_distance: SafeDistanceCalculator | None = None) -> None:
         self.fmap = fmap
@@ -113,11 +114,24 @@ class RobotAsObstacle:
 
     @staticmethod
     def _obb_overlap(a: Footprint, b: Footprint) -> bool:
-        """SAT for two oriented rectangles."""
+        """SAT for two oriented rectangles using a tight physical collision margin.
+
+        The safety-distance ``corridor`` is intentionally *not* used here: it
+        belongs to the safe-distance speed-advisory layer.  Overlap detection
+        for emergency HOLD commands should reflect actual body overlap plus a
+        small tolerance so that a SPEED_CAP can be issued before a COLLISION_HOLD.
+        """
+        def _margin(fp: Footprint) -> float:
+            # virtual walls (half_length == half_width == 0) keep their corridor
+            if fp.half_length == 0.0 and fp.half_width == 0.0:
+                return fp.corridor
+            return RobotAsObstacle.COLLISION_MARGIN
+
         # rectangle corners in world coordinates
         def corners(fp: Footprint) -> list[tuple[float, float]]:
             c, s = math.cos(fp.theta), math.sin(fp.theta)
-            lx, ly = fp.half_length + fp.corridor, fp.half_width + fp.corridor
+            margin = _margin(fp)
+            lx, ly = fp.half_length + margin, fp.half_width + margin
             local = [(-lx, -ly), (lx, -ly), (lx, ly), (-lx, ly)]
             out: list[tuple[float, float]] = []
             for dx, dy in local:

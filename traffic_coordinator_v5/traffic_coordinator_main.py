@@ -5,13 +5,18 @@ and an MQTT transport layer (VDA5050).  The MQTT gateway subscribes to robot
 state topics and publishes TaskAssignment / AdapterCommand back to robots.
 
 HTTP endpoints:
-  ``GET  /health``          — mode self-check + MQTT status
-  ``GET  /version``         — supported protocol versions
-  ``POST /ingest/{brand}``  — submit a vendor-native robot state message
-  ``POST /order``           — submit a WMS/ERP order
-  ``POST /order/{id}/cancel`` — cancel an order
-  ``GET  /state``           — platform state snapshot
-  ``GET  /metrics``         — in-memory metrics snapshot
+  ``GET  /health``              — mode self-check + MQTT status
+  ``GET  /version``             — supported protocol versions
+  ``POST /ingest/{brand}``      — submit a vendor-native robot state message
+  ``POST /order``               — submit a WMS/ERP order
+  ``POST /order/{id}/cancel``   — cancel an order
+  ``POST /estop``               — emergency stop (zone-level)
+  ``POST /robot/{id}/recover``  — manual recovery
+  ``POST /robot/{id}/progress`` — report waypoint reached
+  ``POST /lane/{id}/block``     — block a lane + reroute
+  ``POST /lane/{id}/unblock``   — unblock a lane
+  ``GET  /state``               — platform state snapshot
+  ``GET  /metrics``             — Prometheus exposition format
 
 MQTT topics:
   Subscribe: vda5050/+/+/state, vda5050/+/+/connection
@@ -31,6 +36,7 @@ from urllib.parse import urlparse
 from core.config import CoreConfig
 from core.coordinator import RobotPlatformCoordinator
 from core.gateway import InboundMessage, MqttGateway, OutboundEnvelope
+from core.infra.state_store import LocalStateStore
 from core.messages import ActionPrimitive
 from core.orders import Order
 from core.platform.fixed_lane_map import Lane
@@ -50,6 +56,10 @@ MQTT_ENABLED = os.environ.get("MQTT_ENABLED", "1") != "0"
 # Background tick interval (seconds) — ensures the platform loop advances
 # even when no HTTP requests arrive.
 TICK_INTERVAL = float(os.environ.get("TC_TICK_INTERVAL", "0.5"))
+
+# Snapshot interval (seconds) — persist coordinator state for crash recovery.
+SNAPSHOT_INTERVAL = float(os.environ.get("TC_SNAPSHOT_INTERVAL", "10.0"))
+SNAPSHOT_KEY = "tc:snapshot:v5"
 
 
 def _load_api_key() -> str:
@@ -85,6 +95,7 @@ def _check_mode() -> list[str]:
 
 # ── Global coordinator + gateway ──────────────────────────────────
 COORDINATOR = RobotPlatformCoordinator()
+STATE_STORE = LocalStateStore()
 
 # Create the MQTT gateway (no-op if paho-mqtt is not installed)
 MQTT_GATEWAY = MqttGateway(
@@ -130,11 +141,19 @@ def _background_tick(stop_event: threading.Event) -> None:
     """Periodic platform tick + MQTT flush loop.
 
     Runs as a daemon thread so it exits cleanly when the HTTP server stops.
+    Also periodically snapshots coordinator state for crash recovery.
     """
+    last_snapshot = 0.0
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
+        if now - last_snapshot >= SNAPSHOT_INTERVAL:
+            try:
+                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+                last_snapshot = now
+            except Exception as exc:
+                print(f"[snapshot] save failed: {exc}")
         stop_event.wait(TICK_INTERVAL)
 
 
@@ -168,6 +187,17 @@ else:
 
 # Register brand adapters (VDA5050 with real strategies + generic fallback)
 REGISTERED_ADAPTERS = bootstrap_adapters(COORDINATOR)
+
+# Restore coordinator state from previous run (crash recovery)
+_saved = STATE_STORE.get(SNAPSHOT_KEY)
+if _saved is not None:
+    try:
+        COORDINATOR.restore(_saved)
+        print("[snapshot] restored coordinator state from snapshot")
+    except Exception as exc:
+        print(f"[snapshot] restore failed: {exc}")
+else:
+    print("[snapshot] no prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()
@@ -240,28 +270,63 @@ class Handler(BaseHTTPRequestHandler):
                     "supported_versions": list(CONFIG.supported_versions),
                 },
             )
-        elif path in ("/state", "/metrics"):
+        elif path == "/state":
             if not _check_auth(self):
                 self._json(401, {"error": "unauthorized"})
                 return
-            if path == "/state":
-                state = COORDINATOR.query_state()
-                self._json(
-                    200,
-                    {
-                        "locked_zones": state.locked_zones,
-                        "pending_tasks": state.pending_tasks,
-                        "active_assignments": state.active_assignments,
-                        "pending_commands": state.pending_commands,
-                        "metrics": state.metrics.__dict__,
-                        "robots": {
-                            rid: {"mode": r.mode.name, "pose": (r.pose.x, r.pose.y)}
-                            for rid, r in state.robots.items()
-                        },
+            state = COORDINATOR.query_state()
+            self._json(
+                200,
+                {
+                    "locked_zones": state.locked_zones,
+                    "pending_tasks": state.pending_tasks,
+                    "active_assignments": state.active_assignments,
+                    "pending_commands": state.pending_commands,
+                    "metrics": state.metrics.__dict__,
+                    "robots": {
+                        rid: {"mode": r.mode.name, "pose": (r.pose.x, r.pose.y)}
+                        for rid, r in state.robots.items()
                     },
-                )
-            else:
-                self._json(200, COORDINATOR.metrics.snapshot().__dict__)
+                },
+            )
+        elif path == "/metrics":
+            if not _check_auth(self):
+                self._json(401, {"error": "unauthorized"})
+                return
+            snap = COORDINATOR.metrics.snapshot()
+            lines = [
+                "# HELP tc_uplinks_total Total robot state uplinks received",
+                "# TYPE tc_uplinks_total counter",
+                f"tc_uplinks_total {snap.uplinks}",
+                "# HELP tc_orders_submitted_total Total orders submitted",
+                "# TYPE tc_orders_submitted_total counter",
+                f"tc_orders_submitted_total {snap.orders_submitted}",
+                "# HELP tc_tasks_allocated_total Total tasks allocated to robots",
+                "# TYPE tc_tasks_allocated_total counter",
+                f"tc_tasks_allocated_total {snap.tasks_allocated}",
+                "# HELP tc_tasks_completed_total Total tasks completed by robots",
+                "# TYPE tc_tasks_completed_total counter",
+                f"tc_tasks_completed_total {snap.tasks_completed}",
+                "# HELP tc_tasks_requeued_total Total tasks requeued due to failures",
+                "# TYPE tc_tasks_requeued_total counter",
+                f"tc_tasks_requeued_total {snap.tasks_requeued}",
+                "# HELP tc_collision_holds_total Total collision hold events",
+                "# TYPE tc_collision_holds_total counter",
+                f"tc_collision_holds_total {snap.collision_holds}",
+                "# HELP tc_deadlocks_total Total deadlock detections",
+                "# TYPE tc_deadlocks_total counter",
+                f"tc_deadlocks_total {snap.deadlocks}",
+                "# HELP tc_adapter_parse_errors_total Total adapter parse errors",
+                "# TYPE tc_adapter_parse_errors_total counter",
+                f"tc_adapter_parse_errors_total {snap.adapter_parse_errors}",
+                "# HELP tc_worm_records_total Total WORM audit records written",
+                "# TYPE tc_worm_records_total counter",
+                f"tc_worm_records_total {snap.worm_records}",
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.end_headers()
+            self.wfile.write("\n".join(lines).encode())
         else:
             self._json(404, {"error": "not found"})
 
@@ -333,6 +398,70 @@ class Handler(BaseHTTPRequestHandler):
                 result = COORDINATOR.tick(now)
                 _publish_tick_result(result)
                 self._json(200, {"cancelled": ok})
+                return
+
+        if path == "/estop":
+            zone_id = body.get("zone_id")
+            COORDINATOR.emergency_stop(zone_id, now)
+            result = COORDINATOR.tick(now)
+            _publish_tick_result(result)
+            self._json(200, {"estop": True, "zone": zone_id})
+            return
+
+        if path.startswith("/robot/") and path.endswith("/recover"):
+            parts = path.split("/")
+            if len(parts) == 4:
+                robot_id = parts[2]
+                if not _SAFE_ID_RE.match(robot_id):
+                    self._json(400, {"error": "invalid robot_id"})
+                    return
+                COORDINATOR.manual_recover(robot_id, now)
+                result = COORDINATOR.tick(now)
+                _publish_tick_result(result)
+                self._json(200, {"recovered": robot_id})
+                return
+
+        if path.startswith("/robot/") and path.endswith("/progress"):
+            parts = path.split("/")
+            if len(parts) == 4:
+                robot_id = parts[2]
+                if not _SAFE_ID_RE.match(robot_id):
+                    self._json(400, {"error": "invalid robot_id"})
+                    return
+                reached_lane = body.get("reached_lane", "")
+                if not _SAFE_ID_RE.match(reached_lane):
+                    self._json(400, {"error": "invalid reached_lane"})
+                    return
+                completed = COORDINATOR.report_progress(robot_id, reached_lane, now)
+                result = COORDINATOR.tick(now)
+                _publish_tick_result(result)
+                self._json(200, {"robot_id": robot_id, "reached_lane": reached_lane, "assignment_completed": completed})
+                return
+
+        if path.startswith("/lane/") and path.endswith("/block"):
+            parts = path.split("/")
+            if len(parts) == 4:
+                lane_id = parts[2]
+                if not _SAFE_ID_RE.match(lane_id):
+                    self._json(400, {"error": "invalid lane_id"})
+                    return
+                COORDINATOR.block_lane(lane_id, now)
+                result = COORDINATOR.tick(now)
+                _publish_tick_result(result)
+                self._json(200, {"blocked": lane_id})
+                return
+
+        if path.startswith("/lane/") and path.endswith("/unblock"):
+            parts = path.split("/")
+            if len(parts) == 4:
+                lane_id = parts[2]
+                if not _SAFE_ID_RE.match(lane_id):
+                    self._json(400, {"error": "invalid lane_id"})
+                    return
+                COORDINATOR.unblock_lane(lane_id, now)
+                result = COORDINATOR.tick(now)
+                _publish_tick_result(result)
+                self._json(200, {"unblocked": lane_id})
                 return
 
         self._json(404, {"error": "not found"})
