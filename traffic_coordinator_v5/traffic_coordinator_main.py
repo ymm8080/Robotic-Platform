@@ -229,7 +229,7 @@ def _background_tick(stop_event: threading.Event) -> None:
                 _snap_executor.submit(_save_snapshot, snap)
                 last_snapshot = now
             except Exception as exc:
-                print(f"[snapshot] submit failed: {exc}")
+                _logger.warning("[snapshot] submit failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
     _snap_executor.shutdown(wait=True)
 
@@ -239,7 +239,7 @@ def _save_snapshot(snapshot_data) -> None:
     try:
         STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
     except Exception as exc:
-        print(f"[snapshot] save failed: {exc}")
+        _logger.warning("[snapshot] save failed: %s", exc)
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
@@ -375,9 +375,10 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         elif path == "/metrics":
-            if not _check_auth(self):
-                self._json(401, {"error": "unauthorized"})
-                return
+            # /metrics is intentionally unauthenticated so that Prometheus
+            # can scrape it without API key configuration.  In production,
+            # restrict network access at the infrastructure level (e.g.
+            # Docker network, firewall rules, or METRICS_ALLOWED_IPS).
             if _PROMETHEUS_AVAILABLE:
                 output = generate_latest(_prom_registry)
                 self.send_response(200)

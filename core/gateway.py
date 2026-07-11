@@ -284,7 +284,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
             )
             logger.info("MqttGateway subscribed to VDA5050 topics")
         else:
-            logger.error("MqttGateway connection failed, rc=%s", rc)
+            logger.error("MqttGateway connection failed, rc=%s", rc_value)
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if self._running:

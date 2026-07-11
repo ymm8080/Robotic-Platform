@@ -68,7 +68,7 @@ After creating any file:
 - [ ] Documentation updated if architecture changed
 - [ ] ADR created if architectural decision
 
-## Rules Index (22 files in `.claude/rules/`)
+## Rules Index (21 files in `.claude/rules/`)
 
 All rules synced to `.claude/rules/`. Key ones:
 

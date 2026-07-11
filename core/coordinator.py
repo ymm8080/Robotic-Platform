@@ -165,12 +165,14 @@ class RobotPlatformCoordinator:
         # duplicate registration when multiple state messages arrive before
         # the next tick() processes the queue.
         if state.robot_id not in self._robot_adapter:
-            already_pending = any(
-                s.robot_id == state.robot_id
-                for _, s, _, _ in self._pending_registrations
-            )
-            if not already_pending:
-                self._pending_registrations.append((adapter, state, events, now))
+            # Check if this robot is already in the pending queue.
+            # If so, update its queued state to the latest so that when
+            # tick() processes it, the most recent state is used.
+            for i, (a, s, e, t) in enumerate(self._pending_registrations):
+                if s.robot_id == state.robot_id:
+                    self._pending_registrations[i] = (adapter, state, events, now)
+                    return [f"PENDING_REGISTRATION:{state.robot_id}"]
+            self._pending_registrations.append((adapter, state, events, now))
             return [f"PENDING_REGISTRATION:{state.robot_id}"]
 
         self._robot_adapter[state.robot_id] = adapter
