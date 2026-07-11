@@ -109,7 +109,6 @@ class SapCoordinatorBridge:
         To reduce false-positive confirmations, we require an order to be
         inactive for at least 2 consecutive polls before confirming to SAP.
         """
-        import time
         self._poll_count += 1
         now = time.monotonic()
         result = await self._tc.state_async()
