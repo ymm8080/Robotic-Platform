@@ -103,17 +103,18 @@ class MqttVDAClient:
             self._client.disconnect()
         self._client = None
 
-    def _on_connect(self, client: mqtt.Client, _userdata: Any, _flags: Any, rc: int, _props: Any = None) -> None:
-        if rc == 0:
+    def _on_connect(self, client: mqtt.Client, _userdata: Any, _flags: Any, reason_code: Any, _props: Any = None) -> None:
+        rc_value = getattr(reason_code, "value", reason_code)
+        if rc_value == 0:
             self._connected = True
             for robot_id in self._robot_ids:
                 self._subscribe_for(robot_id)
                 self.publish_connection(robot_id, "ONLINE")
             logger.info("Simulator subscribed to robot order/instantActions topics")
         else:
-            logger.error("Simulator MQTT connection failed, rc=%s", rc)
+            logger.error("Simulator MQTT connection failed, rc=%s", reason_code)
 
-    def _on_disconnect(self, _client: mqtt.Client, _userdata: Any, _rc: int, _props: Any = None) -> None:
+    def _on_disconnect(self, _client: mqtt.Client, _userdata: Any, _flags: Any, _reason_code: Any, _props: Any = None) -> None:
         self._connected = False
         logger.warning("Simulator MQTT disconnected; will retry")
 
