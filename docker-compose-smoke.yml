@@ -1,0 +1,19 @@
+# Temporary Docker Compose override for the live MQTT smoke test.
+# Enables anonymous MQTT and a simple healthcheck so the simulator can connect
+# without running the full production MQTT auth setup.
+services:
+  mqtt:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf 'listener 1883\nallow_anonymous true\npersistence false\nlog_dest stdout\n' > /tmp/mosquitto.conf
+        exec mosquitto -c /tmp/mosquitto.conf
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-t", "healthcheck", "-m", "test", "-i", "hck-smoke"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  redis:
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}

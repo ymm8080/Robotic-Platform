@@ -89,11 +89,14 @@ class FleetSimulator:
 
     def _run_loop(self) -> None:
         """Real-time loop: tick and publish at the configured interval."""
+        next_tick = time.monotonic()
         while self._running and not self._stop_event.is_set():
             now = time.monotonic()
             self.tick_once(self._publish_interval)
             self._publish_states(now)
-            self._stop_event.wait(self._publish_interval)
+            next_tick += self._publish_interval
+            sleep_dur = max(0.0, next_tick - time.monotonic())
+            self._stop_event.wait(sleep_dur)
 
     def tick_once(self, dt: float) -> dict[str, list[str]]:
         """Advance every robot by ``dt`` seconds (deterministic).

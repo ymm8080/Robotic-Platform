@@ -88,8 +88,8 @@ class MqttVDAClient:
             logger.info(
                 "Simulator MQTT connected to %s:%d", self._broker_host, self._broker_port
             )
-        except Exception:
-            logger.exception("Simulator failed to connect to MQTT broker")
+        except (OSError, ConnectionError) as exc:
+            logger.exception("Simulator failed to connect to MQTT broker: %s", exc)
             self._client = None
 
     def disconnect(self) -> None:
@@ -152,8 +152,8 @@ class MqttVDAClient:
         topic = STATE_TOPIC.format(manufacturer=self._brand, serialNumber=robot_id)
         try:
             self._client.publish(topic, json.dumps(state), qos=0)
-        except Exception:
-            logger.exception("Simulator failed to publish state for %s", robot_id)
+        except (OSError, ConnectionError) as exc:
+            logger.exception("Simulator failed to publish state for %s: %s", robot_id, exc)
 
     def publish_connection(self, robot_id: str, state: str) -> None:
         """Publish a connection message for ``robot_id`` (retained, QoS 1)."""
@@ -167,5 +167,5 @@ class MqttVDAClient:
                 qos=1,
                 retain=True,
             )
-        except Exception:
-            logger.exception("Simulator failed to publish connection for %s", robot_id)
+        except (OSError, ConnectionError) as exc:
+            logger.exception("Simulator failed to publish connection for %s: %s", robot_id, exc)

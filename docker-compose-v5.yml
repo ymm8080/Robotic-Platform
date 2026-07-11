@@ -33,6 +33,7 @@ services:
       - WORM_SINK_PATH=/data/worm.jsonl
       - TC_HTTP_PORT=8000
       - TC_API_KEY_FILE=/run/secrets/tc_api_key
+      - MQTT_BROKER_HOST=mqtt
     volumes:
       - v5-worm-data:/data
       - ./core:/app/core:ro
