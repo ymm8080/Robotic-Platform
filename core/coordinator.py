@@ -774,12 +774,13 @@ class RobotPlatformCoordinator:
     def _auto_report_progress(self, robot_id: str, now: float) -> None:
         """Infer waypoint progress from MQTT/VDA5050 pose alone.
 
-        When a robot's ``pose.last_node_id`` matches the end node of the next
-        expected lane in its active assignment, advance the waypoint contract
-        and occupancy just as if an explicit HTTP ``/robot/{id}/progress`` had
-        been received. This lets protocol-level simulators (and real VDA5050
-        robots reporting only state) complete tasks without a separate progress
-        channel.
+        Called from ``ingest_uplink`` (NOT from ``tick``) when a robot state
+        update is received.  When a robot's ``pose.last_node_id`` matches the
+        end node of the next expected lane in its active assignment, advance
+        the waypoint contract and occupancy just as if an explicit HTTP
+        ``/robot/{id}/progress`` had been received. This lets protocol-level
+        simulators (and real VDA5050 robots reporting only state) complete
+        tasks without a separate progress channel.
         """
         assignment = self._active_assignments.get(robot_id)
         if assignment is None:

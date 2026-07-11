@@ -162,7 +162,10 @@ def run(argv: list[str] | None = None) -> int:
             if args.fault_prob > 0:
                 import random
 
-                for rid, robot in fleet._robots.items():
+                for rid in fleet.robot_ids:
+                    robot = fleet.get_robot(rid)
+                    if robot is None:
+                        continue
                     if random.random() < args.fault_prob and robot.mode.name != "ERROR":
                         robot.inject_error("ERR_INJECTED_FAULT")
                         logger.warning("Injected fault into %s", rid)
