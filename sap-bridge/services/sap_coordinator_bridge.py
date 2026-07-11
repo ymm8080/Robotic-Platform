@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,11 @@ WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # confirmation.  Set to "1" for automatic confirmation (risky: cannot
 # distinguish completed from failed tasks).
 AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
+# Maximum number of confirmed task IDs to retain in memory.
+# Older confirmed entries are pruned to prevent unbounded growth.
+MAX_CONFIRMED_RETENTION = 500
+# How often (in polls) to run cleanup of stale confirmed entries.
+CLEANUP_INTERVAL = 60
 
 
 class SapCoordinatorBridge:
@@ -65,13 +71,16 @@ class SapCoordinatorBridge:
 
     async def _run(self) -> None:
         while not self._stop.is_set():
+            start = time.monotonic()
             try:
                 await self._poll_sap_tasks()
                 await self._poll_coordinator_state()
             except Exception as exc:
                 logger.warning("SAP-TC bridge cycle error: %s", exc)
+            elapsed = time.monotonic() - start
+            sleep_time = max(0.0, POLL_INTERVAL - elapsed)
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL)
+                await asyncio.wait_for(self._stop.wait(), timeout=sleep_time)
 
     async def _poll_sap_tasks(self) -> None:
         """Fetch open SAP tasks and forward new ones to the Coordinator."""
@@ -175,3 +184,15 @@ class SapCoordinatorBridge:
                 logger.info("SAP-TC bridge: confirmed SAP task %s", tid)
             else:
                 logger.warning("SAP-TC bridge: SAP confirm failed for task %s", tid)
+
+        # Periodically prune confirmed entries to prevent unbounded memory growth.
+        if self._poll_count % CLEANUP_INTERVAL == 0 and len(self._confirmed) > MAX_CONFIRMED_RETENTION:
+            excess = len(self._confirmed) - MAX_CONFIRMED_RETENTION
+            to_remove = list(self._confirmed)[:excess]
+            for tid in to_remove:
+                self._confirmed.discard(tid)
+                self._submitted.discard(tid)
+            logger.info(
+                "SAP-TC bridge: pruned %d stale confirmed entries (retention=%d)",
+                excess, MAX_CONFIRMED_RETENTION,
+            )

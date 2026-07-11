@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
 import signal
 import sys
 import time
@@ -161,8 +162,6 @@ def run(argv: list[str] | None = None) -> int:
         while not shutdown_requested:
             time.sleep(0.1)
             if args.fault_prob > 0:
-                import random
-
                 for rid, robot in fleet._robots.items():
                     if random.random() < args.fault_prob and robot.mode.name != "ERROR":
                         robot.inject_error("ERR_INJECTED_FAULT")

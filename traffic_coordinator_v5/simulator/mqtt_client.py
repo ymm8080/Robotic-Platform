@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -17,6 +18,21 @@ ORDER_TOPIC = "vda5050/{manufacturer}/{serialNumber}/order"
 INSTANT_ACTIONS_TOPIC = "vda5050/{manufacturer}/{serialNumber}/instantActions"
 STATE_TOPIC = "vda5050/{manufacturer}/{serialNumber}/state"
 CONNECTION_TOPIC = "vda5050/{manufacturer}/{serialNumber}/connection"
+
+
+def _load_mqtt_password() -> str | None:
+    """Read MQTT password from env or file (Docker Secrets compatible)."""
+    pw = os.environ.get("MQTT_PASSWORD", "")
+    if pw:
+        return pw
+    pw_file = os.environ.get("MQTT_PASSWORD_FILE", "")
+    if pw_file:
+        try:
+            with open(pw_file) as fh:
+                return fh.read().strip()
+        except OSError:
+            logger.warning("Simulator MQTT: cannot read MQTT_PASSWORD_FILE=%s", pw_file)
+    return None
 
 
 class MqttVDAClient:
@@ -72,6 +88,34 @@ class MqttVDAClient:
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+        # ── MQTT authentication (v5.x zero-trust) ──────────────
+        mqtt_username = os.environ.get("MQTT_USERNAME", "")
+        if mqtt_username:
+            password = _load_mqtt_password()
+            if password:
+                self._client.username_pw_set(mqtt_username, password)
+                logger.info("Simulator MQTT: using auth for user %s", mqtt_username)
+            else:
+                logger.warning(
+                    "Simulator MQTT: MQTT_USERNAME is set but no password found "
+                    "(set MQTT_PASSWORD or MQTT_PASSWORD_FILE)"
+                )
+
+        # ── TLS (off by default; enable with MQTT_USE_TLS=true) ─
+        if os.environ.get("MQTT_USE_TLS", "false").lower() == "true":
+            ca_cert = os.environ.get("MQTT_CA_CERT", "")
+            client_cert = os.environ.get("MQTT_CLIENT_CERT", "")
+            client_key = os.environ.get("MQTT_CLIENT_KEY", "")
+            if ca_cert:
+                self._client.tls_set(
+                    ca_certs=ca_cert,
+                    certfile=client_cert or None,
+                    keyfile=client_key or None,
+                )
+                logger.info("Simulator MQTT: TLS enabled")
+            else:
+                logger.warning("Simulator MQTT: MQTT_USE_TLS=true but MQTT_CA_CERT not set")
 
         # Last Will: if the simulator process dies, all robots appear broken.
         lwt_topic = f"vda5050/{self._brand}/simulator/connection"
@@ -147,11 +191,16 @@ class MqttVDAClient:
 
     def publish_state(self, robot_id: str, state: dict) -> None:
         """Publish a state message for ``robot_id``."""
-        if self._client is None or not self._connected:
+        if self._client is None:
+            logger.debug("Simulator publish_state skipped: client=None for %s", robot_id)
+            return
+        if not self._connected:
+            logger.debug("Simulator publish_state skipped: not connected for %s", robot_id)
             return
         topic = STATE_TOPIC.format(manufacturer=self._brand, serialNumber=robot_id)
         try:
-            self._client.publish(topic, json.dumps(state), qos=0)
+            result = self._client.publish(topic, json.dumps(state), qos=0)
+            logger.debug("Simulator publish_state %s -> %s (rc=%s)", robot_id, topic, result.rc)
         except Exception:
             logger.exception("Simulator failed to publish state for %s", robot_id)
 

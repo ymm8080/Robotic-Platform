@@ -315,6 +315,14 @@ services:
     container_name: robot-platform-mqtt
     restart: unless-stopped
     # ports: host Mosquitto already takes 1883/9001 — Docker internal network only
+    command:
+      - /bin/sh
+      - -c
+      - |
+        cp /mosquitto/config/passwd /run/mosquitto/passwd
+        cp /mosquitto/config/acl /run/mosquitto/acl
+        chmod 600 /run/mosquitto/passwd /run/mosquitto/acl
+        exec /docker-entrypoint.sh /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       # 🔐 首次部署：务必先运行 scripts/setup-mqtt-auth.sh 生成 passwd/acl 文件，
@@ -325,9 +333,9 @@ services:
       - mqtt-logs:/mosquitto/log
     networks:
       - internal
-    # 🟡 修正：补充 healthcheck
+    # v5.0: healthcheck via anonymous port 1884 (per_listener_settings)
     healthcheck:
-      test: ["CMD", "mosquitto_pub", "-t", "healthcheck", "-m", "test", "-r", "-i", "hck-sap-bridge"]
+      test: ["CMD", "mosquitto_pub", "-p", "1884", "-t", "healthcheck", "-m", "test", "-q", "0", "-i", "hck-mqtt"]
       interval: 10s
       timeout: 3s
       retries: 3

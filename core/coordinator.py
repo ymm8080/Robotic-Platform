@@ -130,6 +130,11 @@ class RobotPlatformCoordinator:
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
 
+        # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
+        self._registration_stagger_seconds = self.cfg.registration_stagger_seconds
+        self._last_registration_time: float = 0.0
+        self._pending_registrations: deque[tuple[FleetAdapter, FleetState, list[str], float]] = deque()
+
     MAX_TASK_RETRIES = 3
 
     # ── adapter / brand registry ─────────────────────────────────
@@ -154,8 +159,33 @@ class RobotPlatformCoordinator:
         state, events = adapter.ingest_native_state(raw, now)
         if any("ERR_ADAPTER_PARSE" in e for e in events):
             self.metrics.inc("adapter_parse_errors")
-        self._robot_adapter[state.robot_id] = adapter
 
+        # 冷启动错峰注册 (陷阱 #3): new robots are queued, not immediately registered
+        if state.robot_id not in self._robot_adapter:
+            self._pending_registrations.append((adapter, state, events, now))
+            return [f"PENDING_REGISTRATION:{state.robot_id}"]
+
+        self._robot_adapter[state.robot_id] = adapter
+        self._process_robot_state(state, events, now)
+        return events
+
+    # ── order intake ─────────────────────────────────────────────
+    def submit_order(self, order: Order) -> OrderPlan:
+        """Enqueue a WMS/ERP order; returns the planned task sequence."""
+        self.metrics.inc("orders_submitted")
+        plan = self.sequencer.plan(order)
+        self._order_plans[order.order_id] = plan
+        self._order_completion[order.order_id] = set()
+        for task in plan.tasks:
+            self._task_queue.append(task)
+            self._task_order[task.task_id] = order.order_id
+            self._task_retries[task.task_id] = 0
+        return plan
+
+    def _process_robot_state(
+        self, state: FleetState, events: list[str], now: float
+    ) -> None:
+        """Store robot state, observe liveness, update obstacle footprint."""
         # failover observes liveness and stamps platform-maintained flags
         events.extend(self.failover.observe(state, now))
         state = self.failover.stamp(state)
@@ -175,25 +205,20 @@ class RobotPlatformCoordinator:
         for ev in events:
             if ev.startswith("ERR_") or "BOOT_TAKEOVER" in ev or "SHADOW_MISMATCH" in ev:
                 self._worm_event(now, "ERROR", state.robot_id, {"event": ev})
-        return events
-
-    # ── order intake ─────────────────────────────────────────────
-    def submit_order(self, order: Order) -> OrderPlan:
-        """Enqueue a WMS/ERP order; returns the planned task sequence."""
-        self.metrics.inc("orders_submitted")
-        plan = self.sequencer.plan(order)
-        self._order_plans[order.order_id] = plan
-        self._order_completion[order.order_id] = set()
-        for task in plan.tasks:
-            self._task_queue.append(task)
-            self._task_order[task.task_id] = order.order_id
-            self._task_retries[task.task_id] = 0
-        return plan
+            elif "COLLISION" in ev:
+                self._worm_event(now, "EVENT", state.robot_id, {"collision": ev})
+                self.metrics.inc("collision_holds")
 
     # ── main loop ────────────────────────────────────────────────
     def tick(self, now: float) -> TickResult:
         """Advance one platform tick: safety, traffic, allocation, resources."""
         result = TickResult()
+
+        # 0. process cold-start pending registrations
+        while self._pending_registrations:
+            adapter, state, events, _ts = self._pending_registrations.popleft()
+            self._robot_adapter[state.robot_id] = adapter
+            self._process_robot_state(state, events, now)
 
         # 1. liveness + failover
         transitions = self.failover.tick(now)
@@ -309,6 +334,8 @@ class RobotPlatformCoordinator:
                     remaining.append(task)
                 continue
 
+            # NOTE: assigned_robots.add() is intentionally *after* the try/except.
+            # On dispatch failure, the robot was never assigned, so no cleanup needed.
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
             except Exception as exc:
@@ -316,6 +343,8 @@ class RobotPlatformCoordinator:
                     "dispatch failed for robot %s task %s: %s",
                     robot.robot_id, task.task_id, exc,
                 )
+                # Release any lifts reserved for this failed assignment.
+                self._release_lifts_for_assignment(robot, assignment)
                 if self._requeue_task(task, now, "dispatch_exception"):
                     remaining.append(task)
                 continue

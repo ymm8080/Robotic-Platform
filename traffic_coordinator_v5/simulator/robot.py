@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -243,8 +244,6 @@ class SimulatedRobot:
         dx = x1 - x0
         dy = y1 - y0
         if abs(dx) > 0.0001 or abs(dy) > 0.0001:
-            import math
-
             theta = math.atan2(dy, dx)
         return (x, y, theta)
 

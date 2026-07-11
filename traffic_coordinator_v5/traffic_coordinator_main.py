@@ -28,13 +28,15 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
+import pathlib
 import re
 import threading
 import time
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
-from core.config import CoreConfig
+from core.config import CoreConfig, WormConfig
 from core.coordinator import RobotPlatformCoordinator
 from core.gateway import InboundMessage, MqttGateway, OutboundEnvelope
 from core.infra.state_store import LocalStateStore
@@ -44,7 +46,16 @@ from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
 
-CONFIG = CoreConfig()
+# ── WORM blackbox sink path ────────────────────────────────────
+WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
+_config_worm = WormConfig()
+if WORM_SINK_PATH:
+    sink_path = pathlib.Path(WORM_SINK_PATH)
+    sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
+    sink_dir.mkdir(parents=True, exist_ok=True)
+    _config_worm = WormConfig(sink_dir=str(sink_dir))
+CONFIG = replace(CoreConfig(), worm=_config_worm)
+
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
@@ -95,7 +106,7 @@ def _check_mode() -> list[str]:
 
 
 # ── Global coordinator + gateway ──────────────────────────────────
-COORDINATOR = RobotPlatformCoordinator()
+COORDINATOR = RobotPlatformCoordinator(config=CONFIG)
 STATE_STORE = LocalStateStore()
 
 # Create the MQTT gateway (no-op if paho-mqtt is not installed)
@@ -109,16 +120,11 @@ MQTT_GATEWAY = MqttGateway(
 def _on_mqtt_inbound(msg: InboundMessage) -> None:
     """Called by MqttGateway for each VDA5050 state/connection message.
 
-    Routes the raw message through the appropriate brand adapter to produce
-    a unified FleetState, then feeds it to the coordinator.
+    Routes the raw message through the coordinator's ingest_uplink pipeline
+    which handles brand-adapter translation, state storage, obstacle updates,
+    and cold-start registration.
     """
-    brand = msg.brand
-    adapter = COORDINATOR._adapters.get(brand) if hasattr(COORDINATOR, "_adapters") else None
-    if adapter is not None:
-        adapter.ingest_native_state(msg.raw, msg.received_at)
-    else:
-        # Fallback: pass raw dict directly (generic adapter path)
-        COORDINATOR.ingest_uplink(brand, msg.raw, msg.received_at)
+    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
 
 
 def _publish_tick_result(result) -> None:

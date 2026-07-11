@@ -33,16 +33,28 @@ services:
       - WORM_SINK_PATH=/data/worm.jsonl
       - TC_HTTP_PORT=8000
       - TC_API_KEY_FILE=/run/secrets/tc_api_key
+      # MQTT transport (v5.x zero-trust)
+      - MQTT_BROKER_HOST=mqtt
+      - MQTT_BROKER_PORT=1883
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-robot-platform}
+      - MQTT_PASSWORD_FILE=/run/secrets/mqtt_password
+      - MQTT_CA_CERT=${MQTT_CA_CERT:-}
+      - MQTT_CLIENT_CERT=${MQTT_CLIENT_CERT:-}
+      - MQTT_CLIENT_KEY=${MQTT_CLIENT_KEY:-}
     volumes:
       - v5-worm-data:/data
       - ./core:/app/core:ro
     depends_on:
       redis:
         condition: service_healthy
+      mqtt:
+        condition: service_healthy
     networks:
       - internal
     secrets:
       - tc_api_key
+      - mqtt_password
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -93,6 +105,16 @@ services:
       - "1.0"
       - --initial-battery
       - "80"
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      # MQTT transport (v5.x zero-trust)
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-robot-platform}
+      - MQTT_PASSWORD_FILE=/run/secrets/mqtt_password
+      - MQTT_CA_CERT=${MQTT_CA_CERT:-}
+      - MQTT_CLIENT_CERT=${MQTT_CLIENT_CERT:-}
+      - MQTT_CLIENT_KEY=${MQTT_CLIENT_KEY:-}
     volumes:
       - ./core:/app/core:ro
       - ./traffic_coordinator_v5/simulator:/app/traffic_coordinator_v5/simulator:ro
@@ -102,6 +124,8 @@ services:
         condition: service_healthy
     networks:
       - internal
+    secrets:
+      - mqtt_password
     deploy:
       resources:
         limits:
