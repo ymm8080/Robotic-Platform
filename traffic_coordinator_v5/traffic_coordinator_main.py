@@ -27,14 +27,24 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import os
 import pathlib
 import re
+import secrets
 import threading
 import time
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
+
+try:
+    from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
+    from prometheus_client.core import CounterMetricFamily
+
+    _PROMETHEUS_AVAILABLE = True
+except ImportError:
+    _PROMETHEUS_AVAILABLE = False
 
 from core.config import CoreConfig, WormConfig
 from core.coordinator import RobotPlatformCoordinator
@@ -46,6 +56,8 @@ from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
 
+_logger = logging.getLogger(__name__)
+
 # ── WORM blackbox sink path ────────────────────────────────────
 WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
 _config_worm = WormConfig()
@@ -54,7 +66,11 @@ if WORM_SINK_PATH:
     sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
     sink_dir.mkdir(parents=True, exist_ok=True)
     _config_worm = WormConfig(sink_dir=str(sink_dir))
-CONFIG = replace(CoreConfig(), worm=_config_worm)
+# Cold-start staggered registration: default 5s in production, 0 disables.
+_reg_stagger = float(os.environ.get("TC_REGISTRATION_STAGGER_SECONDS", "5.0"))
+CONFIG = replace(
+    CoreConfig(), worm=_config_worm, registration_stagger_seconds=_reg_stagger
+)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
@@ -85,6 +101,11 @@ def _load_api_key() -> str:
 
 
 TC_API_KEY = _load_api_key()
+if not TC_API_KEY:
+    logging.getLogger("tc").warning(
+        "TC_API_KEY not set — API authentication disabled. "
+        "Set TC_API_KEY or TC_API_KEY_FILE for production."
+    )
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -94,8 +115,6 @@ def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
     if not TC_API_KEY:
         return True
     provided = handler.headers.get("X-API-Key", "")
-    import secrets
-
     return secrets.compare_digest(TC_API_KEY, provided)
 
 
@@ -108,6 +127,44 @@ def _check_mode() -> list[str]:
 # ── Global coordinator + gateway ──────────────────────────────────
 COORDINATOR = RobotPlatformCoordinator(config=CONFIG)
 STATE_STORE = LocalStateStore()
+
+# Prometheus metrics registry (uses prometheus_client if available)
+if _PROMETHEUS_AVAILABLE:
+    class _CoreMetricsCollector:
+        """Custom Prometheus collector bridging CoreMetrics to prometheus_client."""
+
+        def collect(self):
+            snap = COORDINATOR.metrics.snapshot()
+            yield CounterMetricFamily(
+                "tc_uplinks_total", "Total robot state uplinks received", snap.uplinks
+            )
+            yield CounterMetricFamily(
+                "tc_orders_submitted_total", "Total orders submitted", snap.orders_submitted
+            )
+            yield CounterMetricFamily(
+                "tc_tasks_allocated_total", "Total tasks allocated to robots", snap.tasks_allocated
+            )
+            yield CounterMetricFamily(
+                "tc_tasks_completed_total", "Total tasks completed by robots", snap.tasks_completed
+            )
+            yield CounterMetricFamily(
+                "tc_tasks_requeued_total", "Total tasks requeued due to failures", snap.tasks_requeued
+            )
+            yield CounterMetricFamily(
+                "tc_collision_holds_total", "Total collision hold events", snap.collision_holds
+            )
+            yield CounterMetricFamily(
+                "tc_deadlocks_total", "Total deadlock detections", snap.deadlocks
+            )
+            yield CounterMetricFamily(
+                "tc_adapter_parse_errors_total", "Total adapter parse errors", snap.adapter_parse_errors
+            )
+            yield CounterMetricFamily(
+                "tc_worm_records_total", "Total WORM audit records written", snap.worm_records
+            )
+
+    _prom_registry = CollectorRegistry()
+    _prom_registry.register(_CoreMetricsCollector())
 
 # Create the MQTT gateway (no-op if paho-mqtt is not installed)
 MQTT_GATEWAY = MqttGateway(
@@ -166,7 +223,7 @@ def _background_tick(stop_event: threading.Event) -> None:
             except Exception as exc:
                 print(f"[snapshot] submit failed: {exc}")
         stop_event.wait(TICK_INTERVAL)
-    _snap_executor.shutdown(wait=False)
+    _snap_executor.shutdown(wait=True)
 
 
 def _save_snapshot(snapshot_data) -> None:
@@ -213,11 +270,11 @@ _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
     try:
         COORDINATOR.restore(_saved)
-        print("[snapshot] restored coordinator state from snapshot")
-    except Exception as exc:
-        print(f"[snapshot] restore failed: {exc}")
+        _logger.info("Restored coordinator state from snapshot")
+    except Exception:
+        _logger.exception("Snapshot restore failed — starting fresh")
 else:
-    print("[snapshot] no prior snapshot found — starting fresh")
+    _logger.info("No prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()
@@ -313,40 +370,49 @@ class Handler(BaseHTTPRequestHandler):
             if not _check_auth(self):
                 self._json(401, {"error": "unauthorized"})
                 return
-            snap = COORDINATOR.metrics.snapshot()
-            lines = [
-                "# HELP tc_uplinks_total Total robot state uplinks received",
-                "# TYPE tc_uplinks_total counter",
-                f"tc_uplinks_total {snap.uplinks}",
-                "# HELP tc_orders_submitted_total Total orders submitted",
-                "# TYPE tc_orders_submitted_total counter",
-                f"tc_orders_submitted_total {snap.orders_submitted}",
-                "# HELP tc_tasks_allocated_total Total tasks allocated to robots",
-                "# TYPE tc_tasks_allocated_total counter",
-                f"tc_tasks_allocated_total {snap.tasks_allocated}",
-                "# HELP tc_tasks_completed_total Total tasks completed by robots",
-                "# TYPE tc_tasks_completed_total counter",
-                f"tc_tasks_completed_total {snap.tasks_completed}",
-                "# HELP tc_tasks_requeued_total Total tasks requeued due to failures",
-                "# TYPE tc_tasks_requeued_total counter",
-                f"tc_tasks_requeued_total {snap.tasks_requeued}",
-                "# HELP tc_collision_holds_total Total collision hold events",
-                "# TYPE tc_collision_holds_total counter",
-                f"tc_collision_holds_total {snap.collision_holds}",
-                "# HELP tc_deadlocks_total Total deadlock detections",
-                "# TYPE tc_deadlocks_total counter",
-                f"tc_deadlocks_total {snap.deadlocks}",
-                "# HELP tc_adapter_parse_errors_total Total adapter parse errors",
-                "# TYPE tc_adapter_parse_errors_total counter",
-                f"tc_adapter_parse_errors_total {snap.adapter_parse_errors}",
-                "# HELP tc_worm_records_total Total WORM audit records written",
-                "# TYPE tc_worm_records_total counter",
-                f"tc_worm_records_total {snap.worm_records}",
-            ]
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-            self.end_headers()
-            self.wfile.write("\n".join(lines).encode())
+            if _PROMETHEUS_AVAILABLE:
+                output = generate_latest(_prom_registry)
+                self.send_response(200)
+                self.send_header("Content-Type", CONTENT_TYPE_LATEST)
+                self.end_headers()
+                self.wfile.write(output)
+            else:
+                # Fallback: manual Prometheus text format
+                # (used only when prometheus_client is not installed)
+                snap = COORDINATOR.metrics.snapshot()
+                lines = [
+                    "# HELP tc_uplinks_total Total robot state uplinks received",
+                    "# TYPE tc_uplinks_total counter",
+                    f"tc_uplinks_total {snap.uplinks}",
+                    "# HELP tc_orders_submitted_total Total orders submitted",
+                    "# TYPE tc_orders_submitted_total counter",
+                    f"tc_orders_submitted_total {snap.orders_submitted}",
+                    "# HELP tc_tasks_allocated_total Total tasks allocated to robots",
+                    "# TYPE tc_tasks_allocated_total counter",
+                    f"tc_tasks_allocated_total {snap.tasks_allocated}",
+                    "# HELP tc_tasks_completed_total Total tasks completed by robots",
+                    "# TYPE tc_tasks_completed_total counter",
+                    f"tc_tasks_completed_total {snap.tasks_completed}",
+                    "# HELP tc_tasks_requeued_total Total tasks requeued due to failures",
+                    "# TYPE tc_tasks_requeued_total counter",
+                    f"tc_tasks_requeued_total {snap.tasks_requeued}",
+                    "# HELP tc_collision_holds_total Total collision hold events",
+                    "# TYPE tc_collision_holds_total counter",
+                    f"tc_collision_holds_total {snap.collision_holds}",
+                    "# HELP tc_deadlocks_total Total deadlock detections",
+                    "# TYPE tc_deadlocks_total counter",
+                    f"tc_deadlocks_total {snap.deadlocks}",
+                    "# HELP tc_adapter_parse_errors_total Total adapter parse errors",
+                    "# TYPE tc_adapter_parse_errors_total counter",
+                    f"tc_adapter_parse_errors_total {snap.adapter_parse_errors}",
+                    "# HELP tc_worm_records_total Total WORM audit records written",
+                    "# TYPE tc_worm_records_total counter",
+                    f"tc_worm_records_total {snap.worm_records}",
+                ]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.end_headers()
+                self.wfile.write("\n".join(lines).encode())
         else:
             self._json(404, {"error": "not found"})
 

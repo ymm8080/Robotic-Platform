@@ -139,6 +139,24 @@ class SapCoordinatorBridge:
                             oid = a.get("order_id", "")
                             if oid:
                                 active_order_ids.add(oid)
+                else:
+                    logger.warning(
+                        "SAP-TC bridge: unexpected type for active_assignments "
+                        "value: %s (robot=%s), skipping",
+                        type(assign).__name__, _robot,
+                    )
+        elif isinstance(active, list):
+            for a in active:
+                if isinstance(a, dict):
+                    oid = a.get("order_id", "")
+                    if oid:
+                        active_order_ids.add(oid)
+        else:
+            logger.warning(
+                "SAP-TC bridge: unexpected type for active_assignments: %s, "
+                "skipping confirmation cycle",
+                type(active).__name__,
+            )
 
         GRACE_POLLS = 2
         for tid in list(self._submitted):

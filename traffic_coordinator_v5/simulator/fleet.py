@@ -90,12 +90,28 @@ class FleetSimulator:
             self._mqtt.disconnect()
 
     def _run_loop(self) -> None:
-        """Real-time loop: tick and publish at the configured interval."""
+        """Real-time loop: tick and publish at the configured interval.
+
+        Tick and publish use independent schedules so that a slow tick_once
+        does not delay state publishing (or vice versa).
+        """
+        last_tick = time.monotonic()
+        next_tick = time.monotonic()
+        next_publish = time.monotonic()
         while self._running and not self._stop_event.is_set():
             now = time.monotonic()
-            self.tick_once(self._publish_interval)
-            self._publish_states(now)
-            self._stop_event.wait(self._publish_interval)
+            if now >= next_tick:
+                # Use actual elapsed time for physics accuracy; cap at 2x
+                # interval to prevent physics explosions under heavy load.
+                dt = min(now - last_tick, self._publish_interval * 2)
+                last_tick = now
+                self.tick_once(dt)
+                next_tick = now + self._publish_interval
+            if now >= next_publish:
+                self._publish_states(now)
+                next_publish = now + self._publish_interval
+            sleep_dur = min(next_tick, next_publish) - time.monotonic()
+            self._stop_event.wait(max(0.0, sleep_dur))
 
     def tick_once(self, dt: float) -> dict[str, list[str]]:
         """Advance every robot by ``dt`` seconds (deterministic).

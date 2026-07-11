@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import math
-import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
 from core.messages import RobotMode
 from traffic_coordinator_v5.simulator.map import LaneGraph
+
+logger = logging.getLogger(__name__)
 
 
 class SimRobotMode(str, Enum):
@@ -29,6 +31,7 @@ class RobotConfig:
     battery_drain_per_metre: float = 0.5  # % per metre while TASKING
     battery_charge_per_second: float = 5.0  # % per second while CHARGING
     charger_threshold: float = 20.0     # % — coordinator force-lock boundary
+    charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)
 
 
 @dataclass
@@ -113,6 +116,16 @@ class SimulatedRobot:
         self._path_index = 0
         self.mode = SimRobotMode.IDLE
 
+    def force_stop_charging(self) -> None:
+        """Force-interrupt charging and return to IDLE.
+
+        Called by the coordinator (via instant action) when a robot is
+        needed for a task but is currently charging.
+        """
+        if self.mode == SimRobotMode.CHARGING:
+            self.mode = SimRobotMode.IDLE
+            logger.info("Robot %s force-stopped charging at %.1f%%", self.robot_id, self.battery_percent)
+
     def hold(self, reason: str = "HOLD") -> None:
         """Pause motion (e.g. red traffic light / coordinator HOLD)."""
         self.held = True
@@ -146,8 +159,11 @@ class SimulatedRobot:
                 100.0,
                 self.battery_percent + self.config.battery_charge_per_second * dt,
             )
-            # Remain CHARGING until battery is full; then go IDLE.
-            if self.battery_percent >= 99.9:
+            # Exit CHARGING when battery reaches charge_complete_threshold
+            # (default 80%) or full charge (99.9%), whichever comes first.
+            # This prevents robots from being stuck charging to 100% when
+            # the coordinator needs them for tasks.
+            if self.battery_percent >= 99.9 or self.battery_percent >= self.config.charge_complete_threshold:
                 self.mode = SimRobotMode.IDLE
             return reached
 
@@ -181,6 +197,12 @@ class SimulatedRobot:
         while step_distance > 0.0001 and self._path_index < len(self._path):
             _guard -= 1
             if _guard <= 0:
+                logger.warning(
+                    "Robot %s hit guard limit in tick; "
+                    "path_index=%d/%d, step_distance=%.6f",
+                    self.robot_id,
+                    self._path_index, len(self._path), step_distance,
+                )
                 break
             lane_id = self._path[self._path_index]
             lane = self.lane_graph.lane(lane_id)
@@ -227,7 +249,10 @@ class SimulatedRobot:
         self.velocity = 0.0
         # Rest at the destination node (end of the final lane).
         self.distance_along_lane = self.lane_graph.length(self.current_lane_id)
-        self.mode = SimRobotMode.IDLE
+        # Do not override ERROR state — the robot must stay in ERROR
+        # until explicit recovery (clear_errors / manual_recover).
+        if self.mode != SimRobotMode.ERROR:
+            self.mode = SimRobotMode.IDLE
 
     def _pose(self) -> tuple[float, float, float]:
         """Return current (x, y, theta) by interpolating along the lane."""
@@ -252,7 +277,12 @@ class SimulatedRobot:
         self.sequence_number += 1
         x, y, theta = self._pose()
         lane = self.lane_graph.lane(self.current_lane_id)
-        last_node = lane.to_node if lane is not None else ""
+        if lane is None:
+            last_node = ""
+        elif self.distance_along_lane >= lane.length - 0.0001:
+            last_node = lane.to_node
+        else:
+            last_node = lane.from_node
         return {
             "headerId": self.sequence_number,
             "timestamp": self._iso_now(),
@@ -288,4 +318,6 @@ class SimulatedRobot:
 
     @staticmethod
     def _iso_now() -> str:
-        return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"

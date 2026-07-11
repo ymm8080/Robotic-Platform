@@ -220,10 +220,13 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 self._client.username_pw_set(mqtt_username, password)
                 logger.info("MqttGateway: using MQTT auth for user %s", mqtt_username)
             else:
-                logger.warning(
+                logger.error(
                     "MqttGateway: MQTT_USERNAME is set but no password found "
-                    "(set MQTT_PASSWORD or MQTT_PASSWORD_FILE)"
+                    "(set MQTT_PASSWORD or MQTT_PASSWORD_FILE). "
+                    "Aborting connection — auth misconfiguration."
                 )
+                self._client = None
+                return
 
         # ── TLS (off by default; enable with MQTT_USE_TLS=true) ─
         if os.environ.get("MQTT_USE_TLS", "false").lower() == "true":
