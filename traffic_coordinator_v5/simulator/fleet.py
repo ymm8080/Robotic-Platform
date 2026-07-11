@@ -197,6 +197,62 @@ class FleetSimulator:
         if on_instant_actions is not None:
             self._route_instant_actions = on_instant_actions
 
+    def load_scenario(self, name: str) -> list[str]:
+        """Load a named scenario configuration and return created robot IDs.
+
+        Supported scenarios:
+        - ``"intersection"``: 3 robots converging at X1, exercise traffic light gating
+        - ``"charger"``: 5 low-battery robots competing for 2 charger bays
+        - ``"fault"``: 1 robot that gets an injected error mid-task
+        - ``"deadlock"``: 2 robots facing each other on a corridor
+        - ``"safe_distance"``: 2 following robots exercising SPEED_CAP
+        """
+        from core.platform.fixed_lane_map import FixedLaneMap, Lane
+
+        robot_ids: list[str] = []
+        fmap = self.lane_graph._fmap
+        if name == "intersection":
+            fmap.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
+            fmap.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
+            fmap.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
+            fmap.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
+            fmap.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
+            fmap.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
+            for rid, lane in [("R-001", "L_A_B"), ("R-002", "L_X_B"), ("R-003", "L_Y_B")]:
+                self.add_robot(rid, lane)
+                robot_ids.append(rid)
+        elif name == "charger":
+            fmap.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
+            fmap.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
+            fmap.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
+            for i in range(1, 6):
+                rid = f"R-{i:03d}"
+                self.add_robot(rid, "L_A_B", battery=21.0, config=RobotConfig(max_speed=0.5))
+                robot_ids.append(rid)
+        elif name == "fault":
+            fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
+            fmap.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
+            self.add_robot("R-001", "L_A_B")
+            robot_ids.append("R-001")
+        elif name == "deadlock":
+            fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
+            fmap.add_lane(Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
+            self.add_robot("R-001", "L_A_B")
+            self.add_robot("R-002", "L_B_A")
+            robot_ids.extend(["R-001", "R-002"])
+        elif name == "safe_distance":
+            fmap.add_lane(Lane("L_A_B", "A", "B", length=50.0, max_speed=2.0))
+            fmap.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=2.0))
+            self.add_robot("R-001", "L_A_B", config=RobotConfig(max_speed=1.0))
+            self.add_robot("R-002", "L_A_B", config=RobotConfig(max_speed=0.5))
+            robot_ids.extend(["R-001", "R-002"])
+        else:
+            raise ValueError(
+                f"Unknown scenario: {name}. "
+                "Available: intersection, charger, fault, deadlock, safe_distance"
+            )
+        return robot_ids
+
     @classmethod
     def for_scenario(
         cls,

@@ -64,20 +64,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--fault-prob", type=float, default=0.0, help="Probability of injected fault per tick"
     )
     parser.add_argument(
-        "--offline", action="store_true", help="Run without connecting to an MQTT broker"
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable debug logging"
-    )
-    parser.add_argument(
         "--scenario",
         type=str,
         default=None,
         choices=["intersection", "charger", "fault", "deadlock", "safe_distance"],
-        help="Run a named test scenario (overrides --count, --start-node, --map)",
+        help="Named scenario to run (overrides --count and --start-node)",
     )
     parser.add_argument(
-        "--duration", type=float, default=60.0, help="Scenario duration in seconds"
+        "--duration", type=float, default=60.0, help="Scenario duration in seconds (default: 60)"
+    )
+    parser.add_argument(
+        "--offline", action="store_true", help="Run without connecting to an MQTT broker"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable debug logging"
     )
     return parser
 
@@ -194,8 +194,13 @@ def run(argv: list[str] | None = None) -> int:
 
 
 def _run_scenario(args: argparse.Namespace) -> int:
-    """Run a named test scenario via ``FleetSimulator.for_scenario()``."""
+    """Run a named test scenario via ``FleetSimulator.load_scenario()``."""
     logger.info("Running scenario: %s (duration=%.1fs)", args.scenario, args.duration)
+
+    # Build an empty lane graph that ``load_scenario()`` will populate.
+    from core.platform.fixed_lane_map import FixedLaneMap
+
+    lane_graph = LaneGraph(FixedLaneMap())
 
     mqtt_client: MqttVDAClient | None = None
     if not args.offline:
@@ -205,11 +210,17 @@ def _run_scenario(args: argparse.Namespace) -> int:
             brand=args.brand,
         )
 
-    fleet = FleetSimulator.for_scenario(
-        name=args.scenario,
+    fleet = FleetSimulator(
+        lane_graph=lane_graph,
         brand=args.brand,
         mqtt_client=mqtt_client,
         publish_interval=args.interval,
+    )
+
+    robot_ids = fleet.load_scenario(args.scenario)
+    logger.info(
+        "Scenario '%s' loaded: %d robot(s) — %s",
+        args.scenario, len(robot_ids), ", ".join(robot_ids),
     )
 
     _assign_scenario_orders(fleet, args.scenario)
@@ -266,12 +277,13 @@ def _run_scenario(args: argparse.Namespace) -> int:
 def _assign_scenario_orders(fleet: FleetSimulator, scenario: str) -> None:
     """Assign initial paths (VDA5050 orders) to robots per scenario."""
     if scenario == "intersection":
-        _assign_order(fleet.get_robot("R-001"), ["L_A_X", "L_X_D"])
-        _assign_order(fleet.get_robot("R-002"), ["L_B_X", "L_X_D"])
-        _assign_order(fleet.get_robot("R-003"), ["L_C_X", "L_X_D"])
+        _assign_order(fleet.get_robot("R-001"), ["L_A_B", "L_B_Z1"])
+        _assign_order(fleet.get_robot("R-002"), ["L_X_B", "L_B_Z2"])
+        _assign_order(fleet.get_robot("R-003"), ["L_Y_B", "L_B_Z3"])
     elif scenario == "charger":
-        _assign_order(fleet.get_robot("R-001"), ["L_A_B"])
-        _assign_order(fleet.get_robot("R-002"), ["L_A_B", "L_B_A"])
+        for i in range(1, 6):
+            rid = f"R-{i:03d}"
+            _assign_order(fleet.get_robot(rid), ["L_A_B", "L_B_CHG1"])
     elif scenario == "fault":
         _assign_order(fleet.get_robot("R-001"), ["L_A_B", "L_B_C"])
     elif scenario == "deadlock":
