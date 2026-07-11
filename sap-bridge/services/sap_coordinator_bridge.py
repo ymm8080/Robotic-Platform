@@ -79,6 +79,11 @@ class SapCoordinatorBridge:
         if backend is None:
             return
         tasks = await asyncio.to_thread(backend.list_tasks, warehouse=WAREHOUSE, status="0", top=50)
+        if len(tasks) >= 50:
+            logger.warning(
+                "SAP-TC bridge: fetched 50 tasks (top limit) — "
+                "可能有更多未处理任务，考虑增加 top 或缩短轮询间隔",
+            )
         for task in tasks:
             tid = task.external_id
             if tid in self._submitted:
