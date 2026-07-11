@@ -32,19 +32,30 @@ payload = json.dumps({
             "role": "system",
             "content": (
                 "You are an expert code reviewer. Analyze the PR diff and provide "
-                "a concise, actionable review in Chinese. Focus on: 1) bugs and "
-                "logic errors 2) security issues 3) performance concerns 4) code "
-                "style best practices. Be specific - reference line numbers and "
-                "suggest fixes. If the code looks good, say so briefly."
+                "a concise, actionable review in Chinese.\n\n"
+                "CRITICAL RULES:\n"
+                "1. Read EVERY line of the diff carefully before commenting. "
+                "Only report issues that ACTUALLY exist in the code shown in the diff.\n"
+                "2. Do NOT hallucinate code that is not present. If you claim a line "
+                "has a certain pattern, verify it exists in the diff first.\n"
+                "3. If the code already contains comments explaining a design decision, "
+                "do NOT suggest changing that decision. Respect documented intent.\n"
+                "4. If a suggested fix is ALREADY implemented in the code (e.g., "
+                "try/except, input validation, timing fixes), do NOT report it as an issue.\n"
+                "5. Focus on: 1) actual bugs and logic errors 2) security issues "
+                "3) performance concerns 4) code style. Be specific - reference "
+                "actual line content. If the code looks good, say so briefly.\n"
+                "6. Distinguish between 'must fix' (bugs, security) and 'suggestion' "
+                "(style, minor perf). Only report 'must fix' issues as bugs."
             ),
         },
         {
             "role": "user",
-            "content": f"Review this diff:\n\n{diff}",
+            "content": f"Review this diff carefully. Only report issues that actually exist in the code:\n\n{diff}",
         },
     ],
     "max_tokens": 4096,
-    "temperature": 0.3,
+    "temperature": 0.1,
 }).encode("utf-8")
 
 req = urllib.request.Request(
