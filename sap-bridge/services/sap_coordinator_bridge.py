@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = float(os.getenv("SAP_TC_POLL_INTERVAL", "5"))
 WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
+# When "0", tasks that disappear from the coordinator active list are NOT
+# auto-confirmed to SAP — they remain in ``_submitted`` and require manual
+# confirmation.  Set to "1" (default) for automatic confirmation.
+AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "1") == "1"
 
 
 class SapCoordinatorBridge:
@@ -147,9 +151,15 @@ class SapCoordinatorBridge:
             # Check grace period
             if self._poll_count - self._inactive_since[tid] < GRACE_POLLS:
                 continue
-            # Grace period elapsed — confirm to SAP.
+            # Grace period elapsed.
             # NOTE: coordinator doesn't expose failure/cancel status, so we
-            # cannot distinguish completed from failed here. Log at WARNING.
+            # cannot distinguish completed from failed here.
+            if not AUTO_CONFIRM:
+                logger.warning(
+                    "SAP-TC bridge: task %s inactive for %d polls but AUTO_CONFIRM=0 — "
+                    "skipping SAP confirm, requires manual review", tid, GRACE_POLLS,
+                )
+                continue
             logger.warning("SAP-TC bridge: confirming SAP task %s as completed (cannot distinguish completed/failed from coordinator state)", tid)
             backend = self._get_backend(WAREHOUSE)
             if backend is None:
