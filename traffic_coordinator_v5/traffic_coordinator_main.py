@@ -106,7 +106,7 @@ def _check_mode() -> list[str]:
 
 
 # ── Global coordinator + gateway ──────────────────────────────────
-COORDINATOR = RobotPlatformCoordinator()
+COORDINATOR = RobotPlatformCoordinator(config=CONFIG)
 STATE_STORE = LocalStateStore()
 
 # Create the MQTT gateway (no-op if paho-mqtt is not installed)
