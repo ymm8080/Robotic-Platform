@@ -111,7 +111,11 @@ class FleetSimulator:
                 self._publish_states(now)
                 next_publish = now + self._publish_interval
             sleep_dur = min(next_tick, next_publish) - time.monotonic()
-            self._stop_event.wait(max(0.0, sleep_dur))
+            # Only wait when there's positive sleep time remaining.
+            # If both schedules are overdue (sleep_dur <= 0), skip waiting
+            # to avoid busy-waiting on wait(0) and process immediately.
+            if sleep_dur > 0:
+                self._stop_event.wait(sleep_dur)
 
     def tick_once(self, dt: float) -> dict[str, list[str]]:
         """Advance every robot by ``dt`` seconds (deterministic).

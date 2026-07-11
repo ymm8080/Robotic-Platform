@@ -74,11 +74,11 @@ All rules synced to `.claude/rules/`. Key ones:
 
 | Rule | Scope | alwaysApply |
 |------|-------|-------------|
-| `000-global-iron-rules.mdc` | Global iron laws | **true** |
-| `karpathy-guidelines.mdc` | LLM coding best practices | **true** |
-| `verify-before-done.md` | Evidence-based completion | **always** |
-| `gsd-workflow.mdc` | GSD 快速交付工作流 | **true** |
-| `compressed-communication.mdc` | 压缩沟通模式 | **true** |
+| `000-global-iron-rules.mdc` | Global iron laws | true |
+| `karpathy-guidelines.mdc` | LLM coding best practices | true |
+| `verify-before-done.md` | Evidence-based completion | always |
+| `gsd-workflow.mdc` | GSD 快速交付工作流 | true |
+| `compressed-communication.mdc` | 压缩沟通模式 | true |
 | `010-nodered-core.mdc` | Node-RED flows | context |
 | `020-sap-bridge.mdc` | SAP bridge (Python) | context |
 | `030-robot-device.mdc` | Robot drivers | context |

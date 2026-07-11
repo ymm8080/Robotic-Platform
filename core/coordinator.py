@@ -160,9 +160,17 @@ class RobotPlatformCoordinator:
         if any("ERR_ADAPTER_PARSE" in e for e in events):
             self.metrics.inc("adapter_parse_errors")
 
-        # 冷启动错峰注册 (陷阱 #3): new robots are queued, not immediately registered
+        # 冷启动错峰注册 (陷阱 #3): new robots are queued, not immediately registered.
+        # Check both the adapter registry AND the pending queue to prevent
+        # duplicate registration when multiple state messages arrive before
+        # the next tick() processes the queue.
         if state.robot_id not in self._robot_adapter:
-            self._pending_registrations.append((adapter, state, events, now))
+            already_pending = any(
+                s.robot_id == state.robot_id
+                for _, s, _, _ in self._pending_registrations
+            )
+            if not already_pending:
+                self._pending_registrations.append((adapter, state, events, now))
             return [f"PENDING_REGISTRATION:{state.robot_id}"]
 
         self._robot_adapter[state.robot_id] = adapter

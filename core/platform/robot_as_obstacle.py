@@ -122,7 +122,11 @@ class RobotAsObstacle:
         small tolerance so that a SPEED_CAP can be issued before a COLLISION_HOLD.
         """
         def _margin(fp: Footprint) -> float:
-            # virtual walls (half_length == half_width == 0) keep their corridor
+            # Virtual walls (half_length == half_width == 0) are operator-placed
+            # exclusion zones (e.g. SOP-YELLOW manual wall). They use their full
+            # ``corridor`` radius for collision detection because they represent
+            # a hard boundary that robots must not enter, unlike physical robot
+            # bodies which use the small COLLISION_MARGIN for body-overlap HOLD.
             if fp.half_length == 0.0 and fp.half_width == 0.0:
                 return fp.corridor
             return RobotAsObstacle.COLLISION_MARGIN
