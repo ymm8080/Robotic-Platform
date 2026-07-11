@@ -286,7 +286,6 @@ class RobotPlatformCoordinator:
                 continue
 
             adapter = self.adapter_for(robot.robot_id)
-            assigned_robots.add(robot.robot_id)
             if adapter is None:
                 if self._requeue_task(task, now, "no_adapter"):
                     remaining.append(task)
@@ -305,6 +304,7 @@ class RobotPlatformCoordinator:
                 continue
 
             adapter.dispatch(robot.robot_id, assignment, now)
+            assigned_robots.add(robot.robot_id)
             self._active_assignments[robot.robot_id] = assignment
             self._update_occupancy(robot.robot_id, assignment.path[0])
             assigned.append((robot.robot_id, assignment))

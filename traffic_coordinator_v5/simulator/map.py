@@ -103,11 +103,11 @@ class LaneGraph:
             base_x = component_index * component_spacing
             positions[root] = (base_x, 0.0)
             angles: dict[str, float] = {root: 0.0}
-            frontier = [root]
+            frontier: deque[str] = deque([root])
             component_visited: set[str] = {root}
 
             while frontier:
-                node = frontier.pop(0)
+                node = frontier.popleft()
                 x, y = positions[node]
                 parent_angle = angles[node]
                 children = successors.get(node, [])
