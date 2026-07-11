@@ -19,6 +19,7 @@ objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
@@ -42,6 +43,8 @@ from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -126,8 +129,13 @@ class RobotPlatformCoordinator:
         self._task_retries: dict[str, int] = {}
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
+        self._last_reported_lane: dict[str, str] = {}  # robot_id -> last reported lane_id (idempotency)
+        self._idle_robots: set[str] = set()  # robot_ids currently IDLE and not degraded
 
-    MAX_TASK_RETRIES = 3
+        # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
+        self._registration_stagger_seconds = self.cfg.registration_stagger_seconds
+        self._last_registration_time: float = 0.0
+        self._pending_registrations: deque[tuple[FleetAdapter, FleetState, list[str], float]] = deque()
 
     # ── adapter / brand registry ─────────────────────────────────
     def register_adapter(self, adapter: FleetAdapter) -> None:
@@ -151,26 +159,24 @@ class RobotPlatformCoordinator:
         state, events = adapter.ingest_native_state(raw, now)
         if any("ERR_ADAPTER_PARSE" in e for e in events):
             self.metrics.inc("adapter_parse_errors")
+
+        # 冷启动错峰注册 (陷阱 #3): new robots are queued, not immediately registered.
+        # Check both the adapter registry AND the pending queue to prevent
+        # duplicate registration when multiple state messages arrive before
+        # the next tick() processes the queue.
+        if state.robot_id not in self._robot_adapter:
+            # Check if this robot is already in the pending queue.
+            # If so, update its queued state to the latest so that when
+            # tick() processes it, the most recent state is used.
+            for i, (a, s, e, t) in enumerate(self._pending_registrations):
+                if s.robot_id == state.robot_id:
+                    self._pending_registrations[i] = (adapter, state, events, now)
+                    return [f"PENDING_REGISTRATION:{state.robot_id}"]
+            self._pending_registrations.append((adapter, state, events, now))
+            return [f"PENDING_REGISTRATION:{state.robot_id}"]
+
         self._robot_adapter[state.robot_id] = adapter
-
-        # failover observes liveness and stamps platform-maintained flags
-        events.extend(self.failover.observe(state, now))
-        state = self.failover.stamp(state)
-        self._robot_states[state.robot_id] = state
-
-        # footprint / obstacle layer update
-        self.obstacles.update(
-            robot_id=state.robot_id,
-            x=state.pose.x,
-            y=state.pose.y,
-            theta=state.pose.theta,
-            velocity=state.velocity,
-            rtt=0.1,  # default until RTT is measured by gateway
-        )
-
-        for ev in events:
-            if ev.startswith("ERR_") or "BOOT_TAKEOVER" in ev or "SHADOW_MISMATCH" in ev:
-                self._worm_event(now, "ERROR", state.robot_id, {"event": ev})
+        self._process_robot_state(state, events, now)
         return events
 
     # ── order intake ─────────────────────────────────────────────
@@ -186,10 +192,58 @@ class RobotPlatformCoordinator:
             self._task_retries[task.task_id] = 0
         return plan
 
+    def _process_robot_state(
+        self, state: FleetState, events: list[str], now: float
+    ) -> None:
+        """Store robot state, observe liveness, update obstacle footprint."""
+        # failover observes liveness and stamps platform-maintained flags
+        events.extend(self.failover.observe(state, now))
+        state = self.failover.stamp(state)
+        self._robot_states[state.robot_id] = state
+        # Maintain idle-robots index for O(1) candidate filtering in dispatch
+        if state.mode is RobotMode.IDLE and not state.degraded:
+            self._idle_robots.add(state.robot_id)
+        else:
+            self._idle_robots.discard(state.robot_id)
+        self._auto_report_progress(state.robot_id, now)
+
+        # footprint / obstacle layer update
+        self.obstacles.update(
+            robot_id=state.robot_id,
+            x=state.pose.x,
+            y=state.pose.y,
+            theta=state.pose.theta,
+            velocity=state.velocity,
+            rtt=0.1,  # default until RTT is measured by gateway
+        )
+
+        for ev in events:
+            if ev.startswith("ERR_") or "BOOT_TAKEOVER" in ev or "SHADOW_MISMATCH" in ev:
+                self._worm_event(now, "ERROR", state.robot_id, {"event": ev})
+            elif "COLLISION" in ev:
+                self._worm_event(now, "EVENT", state.robot_id, {"collision": ev})
+                self.metrics.inc("collision_holds")
+
     # ── main loop ────────────────────────────────────────────────
     def tick(self, now: float) -> TickResult:
         """Advance one platform tick: safety, traffic, allocation, resources."""
         result = TickResult()
+
+        # 0. process cold-start pending registrations (staggered)
+        #
+        # Only register one robot per _registration_stagger_seconds interval
+        # to achieve the cold-start staggered registration purpose.
+        # Use the original enqueue timestamp (reg_ts) for state processing
+        # so failover.observe sees the correct first-seen time.
+        if self._pending_registrations:
+            if (
+                self._last_registration_time == 0.0
+                or now - self._last_registration_time >= self._registration_stagger_seconds
+            ):
+                adapter, state, events, reg_ts = self._pending_registrations.popleft()
+                self._robot_adapter[state.robot_id] = adapter
+                self._process_robot_state(state, events, reg_ts)
+                self._last_registration_time = now
 
         # 1. liveness + failover
         transitions = self.failover.tick(now)
@@ -258,17 +312,26 @@ class RobotPlatformCoordinator:
         tasks = sorted(self._task_queue, key=lambda t: (-t.priority, t.created_at))
         self._task_queue.clear()
 
+        # Track robots assigned during *this* tick to prevent double-assignment
+        # before _active_assignments is updated (which happens after successful dispatch).
+        assigned_robots: set[str] = set()
         for task in tasks:
             if self._is_expired_or_exhausted(task, now):
                 continue
 
+            # Use _idle_robots index to avoid full O(n) scan each tick.
+            # _idle_robots is maintained in _process_robot_state: only robots
+            # that are IDLE and not degraded are in the set.  The remaining
+            # time-dependent checks (failover, breaker, intersection) are
+            # still evaluated per-candidate.
+            candidate_ids = self._idle_robots - assigned_robots - self._active_assignments.keys()
             candidates = [
-                r for r in self._robot_states.values()
-                if not r.degraded
-                and not self.failover.is_offline(r.robot_id)
-                and self.failover.accepts_new_tasks(r.robot_id, now)
-                and self._breaker_closed(r.robot_id)
-                and self._intersection_clear(r.robot_id)
+                self._robot_states[rid] for rid in candidate_ids
+                if rid in self._robot_states
+                and not self.failover.is_offline(rid)
+                and self.failover.accepts_new_tasks(rid, now)
+                and self._breaker_closed(rid)
+                and self._intersection_clear(rid)
             ]
             result = self.allocator.allocate(task, candidates)
             if not result.assigned:
@@ -300,8 +363,22 @@ class RobotPlatformCoordinator:
                     remaining.append(task)
                 continue
 
-            adapter.dispatch(robot.robot_id, assignment, now)
+            # NOTE: assigned_robots.add() is intentionally *after* the try/except.
+            # On dispatch failure, the robot was never assigned, so no cleanup needed.
+            try:
+                adapter.dispatch(robot.robot_id, assignment, now)
+            except Exception as exc:
+                logger.error(
+                    "dispatch failed for robot %s task %s: %s",
+                    robot.robot_id, task.task_id, exc,
+                )
+                # Release any lifts reserved for this failed assignment.
+                self._release_lifts_for_assignment(robot, assignment)
+                if self._requeue_task(task, now, "dispatch_exception"):
+                    remaining.append(task)
+                continue
             self._active_assignments[robot.robot_id] = assignment
+            assigned_robots.add(robot.robot_id)
             self._update_occupancy(robot.robot_id, assignment.path[0])
             assigned.append((robot.robot_id, assignment))
             self.metrics.inc("tasks_allocated")
@@ -318,7 +395,7 @@ class RobotPlatformCoordinator:
     def _is_expired_or_exhausted(self, task: Task, now: float) -> bool:
         """Drop tasks past deadline or exceeding retry limit."""
         retries = self._task_retries.get(task.task_id, 0)
-        if retries >= self.MAX_TASK_RETRIES:
+        if retries >= self.cfg.max_task_retries:
             self._fail_task(task, now, "max_retries")
             return True
         if task.deadline > 0 and now > task.deadline:
@@ -330,7 +407,7 @@ class RobotPlatformCoordinator:
         """Increment retry count; return True if the task may be requeued."""
         retries = self._task_retries.get(task.task_id, 0) + 1
         self._task_retries[task.task_id] = retries
-        if retries >= self.MAX_TASK_RETRIES:
+        if retries >= self.cfg.max_task_retries:
             self._fail_task(task, now, reason)
             return False
         self._worm_event(
@@ -385,6 +462,17 @@ class RobotPlatformCoordinator:
             if not self.lift.request(lane.lift_id, robot.robot_id, lane.floor, now):
                 return False
         return True
+
+    def _release_lifts_for_assignment(
+        self, robot: FleetState, assignment: TaskAssignment
+    ) -> None:
+        """Release any lifts reserved for an assignment that failed to dispatch."""
+        for lane_id in assignment.path:
+            lane = self.fmap.lane(lane_id)
+            if lane is None or lane.lift_id is None:
+                continue
+            if self.lift.current_user(lane.lift_id) == robot.robot_id:
+                self.lift.release(lane.lift_id, robot.robot_id)
 
     def _breaker_closed(self, robot_id: str) -> bool:
         adapter = self.adapter_for(robot_id)
@@ -689,6 +777,53 @@ class RobotPlatformCoordinator:
         self.fmap.occupy_lane(lane_id, robot_id)
         self._robot_lane[robot_id] = lane_id
 
+    def _auto_report_progress(self, robot_id: str, now: float) -> None:
+        """Infer waypoint progress from MQTT/VDA5050 pose alone.
+
+        When a robot's ``pose.last_node_id`` matches the end node of the next
+        expected lane in its active assignment, advance the waypoint contract
+        and occupancy just as if an explicit HTTP ``/robot/{id}/progress`` had
+        been received. This lets protocol-level simulators (and real VDA5050
+        robots reporting only state) complete tasks without a separate progress
+        channel.
+        """
+        assignment = self._active_assignments.get(robot_id)
+        if assignment is None:
+            return
+        adapter = self.adapter_for(robot_id)
+        if adapter is None:
+            return
+        state = self._robot_states.get(robot_id)
+        if state is None:
+            return
+        last_node = state.pose.last_node_id
+        if not last_node:
+            return
+
+        path, idx = adapter.current_path(robot_id)
+        if idx >= len(path):
+            return
+        lane_id = path[idx]
+        lane = self.fmap.lane(lane_id)
+        if lane is None:
+            return
+        if lane.to_node == last_node:
+            # Idempotency: skip if this lane was already reported for this
+            # robot (prevents duplicate progress reports when the same robot
+            # state is processed multiple times within a single tick).
+            if self._last_reported_lane.get(robot_id) == lane_id:
+                return
+            self._last_reported_lane[robot_id] = lane_id
+            # Robot reached the end of the current expected lane.
+            # Only process one lane per tick — if the robot traversed
+            # multiple nodes since the last tick, subsequent ticks will
+            # catch up.
+            self.report_progress(robot_id, lane_id, now)
+        elif lane.from_node != last_node:
+            # Robot is mid-lane (not at either endpoint) — no progress
+            # to report yet. This is normal during normal operation.
+            pass
+
     def report_progress(self, robot_id: str, reached_lane: str, now: float) -> bool:
         """Report a reached waypoint; returns True if the active assignment is complete."""
         adapter = self.adapter_for(robot_id)
@@ -713,6 +848,15 @@ class RobotPlatformCoordinator:
         if reached_lane == assignment.path[-1]:
             del self._active_assignments[robot_id]
             adapter.expect(robot_id, RobotMode.IDLE)
+            # Add robot to idle set immediately so it can be considered for
+            # task assignment in the next tick without waiting for a state update.
+            # Only add if the robot is not offline and not degraded (matching
+            # the condition in _process_robot_state).
+            robot_state = self._robot_states.get(robot_id)
+            if (not self.failover.is_offline(robot_id)
+                    and robot_state is not None
+                    and not robot_state.degraded):
+                self._idle_robots.add(robot_id)
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
             self.reputation.record_good(robot_id, now, reason="task_completed")

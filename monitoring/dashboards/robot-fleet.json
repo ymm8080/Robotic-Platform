@@ -1,0 +1,89 @@
+{
+  "title": "Robot Fleet Overview",
+  "uid": "robot-fleet",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["robots", "fleet", "production"],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Robot Battery Levels (%)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red" }, { "color": "yellow", "value": 20 }, { "color": "green", "value": 50 }] }
+        }
+      },
+      "options": { "displayMode": "gradient", "orientation": "horizontal" },
+      "targets": [{ "refId": "A", "expr": "sap_bridge_battery_percent", "legendFormat": "{{robot}}" }]
+    },
+    {
+      "id": 2,
+      "title": "Robots Offline (>30s)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 3 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "count(sap_bridge_robot_last_seen < time() - 30) or vector(0)", "legendFormat": "Offline" }]
+    },
+    {
+      "id": 3,
+      "title": "Robots with Low Battery (<20%)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 3 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "count(sap_bridge_battery_percent < 20) or vector(0)", "legendFormat": "Low Battery" }]
+    },
+    {
+      "id": 4,
+      "title": "Total Active Robots",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "count(sap_bridge_battery_percent)", "legendFormat": "Active" }]
+    },
+    {
+      "id": 5,
+      "title": "Orders Completed (cumulative)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [{ "refId": "A", "expr": "sap_bridge_orders_completed_total", "legendFormat": "Completed" }]
+    },
+    {
+      "id": 6,
+      "title": "Last Seen per Robot (seconds ago)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 120 }] }
+        }
+      },
+      "targets": [{ "refId": "A", "expr": "time() - sap_bridge_robot_last_seen", "legendFormat": "{{robot}}" }]
+    }
+  ]
+}

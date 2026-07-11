@@ -56,7 +56,7 @@ Applies globally to every response — research, analysis, problem-solving, code
 5. Is it documentation? → Numbered knowledge base (`01_architecture/`, `02_deployment/`, etc.)
 6. Is it a test? → Co-locate with source in `tests/` subdirectory
 7. Is it a skill? → `.agents/skills/<skill-name>/SKILL.md`
-8. Is it a rule? → `.claude/rules/` (synced to Cursor)
+8. Is it a rule? → `.claude/rules/`
 9. If unsure → ASK before creating
 
 ### Post-Creation Checklist (Rule 14)
@@ -67,6 +67,44 @@ After creating any file:
 - [ ] Tests co-located if applicable
 - [ ] Documentation updated if architecture changed
 - [ ] ADR created if architectural decision
+
+## Rules Index (21 files in `.claude/rules/`)
+
+All rules synced to `.claude/rules/`. Key ones:
+
+| Rule | Scope | alwaysApply |
+|------|-------|-------------|
+| `000-global-iron-rules.mdc` | Global iron laws | true |
+| `karpathy-guidelines.mdc` | LLM coding best practices | true |
+| `verify-before-done.md` | Evidence-based completion | always |
+| `gsd-workflow.mdc` | GSD 快速交付工作流 | true |
+| `compressed-communication.mdc` | 压缩沟通模式 | true |
+| `010-nodered-core.mdc` | Node-RED flows | context |
+| `020-sap-bridge.mdc` | SAP bridge (Python) | context |
+| `030-robot-device.mdc` | Robot drivers | context |
+| `040-ops-rescue.mdc` | Ops rescue procedures | context |
+| `050-state-machine.mdc` | State machine rules | context |
+| `060-db-and-outbox.mdc` | DB & outbox pattern | context |
+| `070-infra-and-rescue.mdc` | Infrastructure & rescue | context |
+| `080-enterprise-policies.mdc` | Notification matrix + compliance | context |
+| `090-operational-limits.mdc` | Node-RED throttling + cost sentinel | context |
+| `circuit-breaker.mdc` | Circuit breaker pattern | context |
+| `idempotency-patterns.mdc` | Idempotency patterns | context |
+| `mqtt-protocol.mdc` | MQTT protocol rules | context |
+| `observability.mdc` | Logging/metrics/tracing | context |
+| `async-retry-tester.mdc` | Async retry test patterns | context |
+| `dify-workflow.mdc` | Dify workflow integration | context |
+| `ewm-state-machine.mdc` | EWM state machine rules | context |
+| `sap-odata-handler.mdc` | SAP OData handler rules | context |
+| `vda5050-state-machine.mdc` | VDA5050 state machine rules | context |
+
+## Memory Hierarchy
+
+**Tier 1: Always Load** (PROJECT_CONTEXT.md) — Current architecture, active decisions, critical protocols
+
+**Tier 2: Load When Relevant** (MEMORY.md sections) — Patterns, pitfalls, workflows (loaded when trigger conditions match)
+
+**Tier 3: Search On Demand** (Full MEMORY.md) — Session history, older decisions, environment context
 
 ## System Architecture
 
@@ -198,6 +236,8 @@ Custom project-specific skills in `.agents/skills/`:
 - `nodered-git-workflow` — Node-RED Git workflow
 - `robot-firmware-ota` — Robot firmware OTA risk management
 - `schema-migration-automation` — Database schema migration automation
+
+> Note: `GSD.md` + `caveman.md` have migrated to `.claude/rules/` — auto-applied, no manual trigger needed.
 
 102 GitHub-sourced skills also available covering: code review, testing, debugging, CI/CD, Docker, K8s, MQTT, circuit breakers, security, performance, OpenTelemetry, accessibility, and more.
 

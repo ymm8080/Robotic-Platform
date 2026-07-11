@@ -19,7 +19,16 @@ from core.adapter.brands._loader import load_strategy
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.vda5050_fleet_adapter import VDA5050FleetAdapter
 from core.coordinator import RobotPlatformCoordinator
-from core.messages import FleetState, Pose, RobotMode
+from core.messages import (
+    ActionPrimitive,
+    CapabilityVector,
+    EnvConstraints,
+    FleetState,
+    HealthStatus,
+    Pose,
+    RobotMode,
+    SensorHealth,
+)
 
 SUPPORTED_BRANDS = [
     "mir",
@@ -30,6 +39,74 @@ SUPPORTED_BRANDS = [
     "quicktron",
     "generic",
 ]
+
+
+def _parse_sensor_health(raw: dict) -> SensorHealth:
+    """Parse a sensorHealth dict into the unified SensorHealth object."""
+    value = raw.get("sensor_health")
+    if value is None:
+        value = raw.get("sensorHealth")
+    if value is None:
+        value = {}
+    if isinstance(value, SensorHealth):
+        return value
+    if not isinstance(value, dict):
+        return SensorHealth()
+
+    def _status(key: str) -> HealthStatus:
+        status = value.get(key, "HEALTHY")
+        if isinstance(status, HealthStatus):
+            return status
+        try:
+            return HealthStatus[str(status).strip().upper()]
+        except KeyError:
+            return HealthStatus.HEALTHY
+
+    return SensorHealth(
+        velocity_sensor=_status("velocity_sensor"),
+        lidar=_status("lidar"),
+        camera=_status("camera"),
+        time_sync=_status("time_sync"),
+    )
+
+
+def _parse_capability(raw: dict) -> CapabilityVector:
+    """Parse capability fields into a CapabilityVector."""
+    value = raw.get("capability")
+    if value is None:
+        value = raw.get("capabilityVector")
+    if value is None:
+        value = {}
+    if isinstance(value, CapabilityVector):
+        return value
+    if not isinstance(value, dict):
+        return CapabilityVector(max_speed=float(raw.get("max_speed", 1.5)))
+
+    def _primitives() -> set[ActionPrimitive]:
+        raw_prims = value.get("action_primitives", value.get("actionPrimitives", [])) or []
+        prims: set[ActionPrimitive] = set()
+        for p in raw_prims:
+            try:
+                prims.add(ActionPrimitive[str(p).strip().upper()])
+            except KeyError:
+                continue
+        return prims
+
+    env_raw = value.get("env", {})
+    env = EnvConstraints(
+        max_grade=float(env_raw.get("max_grade", 0.0)),
+        floor_threshold=float(env_raw.get("floor_threshold", 0.0)),
+        min_friction=float(env_raw.get("min_friction", 0.0)),
+    )
+
+    return CapabilityVector(
+        payload_kg=float(value.get("payload_kg", 0.0)),
+        max_speed=float(value.get("max_speed", raw.get("max_speed", 1.5))),
+        supported_models=[str(m) for m in value.get("supported_models", []) or []],
+        action_primitives=_primitives(),
+        env=env,
+        supports_reverse=bool(value.get("supports_reverse", False)),
+    )
 
 
 def _create_generic_adapter(brand: str) -> FleetAdapter:
@@ -53,8 +130,9 @@ def _create_generic_adapter(brand: str) -> FleetAdapter:
                     raw.get("position_initialized",
                             raw.get("positionInitialized", False))
                 ),
-                last_node_id=raw.get("last_node_id", raw.get("lane_id",
-                                    raw.get("lastNodeId", ""))),
+                last_node_id=raw.get("last_node_id",
+                                    raw.get("lastNodeId",
+                                            raw.get("lane_id", ""))),
             ),
             velocity=float(raw.get("velocity", 0.0)),
             battery_percent=float(raw.get("battery_percent",
@@ -65,7 +143,8 @@ def _create_generic_adapter(brand: str) -> FleetAdapter:
                 else RobotMode.IDLE
             ),
             errors=[str(e) for e in raw.get("errors", []) or []],
-            sensor_health=float(raw.get("sensor_health", 1.0)),
+            sensor_health=_parse_sensor_health(raw),
+            capability=_parse_capability(raw),
         )
 
     adapter.map_vendor_state = _passthrough  # type: ignore[method-assign]

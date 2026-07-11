@@ -33,16 +33,28 @@ services:
       - WORM_SINK_PATH=/data/worm.jsonl
       - TC_HTTP_PORT=8000
       - TC_API_KEY_FILE=/run/secrets/tc_api_key
+      # MQTT transport (v5.x zero-trust)
+      - MQTT_BROKER_HOST=mqtt
+      - MQTT_BROKER_PORT=1883
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-robot-platform}
+      - MQTT_PASSWORD_FILE=/run/secrets/mqtt_password
+      - MQTT_CA_CERT=${MQTT_CA_CERT:-}
+      - MQTT_CLIENT_CERT=${MQTT_CLIENT_CERT:-}
+      - MQTT_CLIENT_KEY=${MQTT_CLIENT_KEY:-}
     volumes:
       - v5-worm-data:/data
       - ./core:/app/core:ro
     depends_on:
       redis:
         condition: service_healthy
+      mqtt:
+        condition: service_healthy
     networks:
       - internal
     secrets:
       - tc_api_key
+      - mqtt_password
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -59,6 +71,79 @@ services:
         reservations:
           cpus: '0.25'
           memory: 128M
+      restart_policy:
+        condition: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # v5.0 VDA5050 Mock Robot Simulator — protocol-level moving robots for tests
+  # ===========================================================================
+  v5-simulator:
+    build:
+      context: .
+      dockerfile: traffic_coordinator_v5/simulator/Dockerfile
+    image: robot-platform-v5-simulator:v5.0
+    container_name: robot-platform-v5-simulator
+    restart: unless-stopped
+    command:
+      - python
+      - -m
+      - traffic_coordinator_v5.simulator
+      - --broker
+      - mqtt
+      - --port
+      - "1883"
+      - --map
+      - traffic_coordinator_v5/maps/facility_map.yaml
+      - --count
+      - "3"
+      - --speed
+      - "1.0"
+      - --initial-battery
+      - "80"
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1
+      # MQTT transport (v5.x zero-trust)
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-robot-platform}
+      - MQTT_PASSWORD_FILE=/run/secrets/mqtt_password
+      - MQTT_CA_CERT=${MQTT_CA_CERT:-}
+      - MQTT_CLIENT_CERT=${MQTT_CLIENT_CERT:-}
+      - MQTT_CLIENT_KEY=${MQTT_CLIENT_KEY:-}
+    volumes:
+      - ./core:/app/core:ro
+      - ./traffic_coordinator_v5/simulator:/app/traffic_coordinator_v5/simulator:ro
+      - ./traffic_coordinator_v5/maps:/app/traffic_coordinator_v5/maps:ro
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    networks:
+      - internal
+    secrets:
+      - mqtt_password
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Simulator is a pure MQTT process (no HTTP endpoint).
+      # Check that the main Python process is still alive.
+      test: ["CMD-SHELL", "kill -0 1 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
       restart_policy:
         condition: unless-stopped
     logging:

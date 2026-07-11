@@ -88,6 +88,18 @@ class TrafficCoordinatorClient:
         """POST /order/{order_id}/cancel — cancel a pending/active order."""
         return self._post(f"/order/{order_id}/cancel", {})
 
+    def emergency_stop(self, zone_id: str | None = None) -> ClientResult:
+        """POST /estop — zone-level emergency stop."""
+        return self._post("/estop", {"zone_id": zone_id})
+
+    def block_lane(self, lane_id: str) -> ClientResult:
+        """POST /lane/{lane_id}/block — block a lane + reroute active assignments."""
+        return self._post(f"/lane/{lane_id}/block", {})
+
+    def unblock_lane(self, lane_id: str) -> ClientResult:
+        """POST /lane/{lane_id}/unblock — unblock a lane."""
+        return self._post(f"/lane/{lane_id}/unblock", {})
+
     # ── internal helpers ──────────────────────────────────────────
 
     def _get(self, path: str, auth: bool = True) -> ClientResult:
@@ -167,3 +179,15 @@ class TrafficCoordinatorClient:
     async def cancel_order_async(self, order_id: str) -> ClientResult:
         """Async wrapper for :meth:`cancel_order`."""
         return await asyncio.to_thread(self.cancel_order, order_id)
+
+    async def emergency_stop_async(self, zone_id: str | None = None) -> ClientResult:
+        """Async wrapper for :meth:`emergency_stop`."""
+        return await asyncio.to_thread(self.emergency_stop, zone_id)
+
+    async def block_lane_async(self, lane_id: str) -> ClientResult:
+        """Async wrapper for :meth:`block_lane`."""
+        return await asyncio.to_thread(self.block_lane, lane_id)
+
+    async def unblock_lane_async(self, lane_id: str) -> ClientResult:
+        """Async wrapper for :meth:`unblock_lane`."""
+        return await asyncio.to_thread(self.unblock_lane, lane_id)

@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "pyyaml>=6.0",
+    "paho-mqtt>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["core/tests"]
+testpaths = ["core/tests", "traffic_coordinator_v5/tests"]
 pythonpath = ["."]
 
 [tool.mypy]

@@ -1,0 +1,84 @@
+{
+  "title": "Infrastructure Health",
+  "uid": "infra-health",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["watchdog", "redis", "production"],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Redis Memory Usage (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.75 }, { "color": "orange", "value": 0.8 }, { "color": "red", "value": 0.95 }] }
+        }
+      },
+      "targets": [{ "refId": "A", "expr": "watchdog_redis_memory_ratio", "legendFormat": "Redis Memory" }]
+    },
+    {
+      "id": 2,
+      "title": "Node-RED CPU (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "orange", "value": 80 }, { "color": "red", "value": 95 }] }
+        }
+      },
+      "targets": [{ "refId": "A", "expr": "watchdog_cpu_percent", "legendFormat": "CPU" }]
+    },
+    {
+      "id": 3,
+      "title": "Safe Mode Status",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "options": { "0": { "text": "NORMAL", "color": "green" }, "1": { "text": "SAFE MODE", "color": "red" } }, "type": "value" }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "watchdog_safe_mode", "legendFormat": "Safe Mode" }]
+    },
+    {
+      "id": 4,
+      "title": "Checkpoint Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3000 }, { "color": "red", "value": 5000 }] }
+        }
+      },
+      "targets": [{ "refId": "A", "expr": "watchdog_checkpoint_ms", "legendFormat": "Checkpoint" }]
+    },
+    {
+      "id": 5,
+      "title": "SQLite WAL Size (MB)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MB",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 100 }] }
+        }
+      },
+      "targets": [{ "refId": "A", "expr": "watchdog_wal_size_mb", "legendFormat": "WAL" }]
+    }
+  ]
+}

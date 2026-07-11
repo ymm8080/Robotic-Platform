@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -177,6 +178,21 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 self._client.disconnect()
         self._callback = None
 
+    @staticmethod
+    def _load_mqtt_password() -> str | None:
+        """Read MQTT password from env or file (Docker Secrets compatible)."""
+        pw = os.environ.get("MQTT_PASSWORD", "")
+        if pw:
+            return pw
+        pw_file = os.environ.get("MQTT_PASSWORD_FILE", "")
+        if pw_file:
+            try:
+                with open(pw_file) as fh:
+                    return fh.read().strip()
+            except OSError:
+                logger.warning("MqttGateway: cannot read MQTT_PASSWORD_FILE=%s", pw_file)
+        return None
+
     def _connect(self) -> None:
         """Connect to MQTT broker and subscribe to VDA5050 topics."""
         try:
@@ -188,10 +204,54 @@ class MqttGateway(InboundGateway, OutboundGateway):
             )
             return
 
-        self._client = mqtt.Client(client_id=self._client_id, clean_session=False)
+        self._client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=self._client_id,
+        )
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
+
+        # ── MQTT authentication (v5.x zero-trust) ──────────────
+        mqtt_username = os.environ.get("MQTT_USERNAME", "")
+        # In production, MQTT_REQUIRE_AUTH=true forces authentication.
+        # If set and no username is provided, the connection is aborted.
+        mqtt_require_auth = os.environ.get("MQTT_REQUIRE_AUTH", "false").lower() == "true"
+        if mqtt_require_auth and not mqtt_username:
+            logger.error(
+                "MqttGateway: MQTT_REQUIRE_AUTH=true but MQTT_USERNAME not set. "
+                "Aborting connection — auth is required."
+            )
+            self._client = None
+            return
+        if mqtt_username:
+            password = self._load_mqtt_password()
+            if password:
+                self._client.username_pw_set(mqtt_username, password)
+                logger.info("MqttGateway: using MQTT auth for user %s", mqtt_username)
+            else:
+                logger.error(
+                    "MqttGateway: MQTT_USERNAME is set but no password found "
+                    "(set MQTT_PASSWORD or MQTT_PASSWORD_FILE). "
+                    "Aborting connection — auth misconfiguration."
+                )
+                self._client = None
+                return
+
+        # ── TLS (off by default; enable with MQTT_USE_TLS=true) ─
+        if os.environ.get("MQTT_USE_TLS", "false").lower() == "true":
+            ca_cert = os.environ.get("MQTT_CA_CERT", "")
+            client_cert = os.environ.get("MQTT_CLIENT_CERT", "")
+            client_key = os.environ.get("MQTT_CLIENT_KEY", "")
+            if ca_cert:
+                self._client.tls_set(
+                    ca_certs=ca_cert,
+                    certfile=client_cert or None,
+                    keyfile=client_key or None,
+                )
+                logger.info("MqttGateway: TLS enabled")
+            else:
+                logger.warning("MqttGateway: MQTT_USE_TLS=true but MQTT_CA_CERT not set")
 
         # Set Last Will: if TC goes down, operators see OFFLINE
         self._client.will_set(
@@ -210,8 +270,9 @@ class MqttGateway(InboundGateway, OutboundGateway):
         except Exception:
             logger.exception("MqttGateway failed to connect to MQTT broker")
 
-    def _on_connect(self, client, userdata, flags, rc) -> None:
-        if rc == 0:
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
+        rc_value = getattr(reason_code, "value", reason_code)
+        if rc_value == 0:
             client.subscribe(VDA5050_STATE_TOPIC, qos=self._qos)
             client.subscribe(VDA5050_CONNECTION_TOPIC, qos=self._qos)
             # Announce TC online
@@ -223,11 +284,11 @@ class MqttGateway(InboundGateway, OutboundGateway):
             )
             logger.info("MqttGateway subscribed to VDA5050 topics")
         else:
-            logger.error("MqttGateway connection failed, rc=%s", rc)
+            logger.error("MqttGateway connection failed, rc=%s", rc_value)
 
-    def _on_disconnect(self, client, userdata, rc) -> None:
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if self._running:
-            logger.warning("MqttGateway disconnected (rc=%s), will retry on next tick", rc)
+            logger.warning("MqttGateway disconnected (rc=%s), will retry on next tick", reason_code)
 
     # ── inbound: VDA5050 MQTT → coordinator ──────────────────
 
