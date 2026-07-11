@@ -187,7 +187,10 @@ class SimulatedRobot:
         step_distance = self.velocity * dt
         distance_moved = 0.0
 
-        _guard = len(self._path) + 1  # safety: prevent infinite loop on degenerate lanes
+        # Safety: prevent infinite loop on degenerate lanes.  The guard is
+        # proportional to the path length plus a margin for large step
+        # distances that could traverse many short lanes in one tick.
+        _guard = len(self._path) + 100
         while step_distance > 0.0001 and self._path_index < len(self._path):
             _guard -= 1
             if _guard <= 0:

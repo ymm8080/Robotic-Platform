@@ -263,8 +263,9 @@ class RobotPlatformCoordinator:
         # before _active_assignments is updated (which happens after successful dispatch).
         assigned_robots: set[str] = set()
 
-        # Pre-compute eligible robots once per tick to avoid redundant filtering.
-        # ``assigned_robots`` prevents double-assignment within the same tick.
+        # Pre-compute eligible robots once per tick (static snapshot).
+        # ``assigned_robots`` is a dynamic set that prevents double-assignment
+        # within the same tick as tasks are dispatched.
         base_candidates = [
             r for r in self._robot_states.values()
             if r.robot_id not in self._active_assignments

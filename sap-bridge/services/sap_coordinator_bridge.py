@@ -214,7 +214,7 @@ class SapCoordinatorBridge:
                     "skipping SAP confirm, requires manual review", tid, GRACE_POLLS,
                 )
                 continue
-            logger.warning(
+            logger.info(
                 "SAP-TC bridge: confirming SAP task %s "
                 "(cannot distinguish completed/failed)",
                 tid,

@@ -29,6 +29,7 @@ import json
 import os
 import pathlib
 import re
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -89,11 +90,13 @@ TC_API_KEY = _load_api_key()
 if not TC_API_KEY:
     if MODE == "PRODUCTION":
         print("[security] FATAL: TC_API_KEY not set in PRODUCTION mode. "
-              "Set TC_API_KEY or TC_API_KEY_FILE, or run in DEMO mode.")
-        import sys
+              "Set TC_API_KEY or TC_API_KEY_FILE, or run in DEMO mode.",
+              file=sys.stderr)
         sys.exit(1)
     else:
-        print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints are unauthenticated (DEMO mode).")
+        print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints "
+              "are unauthenticated (DEMO mode). DO NOT USE IN PRODUCTION!",
+              file=sys.stderr)
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
