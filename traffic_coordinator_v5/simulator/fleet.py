@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
-from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot, SimRobotMode
+from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +148,7 @@ class FleetSimulator:
         elif action_type == "RESUME" or action_type == "CANCELORDER":
             robot.resume()
             if action_type == "CANCELORDER":
-                robot._path = []
-                robot._path_index = 0
-                robot.mode = SimRobotMode.IDLE
+                robot.cancel_order()
         elif action_type == "INSTANTVELOCITY":
             if "max_speed" in params:
                 robot.set_speed_cap(float(params["max_speed"]))

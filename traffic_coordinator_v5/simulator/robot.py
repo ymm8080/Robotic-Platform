@@ -106,6 +106,12 @@ class SimulatedRobot:
         if self.mode == SimRobotMode.ERROR:
             self.mode = SimRobotMode.IDLE
 
+    def cancel_order(self) -> None:
+        """Cancel the current order and return to IDLE."""
+        self._path = []
+        self._path_index = 0
+        self.mode = SimRobotMode.IDLE
+
     def hold(self, reason: str = "HOLD") -> None:
         """Pause motion (e.g. red traffic light / coordinator HOLD)."""
         self.held = True
@@ -170,7 +176,11 @@ class SimulatedRobot:
         step_distance = self.velocity * dt
         distance_moved = 0.0
 
+        _guard = len(self._path) + 1  # safety: prevent infinite loop on degenerate lanes
         while step_distance > 0.0001 and self._path_index < len(self._path):
+            _guard -= 1
+            if _guard <= 0:
+                break
             lane_id = self._path[self._path_index]
             lane = self.lane_graph.lane(lane_id)
             if lane is None:

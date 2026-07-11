@@ -106,6 +106,9 @@ class CoordinatorHarness:
             elif cmd.action == "SPEED_CAP":
                 robot.set_speed_cap(cmd.metres)
 
+        # Coordinator sends HOLD every tick while the condition persists.
+        # Absence of HOLD in the current tick means the robot is free to move.
+        # This mirrors real robot behaviour: hold when told, resume when not.
         for robot_id, robot in self.fleet._robots.items():
             if robot_id not in held_ids and robot.held:
                 robot.resume()

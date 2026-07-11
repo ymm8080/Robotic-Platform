@@ -38,6 +38,8 @@ class SapCoordinatorBridge:
         self._get_backend = backend_provider
         self._submitted: set[str] = set()   # SAP task IDs already forwarded
         self._confirmed: set[str] = set()   # SAP task IDs already confirmed
+        self._inactive_since: dict[str, float] = {}  # tid → first-seen-inactive timestamp
+        self._poll_count: int = 0
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -96,12 +98,20 @@ class SapCoordinatorBridge:
                 logger.warning("SAP-TC bridge: submit failed for task %s: %s", tid, result.error)
 
     async def _poll_coordinator_state(self) -> None:
-        """Check Coordinator state for completed assignments → confirm to SAP."""
+        """Check Coordinator state for completed assignments → confirm to SAP.
+
+        The coordinator exposes only active assignments, not a completed list.
+        To reduce false-positive confirmations, we require an order to be
+        inactive for at least 2 consecutive polls before confirming to SAP.
+        """
+        import time
+        self._poll_count += 1
+        now = time.monotonic()
         result = await self._tc.state_async()
         if not result.ok or not result.data:
             return
         # Coordinator state includes active_assignments dict; we look for
-        # SAP-prefixed orders that are no longer active (meaning completed).
+        # SAP-prefixed orders that are no longer active (meaning completed or failed).
         active = result.data.get("active_assignments", {})
         active_order_ids = set()
         if isinstance(active, dict):
@@ -117,20 +127,33 @@ class SapCoordinatorBridge:
                             if oid:
                                 active_order_ids.add(oid)
 
-        # Any submitted SAP task whose order is no longer active → confirm
+        GRACE_POLLS = 2
         for tid in list(self._submitted):
             if tid in self._confirmed:
                 continue
             order_id = f"SAP-{tid}"
             if order_id in active_order_ids:
+                self._inactive_since.pop(tid, None)
                 continue  # still active
-            # Not active → assume completed (coordinator doesn't expose completed list)
+            # Not active — track when we first saw it inactive
+            if tid not in self._inactive_since:
+                self._inactive_since[tid] = self._poll_count
+                logger.info("SAP-TC bridge: order %s no longer active, waiting %d polls before confirming", order_id, GRACE_POLLS)
+                continue
+            # Check grace period
+            if self._poll_count - self._inactive_since[tid] < GRACE_POLLS:
+                continue
+            # Grace period elapsed — confirm to SAP.
+            # NOTE: coordinator doesn't expose failure/cancel status, so we
+            # cannot distinguish completed from failed here. Log at WARNING.
+            logger.warning("SAP-TC bridge: confirming SAP task %s as completed (cannot distinguish completed/failed from coordinator state)", tid)
             backend = self._get_backend(WAREHOUSE)
             if backend is None:
                 continue
             ok = await asyncio.to_thread(backend.confirm_task, WAREHOUSE, tid, None)
             if ok:
                 self._confirmed.add(tid)
+                self._inactive_since.pop(tid, None)
                 logger.info("SAP-TC bridge: confirmed SAP task %s", tid)
             else:
                 logger.warning("SAP-TC bridge: SAP confirm failed for task %s", tid)
