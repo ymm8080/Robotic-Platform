@@ -48,11 +48,28 @@ class RobotAsObstacle:
     """Maintains per-robot rectangular footprints and injects virtual walls."""
 
     MANUAL_WALL_RADIUS = 1.5  # SOP-YELLOW 步骤2a: 1.5m 半径虚拟墙
-    COLLISION_MARGIN = 0.05   # physical body overlap tolerance for HOLD commands
+    DEFAULT_COLLISION_MARGIN = 0.05  # physical body overlap tolerance for HOLD commands
 
-    def __init__(self, fmap: FixedLaneMap, safe_distance: SafeDistanceCalculator | None = None) -> None:
+    def __init__(
+        self,
+        fmap: FixedLaneMap,
+        safe_distance: SafeDistanceCalculator | None = None,
+        collision_margin: float | None = None,
+    ) -> None:
+        """Args:
+            fmap: the fixed lane map.
+            safe_distance: calculator for safety corridors.
+            collision_margin: physical body overlap tolerance (metres) used
+                by ``overlapping_pairs`` to decide when to issue emergency
+                HOLD commands. Defaults to ``DEFAULT_COLLISION_MARGIN`` (0.05 m).
+                Increase for more conservative collision detection.
+        """
         self.fmap = fmap
         self.safe_distance = safe_distance or SafeDistanceCalculator()
+        self.collision_margin = (
+            collision_margin if collision_margin is not None
+            else self.DEFAULT_COLLISION_MARGIN
+        )
         self._footprints: dict[str, Footprint] = {}
 
     def update(
@@ -112,20 +129,21 @@ class RobotAsObstacle:
                     pairs.append((fps[i].robot_id, fps[j].robot_id))
         return pairs
 
-    @staticmethod
-    def _obb_overlap(a: Footprint, b: Footprint) -> bool:
+    def _obb_overlap(self, a: Footprint, b: Footprint) -> bool:
         """SAT for two oriented rectangles using a tight physical collision margin.
 
         The safety-distance ``corridor`` is intentionally *not* used here: it
         belongs to the safe-distance speed-advisory layer.  Overlap detection
         for emergency HOLD commands should reflect actual body overlap plus a
         small tolerance so that a SPEED_CAP can be issued before a COLLISION_HOLD.
+
+        The tolerance is configurable via ``self.collision_margin``.
         """
         def _margin(fp: Footprint) -> float:
             # virtual walls (half_length == half_width == 0) keep their corridor
             if fp.half_length == 0.0 and fp.half_width == 0.0:
                 return fp.corridor
-            return RobotAsObstacle.COLLISION_MARGIN
+            return self.collision_margin
 
         # rectangle corners in world coordinates
         def corners(fp: Footprint) -> list[tuple[float, float]]:

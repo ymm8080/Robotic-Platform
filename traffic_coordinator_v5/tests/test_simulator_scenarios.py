@@ -43,12 +43,16 @@ class CoordinatorHarness:
         self.dt = 0.5
         self.skip_ingestion: set[str] = set()
 
-    def __del__(self):
+    def cleanup(self) -> None:
+        """Explicit cleanup for temporary resources. Safe to call multiple times."""
         try:
             if hasattr(self, "_tmp"):
                 self._tmp.cleanup()
         except Exception:
             pass
+
+    def __del__(self):
+        self.cleanup()
 
     def add_robot(
         self,

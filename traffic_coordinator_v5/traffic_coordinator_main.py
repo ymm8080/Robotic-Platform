@@ -85,6 +85,10 @@ MQTT_ENABLED = os.environ.get("MQTT_ENABLED", "1") != "0"
 TICK_INTERVAL = float(os.environ.get("TC_TICK_INTERVAL", "0.5"))
 
 # Snapshot interval (seconds) — persist coordinator state for crash recovery.
+# Security note: snapshots are stored in-process via LocalStateStore (RAM).
+# For production multi-replica deployments, use RedisStateStore with TLS
+# transport and Redis ACL authentication. Ensure the Redis instance is on a
+# private network segment and not exposed to the public internet.
 SNAPSHOT_INTERVAL = float(os.environ.get("TC_SNAPSHOT_INTERVAL", "10.0"))
 SNAPSHOT_KEY = "tc:snapshot:v5"
 

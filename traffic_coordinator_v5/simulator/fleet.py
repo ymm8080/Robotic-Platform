@@ -166,13 +166,18 @@ class FleetSimulator:
             if action_type == "CANCELORDER":
                 robot.cancel_order()
         elif action_type == "INSTANTVELOCITY":
+            # Handle max_speed (speed cap) and linear_x (direction) independently.
+            # Both can be present in the same action; max_speed acts as an upper
+            # bound, while linear_x determines forward/retreat behaviour.
             if "max_speed" in params:
                 robot.set_speed_cap(float(params["max_speed"]))
-            elif "linear_x" in params:
-                # Retreat: negative linear velocity. Keep it simple — hold.
-                if float(params["linear_x"]) < 0:
+            if "linear_x" in params:
+                linear_x = float(params["linear_x"])
+                if linear_x < 0:
+                    # Retreat: negative linear velocity. Keep it simple — hold.
                     robot.hold("retreat")
-                else:
+                elif linear_x > 0 and not robot.held:
+                    # Forward velocity requested and robot is not held — resume.
                     robot.resume()
         elif action_type == "TRAFFICLIGHT":
             color = str(params.get("color", "")).upper()
