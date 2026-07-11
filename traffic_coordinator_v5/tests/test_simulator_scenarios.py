@@ -29,7 +29,7 @@ class CoordinatorHarness:
     def __init__(self, fmap: FixedLaneMap, brand: str = "generic", lane_positions: dict[str, tuple[float, float]] | None = None) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         worm_cfg = WormConfig(sink_dir=self._tmp.name)
-        config = CoreConfig(worm=worm_cfg)
+        config = CoreConfig(worm=worm_cfg, registration_stagger_seconds=0.0)
         self.coordinator = RobotPlatformCoordinator(config=config, fmap=fmap)
         self.adapter = _create_generic_adapter(brand)
         self.coordinator.register_adapter(self.adapter)
