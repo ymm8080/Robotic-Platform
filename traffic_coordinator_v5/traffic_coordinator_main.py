@@ -101,18 +101,18 @@ def _load_api_key() -> str:
 
 
 TC_API_KEY = _load_api_key()
-# In PRODUCTION mode, require an API key unless explicitly overridden
-# with TC_REQUIRE_AUTH=0 (e.g. for local development or testing).
+# Require an API key when TC_REQUIRE_AUTH=1 (default) regardless of MODE.
+# Set TC_REQUIRE_AUTH=0 to explicitly disable auth (e.g. for local dev/test).
 TC_REQUIRE_AUTH = os.environ.get("TC_REQUIRE_AUTH", "1") != "0"
 if not TC_API_KEY:
-    if MODE == "PRODUCTION" and TC_REQUIRE_AUTH:
+    if TC_REQUIRE_AUTH:
         raise RuntimeError(
-            "TC_API_KEY not set. API authentication is required in PRODUCTION mode. "
+            "TC_API_KEY not set. API authentication is required. "
             "Set TC_API_KEY or TC_API_KEY_FILE, or set TC_REQUIRE_AUTH=0 to disable."
         )
     logging.getLogger("tc").warning(
-        "TC_API_KEY not set — API authentication disabled. "
-        "Set TC_API_KEY or TC_API_KEY_FILE for production."
+        "TC_API_KEY not set — API authentication disabled (TC_REQUIRE_AUTH=0). "
+        "This is unsafe for production."
     )
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
