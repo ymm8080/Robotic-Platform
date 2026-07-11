@@ -44,8 +44,11 @@ class CoordinatorHarness:
         self.skip_ingestion: set[str] = set()
 
     def __del__(self):
-        if hasattr(self, "_tmp"):
-            self._tmp.cleanup()
+        try:
+            if hasattr(self, "_tmp"):
+                self._tmp.cleanup()
+        except Exception:
+            pass
 
     def add_robot(
         self,

@@ -172,7 +172,10 @@ class RobotPlatformCoordinator:
             self._idle_robots.add(state.robot_id)
         else:
             self._idle_robots.discard(state.robot_id)
-        self._auto_report_progress(state.robot_id, now)
+        # Only call _auto_report_progress if the robot has an active assignment
+        # (avoids unnecessary method call overhead for idle robots).
+        if state.robot_id in self._active_assignments:
+            self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
         self.obstacles.update(
