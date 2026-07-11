@@ -19,8 +19,8 @@ import asyncio
 import contextlib
 import logging
 import os
-import time
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from clients.traffic_coordinator_client import TrafficCoordinatorClient
@@ -51,7 +51,7 @@ class SapCoordinatorBridge:
         self._get_backend = backend_provider
         self._submitted: set[str] = set()   # SAP task IDs already forwarded
         self._confirmed: set[str] = set()   # SAP task IDs already confirmed
-        self._inactive_since: dict[str, float] = {}  # tid → first-seen-inactive timestamp
+        self._inactive_since: dict[str, int] = {}  # tid → first-seen-inactive timestamp
         self._poll_count: int = 0
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -114,7 +114,6 @@ class SapCoordinatorBridge:
         inactive for at least 2 consecutive polls before confirming to SAP.
         """
         self._poll_count += 1
-        now = time.monotonic()
         result = await self._tc.state_async()
         if not result.ok or not result.data:
             return
@@ -146,7 +145,11 @@ class SapCoordinatorBridge:
             # Not active — track when we first saw it inactive
             if tid not in self._inactive_since:
                 self._inactive_since[tid] = self._poll_count
-                logger.info("SAP-TC bridge: order %s no longer active, waiting %d polls before confirming", order_id, GRACE_POLLS)
+                logger.info(
+                    "SAP-TC bridge: order %s inactive, "
+                    "waiting %d polls before confirming",
+                    order_id, GRACE_POLLS,
+                )
                 continue
             # Check grace period
             if self._poll_count - self._inactive_since[tid] < GRACE_POLLS:
@@ -160,7 +163,11 @@ class SapCoordinatorBridge:
                     "skipping SAP confirm, requires manual review", tid, GRACE_POLLS,
                 )
                 continue
-            logger.warning("SAP-TC bridge: confirming SAP task %s as completed (cannot distinguish completed/failed from coordinator state)", tid)
+            logger.warning(
+                "SAP-TC bridge: confirming SAP task %s "
+                "(cannot distinguish completed/failed)",
+                tid,
+            )
             backend = self._get_backend(WAREHOUSE)
             if backend is None:
                 continue
