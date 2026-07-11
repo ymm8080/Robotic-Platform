@@ -157,6 +157,7 @@ class RobotPlatformCoordinator:
         events.extend(self.failover.observe(state, now))
         state = self.failover.stamp(state)
         self._robot_states[state.robot_id] = state
+        self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
         self.obstacles.update(
@@ -258,6 +259,8 @@ class RobotPlatformCoordinator:
         tasks = sorted(self._task_queue, key=lambda t: (-t.priority, t.created_at))
         self._task_queue.clear()
 
+        # Track robots assigned during *this* tick to prevent double-assignment
+        # before _active_assignments is updated (which happens after successful dispatch).
         assigned_robots: set[str] = set()
         for task in tasks:
             if self._is_expired_or_exhausted(task, now):
@@ -692,6 +695,37 @@ class RobotPlatformCoordinator:
             self.fmap.vacate_lane(prev, robot_id)
         self.fmap.occupy_lane(lane_id, robot_id)
         self._robot_lane[robot_id] = lane_id
+
+    def _auto_report_progress(self, robot_id: str, now: float) -> None:
+        """Infer waypoint progress from MQTT/VDA5050 pose alone.
+
+        When a robot's ``pose.last_node_id`` matches the end node of the next
+        expected lane in its active assignment, advance the waypoint contract
+        and occupancy just as if an explicit HTTP ``/robot/{id}/progress`` had
+        been received. This lets protocol-level simulators (and real VDA5050
+        robots reporting only state) complete tasks without a separate progress
+        channel.
+        """
+        assignment = self._active_assignments.get(robot_id)
+        if assignment is None:
+            return
+        adapter = self.adapter_for(robot_id)
+        if adapter is None:
+            return
+        state = self._robot_states.get(robot_id)
+        if state is None:
+            return
+        last_node = state.pose.last_node_id
+        if not last_node:
+            return
+
+        path, idx = adapter.current_path(robot_id)
+        for lane_id in path[idx:]:
+            lane = self.fmap.lane(lane_id)
+            if lane is None or lane.to_node != last_node:
+                break
+            if not self.report_progress(robot_id, lane_id, now):
+                break
 
     def report_progress(self, robot_id: str, reached_lane: str, now: float) -> bool:
         """Report a reached waypoint; returns True if the active assignment is complete."""
