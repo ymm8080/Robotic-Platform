@@ -16,9 +16,9 @@ Env vars:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class SapCoordinatorBridge:
         self._get_backend = backend_provider
         self._submitted: set[str] = set()   # SAP task IDs already forwarded
         self._confirmed: set[str] = set()   # SAP task IDs already confirmed
-        self._inactive_since: dict[str, float] = {}  # tid → first-seen-inactive timestamp
+        self._inactive_since: dict[str, int] = {}  # tid → first-seen-inactive poll count
         self._poll_count: int = 0
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -58,10 +58,8 @@ class SapCoordinatorBridge:
         self._stop.set()
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("SAP-TC bridge stopped")
 
     async def _run(self) -> None:
@@ -71,10 +69,8 @@ class SapCoordinatorBridge:
                 await self._poll_coordinator_state()
             except Exception as exc:
                 logger.warning("SAP-TC bridge cycle error: %s", exc)
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL)
-            except asyncio.TimeoutError:
-                pass
 
     async def _poll_sap_tasks(self) -> None:
         """Fetch open SAP tasks and forward new ones to the Coordinator."""
@@ -108,9 +104,7 @@ class SapCoordinatorBridge:
         To reduce false-positive confirmations, we require an order to be
         inactive for at least 2 consecutive polls before confirming to SAP.
         """
-        import time
         self._poll_count += 1
-        now = time.monotonic()
         result = await self._tc.state_async()
         if not result.ok or not result.data:
             return
@@ -142,7 +136,11 @@ class SapCoordinatorBridge:
             # Not active — track when we first saw it inactive
             if tid not in self._inactive_since:
                 self._inactive_since[tid] = self._poll_count
-                logger.info("SAP-TC bridge: order %s no longer active, waiting %d polls before confirming", order_id, GRACE_POLLS)
+                logger.info(
+                    "SAP-TC bridge: order %s no longer active, "
+                    "waiting %d polls before confirming",
+                    order_id, GRACE_POLLS,
+                )
                 continue
             # Check grace period
             if self._poll_count - self._inactive_since[tid] < GRACE_POLLS:
@@ -156,7 +154,11 @@ class SapCoordinatorBridge:
                     "skipping SAP confirm, requires manual review", tid, GRACE_POLLS,
                 )
                 continue
-            logger.warning("SAP-TC bridge: confirming SAP task %s as completed (cannot distinguish completed/failed from coordinator state)", tid)
+            logger.warning(
+                "SAP-TC bridge: confirming SAP task %s "
+                "(cannot distinguish completed/failed)",
+                tid,
+            )
             backend = self._get_backend(WAREHOUSE)
             if backend is None:
                 continue
