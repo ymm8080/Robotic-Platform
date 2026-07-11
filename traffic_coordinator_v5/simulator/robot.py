@@ -253,7 +253,12 @@ class SimulatedRobot:
         self.sequence_number += 1
         x, y, theta = self._pose()
         lane = self.lane_graph.lane(self.current_lane_id)
-        last_node = lane.to_node if lane is not None else ""
+        if lane is None:
+            last_node = ""
+        elif self.distance_along_lane >= lane.length - 0.0001:
+            last_node = lane.to_node
+        else:
+            last_node = lane.from_node
         return {
             "headerId": self.sequence_number,
             "timestamp": self._iso_now(),

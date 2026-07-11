@@ -120,16 +120,10 @@ MQTT_GATEWAY = MqttGateway(
 def _on_mqtt_inbound(msg: InboundMessage) -> None:
     """Called by MqttGateway for each VDA5050 state/connection message.
 
-    Routes the raw message through the appropriate brand adapter to produce
-    a unified FleetState, then feeds it to the coordinator.
+    Routes the raw message through the registered brand adapter so the
+    coordinator's unified FleetState is updated.
     """
-    brand = msg.brand
-    adapter = COORDINATOR._adapters.get(brand) if hasattr(COORDINATOR, "_adapters") else None
-    if adapter is not None:
-        adapter.ingest_native_state(msg.raw, msg.received_at)
-    else:
-        # Fallback: pass raw dict directly (generic adapter path)
-        COORDINATOR.ingest_uplink(brand, msg.raw, msg.received_at)
+    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
 
 
 def _publish_tick_result(result) -> None:
