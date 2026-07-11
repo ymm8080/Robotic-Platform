@@ -353,6 +353,12 @@ class RobotPlatformCoordinator:
                     "dispatch failed for robot %s task %s: %s",
                     robot.robot_id, task.task_id, exc,
                 )
+                # Mark the robot as attempted even on failure so the requeued
+                # task is not immediately re-assigned to the same robot in this
+                # tick. The robot's state is uncertain after a dispatch failure.
+                assigned_robots.add(robot.robot_id)
+                # Release any lifts that were reserved for this failed assignment.
+                self._release_lifts_for_assignment(robot, assignment)
                 if self._requeue_task(task, now, "dispatch_exception"):
                     remaining.append(task)
                 continue
