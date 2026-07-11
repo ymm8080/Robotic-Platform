@@ -79,6 +79,7 @@ def _start_lane_for_node(lane_graph: LaneGraph, node_id: str) -> str | None:
     for lane in lane_graph.all_lanes():
         if lane.from_node == node_id:
             return lane.lane_id
+    logger.warning("Node %s has no outgoing lanes, falling back to first lane", node_id)
     return lane_graph.first_lane()
 
 
