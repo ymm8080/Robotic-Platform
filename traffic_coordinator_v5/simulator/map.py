@@ -14,7 +14,9 @@ from traffic_coordinator_v5.maps.loader import load_facility_map
 # This prevents recomputing BFS positions when multiple LaneGraph instances
 # are created from the same underlying FixedLaneMap (e.g. in tests or when
 # the simulator and coordinator both load the same facility map).
+# A max size prevents unbounded memory growth in dynamic map-loading scenarios.
 _BFS_POSITIONS_CACHE: dict[frozenset[str], dict[str, tuple[float, float]]] = {}
+_BFS_POSITIONS_CACHE_MAX = 32
 
 
 class LaneGraph:
@@ -36,6 +38,9 @@ class LaneGraph:
                 self._positions = dict(cached)  # defensive copy
             else:
                 self._positions = self._compute_bfs_positions()
+                # Enforce max cache size to prevent unbounded growth.
+                if len(_BFS_POSITIONS_CACHE) >= _BFS_POSITIONS_CACHE_MAX:
+                    _BFS_POSITIONS_CACHE.pop(next(iter(_BFS_POSITIONS_CACHE)))
                 _BFS_POSITIONS_CACHE[cache_key] = dict(self._positions)
 
     @classmethod

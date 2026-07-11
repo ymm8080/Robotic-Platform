@@ -87,8 +87,11 @@ def _load_api_key() -> str:
 TC_API_KEY = _load_api_key()
 
 if not TC_API_KEY:
-    print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints are unauthenticated. "
-          "Set TC_API_KEY or TC_API_KEY_FILE in production.")
+    if MODE == "PRODUCTION":
+        print("[security] ERROR: TC_API_KEY not set in PRODUCTION mode — all authenticated endpoints will return 401. "
+              "Set TC_API_KEY or TC_API_KEY_FILE.")
+    else:
+        print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints are unauthenticated (DEMO mode).")
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -96,6 +99,10 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
 def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
     if not TC_API_KEY:
+        # In PRODUCTION mode, deny all requests when no API key is configured.
+        # In DEMO mode, allow unauthenticated access for convenience.
+        if MODE == "PRODUCTION":
+            return False
         return True
     provided = handler.headers.get("X-API-Key", "")
     import secrets

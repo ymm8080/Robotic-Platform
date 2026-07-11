@@ -88,17 +88,20 @@ class FleetSimulator:
             self._mqtt.disconnect()
 
     def _run_loop(self) -> None:
-        """Real-time loop: decouple tick cadence from state publishing.
+        """Real-time loop: tick at a fixed cadence, publish independently.
 
-        The simulation tick runs at a fixed ``_publish_interval`` cadence so
-        that physics progress at a deterministic rate.  State publishing is
-        throttled independently: if a tick takes longer than the interval,
-        publishing still occurs every interval based on wall-clock time rather
-        than being locked to tick completion.
+        Uses an accumulating ``next_tick`` to maintain a deterministic tick
+        rate.  If the loop falls behind by more than 3 intervals (e.g.
+        due to a long GC pause or system suspension), ``next_tick`` is
+        reset to the current time to prevent a burst of catch-up ticks.
         """
         next_tick = time.monotonic()
+        max_catchup = self._publish_interval * 3
         while self._running and not self._stop_event.is_set():
             now = time.monotonic()
+            # If we've fallen too far behind, reset to avoid a tick storm.
+            if now - next_tick > max_catchup:
+                next_tick = now
             self.tick_once(self._publish_interval)
             self._publish_states(now)
             next_tick += self._publish_interval

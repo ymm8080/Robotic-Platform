@@ -226,11 +226,16 @@ class SimulatedRobot:
         return reached
 
     def _finish_path(self) -> None:
-        """Transition out of TASKING when the path is complete."""
+        """Transition out of TASKING when the path is complete.
+
+        ``current_lane_id`` is the last lane in the path that the robot
+        traversed.  We set ``distance_along_lane`` to its full length so
+        that ``_pose()`` reports the robot at the destination node.
+        """
         self._path = []
         self._path_index = 0
         self.velocity = 0.0
-        # Rest at the destination node (end of the final lane).
+        # Position the robot at the end of the final lane it traversed.
         self.distance_along_lane = self.lane_graph.length(self.current_lane_id)
         # Do not override ERROR mode — a robot that entered an error state
         # during task execution must remain in ERROR until explicitly cleared.

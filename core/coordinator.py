@@ -740,19 +740,15 @@ class RobotPlatformCoordinator:
             return
 
         path, idx = adapter.current_path(robot_id)
-        # Search through remaining lanes for the first one whose ``to_node``
-        # matches ``last_node``.  We must not break on the first non-matching
-        # lane because the robot may have traversed it already (e.g. at an
-        # intersection where multiple lanes converge to the same node).
+        # ``idx`` points to the lane the robot is currently traversing.
+        # Search through remaining lanes for the first whose ``to_node``
+        # matches ``last_node``.  If ``report_progress`` returns False
+        # (lane already advanced), continue searching for the next match.
         for offset, lane_id in enumerate(path[idx:]):
             lane = self.fmap.lane(lane_id)
             if lane is not None and lane.to_node == last_node:
-                # Advance waypoint for the lane the robot just completed.
-                # Only process one lane per tick — if the robot traversed
-                # multiple nodes since the last tick, subsequent ticks will
-                # catch up.
-                self.report_progress(robot_id, lane_id, now)
-                break
+                if self.report_progress(robot_id, lane_id, now):
+                    break
 
     def report_progress(self, robot_id: str, reached_lane: str, now: float) -> bool:
         """Report a reached waypoint; returns True if the active assignment is complete."""

@@ -40,6 +40,10 @@ class MqttVDAClient:
         self._client: mqtt.Client | None = None
         self._connected: bool = False
         self._robot_ids: set[str] = set()
+        # Fixed LWT topic so downstream systems can subscribe reliably.
+        # Cleared on connect (to remove stale CONNECTIONBROKEN from a previous
+        # crash) and on disconnect (clean shutdown).
+        self._lwt_topic = f"vda5050/{brand}/simulator/connection"
 
     def _client_id(self) -> str:
         return f"{self._brand}-sim-{uuid.uuid4().hex[:8]}"
@@ -74,10 +78,9 @@ class MqttVDAClient:
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         # Last Will: if the simulator process dies, all robots appear broken.
-        # Use a per-instance topic (includes a unique suffix) so that stale
-        # retained messages from a previous crash do not confuse downstream
-        # systems.  The stale LWT is also explicitly cleared on connect.
-        self._lwt_topic = f"vda5050/{self._brand}/simulator/{self._client_id()}/connection"
+        # The LWT topic is fixed (not per-instance) so downstream systems can
+        # subscribe reliably.  It is explicitly cleared on connect to remove
+        # any stale CONNECTIONBROKEN retained message from a previous crash.
         self._client.will_set(
             self._lwt_topic,
             json.dumps({"connectionState": "CONNECTIONBROKEN"}),
@@ -116,7 +119,7 @@ class MqttVDAClient:
             # systems do not see a lingering CONNECTIONBROKEN message.
             with contextlib.suppress(Exception):
                 client.publish(
-                    f"vda5050/{self._brand}/simulator/connection",
+                    self._lwt_topic,
                     payload=b"",
                     qos=1,
                     retain=True,
