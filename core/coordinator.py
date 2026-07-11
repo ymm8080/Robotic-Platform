@@ -292,6 +292,8 @@ class RobotPlatformCoordinator:
 
         # Track robots assigned during *this* tick to prevent double-assignment
         # before _active_assignments is updated (which happens after successful dispatch).
+        # This is intentionally a local variable: it is scoped to one tick so that
+        # a robot that failed dispatch in tick N can be reconsidered in tick N+1.
         assigned_robots: set[str] = set()
         for task in tasks:
             if self._is_expired_or_exhausted(task, now):
