@@ -43,7 +43,11 @@ SUPPORTED_BRANDS = [
 
 def _parse_sensor_health(raw: dict) -> SensorHealth:
     """Parse a sensorHealth dict into the unified SensorHealth object."""
-    value = raw.get("sensor_health") or raw.get("sensorHealth") or {}
+    value = raw.get("sensor_health")
+    if value is None:
+        value = raw.get("sensorHealth")
+    if value is None:
+        value = {}
     if isinstance(value, SensorHealth):
         return value
     if not isinstance(value, dict):
@@ -68,7 +72,11 @@ def _parse_sensor_health(raw: dict) -> SensorHealth:
 
 def _parse_capability(raw: dict) -> CapabilityVector:
     """Parse capability fields into a CapabilityVector."""
-    value = raw.get("capability") or raw.get("capabilityVector") or {}
+    value = raw.get("capability")
+    if value is None:
+        value = raw.get("capabilityVector")
+    if value is None:
+        value = {}
     if isinstance(value, CapabilityVector):
         return value
     if not isinstance(value, dict):
