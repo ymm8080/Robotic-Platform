@@ -251,12 +251,10 @@ class SimulatedRobot:
         self._path_index = 0
         self.velocity = 0.0
         # Rest at the destination node (end of the final lane).
-        # Rest at the destination node (end of the final lane).
-        # Guard against zero-length lanes to avoid distance_along_lane
-        # being incorrectly set to 0 (which could be mistaken for the
-        # start of the lane).
+        # Use the lane length, or a tiny epsilon for zero-length lanes,
+        # so that state_payload correctly reports last_node = lane.to_node.
         lane_length = self.lane_graph.length(self.current_lane_id)
-        self.distance_along_lane = max(lane_length, 0.0001)
+        self.distance_along_lane = lane_length if lane_length > 0 else 0.0001
         # Do not override ERROR state — the robot must stay in ERROR
         # until explicit recovery (clear_errors / manual_recover).
         if self.mode != SimRobotMode.ERROR:

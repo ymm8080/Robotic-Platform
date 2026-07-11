@@ -189,7 +189,13 @@ def _on_mqtt_inbound(msg: InboundMessage) -> None:
     which handles brand-adapter translation, state storage, obstacle updates,
     and cold-start registration.
     """
-    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    try:
+        COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    except Exception:
+        _logger.exception(
+            "Failed to ingest MQTT uplink from brand=%s robot=%s",
+            msg.brand, msg.raw.get("robotId", "?"),
+        )
 
 
 def _publish_tick_result(result) -> None:

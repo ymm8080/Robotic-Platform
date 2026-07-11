@@ -35,6 +35,8 @@ AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
 MAX_CONFIRMED_RETENTION = 500
 # How often (in polls) to run cleanup of stale confirmed entries.
 CLEANUP_INTERVAL = 60
+# Number of inactive polls before warning about a potentially stuck task.
+STUCK_WARNING_POLLS = 10
 
 
 class SapCoordinatorBridge:
