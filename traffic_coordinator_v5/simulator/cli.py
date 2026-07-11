@@ -6,7 +6,7 @@ import argparse
 import logging
 import signal
 import sys
-import time
+import threading
 
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
@@ -138,11 +138,10 @@ def run(argv: list[str] | None = None) -> int:
             mqtt_client.publish_connection(rid, "ONLINE")
 
     # Graceful shutdown on SIGINT/SIGTERM.
-    shutdown_requested = False
+    shutdown_event = threading.Event()
 
     def _signal_handler(_signum: int, _frame: object) -> None:
-        nonlocal shutdown_requested
-        shutdown_requested = True
+        shutdown_event.set()
         logger.info("Shutdown requested")
 
     signal.signal(signal.SIGINT, _signal_handler)
@@ -158,8 +157,8 @@ def run(argv: list[str] | None = None) -> int:
     )
 
     try:
-        while not shutdown_requested:
-            time.sleep(0.1)
+        while not shutdown_event.is_set():
+            shutdown_event.wait(0.1)
             if args.fault_prob > 0:
                 import random
 

@@ -129,6 +129,13 @@ class RobotPlatformCoordinator:
         self._task_retries: dict[str, int] = {}
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
+        self._last_reported_lane: dict[str, str] = {}  # robot_id -> last reported lane_id (idempotency)
+        self._idle_robots: set[str] = set()  # robot_ids currently IDLE and not degraded
+
+        # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
+        self._registration_stagger_seconds = self.cfg.registration_stagger_seconds
+        self._last_registration_time: float = 0.0
+        self._pending_registrations: deque[tuple[FleetAdapter, FleetState, list[str], float]] = deque()
 
     MAX_TASK_RETRIES = 3
 
@@ -160,6 +167,11 @@ class RobotPlatformCoordinator:
         events.extend(self.failover.observe(state, now))
         state = self.failover.stamp(state)
         self._robot_states[state.robot_id] = state
+        # Maintain idle-robots index for O(1) candidate filtering in dispatch
+        if state.mode is RobotMode.IDLE and not state.degraded:
+            self._idle_robots.add(state.robot_id)
+        else:
+            self._idle_robots.discard(state.robot_id)
         self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
@@ -194,6 +206,22 @@ class RobotPlatformCoordinator:
     def tick(self, now: float) -> TickResult:
         """Advance one platform tick: safety, traffic, allocation, resources."""
         result = TickResult()
+
+        # 0. process cold-start pending registrations (staggered)
+        #
+        # Only register one robot per _registration_stagger_seconds interval
+        # to achieve the cold-start staggered registration purpose.
+        # Use the original enqueue timestamp (reg_ts) for state processing
+        # so failover.observe sees the correct first-seen time.
+        if self._pending_registrations:
+            if (
+                self._last_registration_time == 0.0
+                or now - self._last_registration_time >= self._registration_stagger_seconds
+            ):
+                adapter, state, events, reg_ts = self._pending_registrations.popleft()
+                self._robot_adapter[state.robot_id] = adapter
+                self._process_robot_state(state, events, reg_ts)
+                self._last_registration_time = now
 
         # 1. liveness + failover
         transitions = self.failover.tick(now)
@@ -269,15 +297,19 @@ class RobotPlatformCoordinator:
             if self._is_expired_or_exhausted(task, now):
                 continue
 
+            # Use _idle_robots index to avoid full O(n) scan each tick.
+            # _idle_robots is maintained in _process_robot_state: only robots
+            # that are IDLE and not degraded are in the set.  The remaining
+            # time-dependent checks (failover, breaker, intersection) are
+            # still evaluated per-candidate.
+            candidate_ids = self._idle_robots - assigned_robots - self._active_assignments.keys()
             candidates = [
-                r for r in self._robot_states.values()
-                if r.robot_id not in assigned_robots
-                and r.robot_id not in self._active_assignments
-                and not r.degraded
-                and not self.failover.is_offline(r.robot_id)
-                and self.failover.accepts_new_tasks(r.robot_id, now)
-                and self._breaker_closed(r.robot_id)
-                and self._intersection_clear(r.robot_id)
+                self._robot_states[rid] for rid in candidate_ids
+                if rid in self._robot_states
+                and not self.failover.is_offline(rid)
+                and self.failover.accepts_new_tasks(rid, now)
+                and self._breaker_closed(rid)
+                and self._intersection_clear(rid)
             ]
             result = self.allocator.allocate(task, candidates)
             if not result.assigned:
@@ -337,7 +369,7 @@ class RobotPlatformCoordinator:
     def _is_expired_or_exhausted(self, task: Task, now: float) -> bool:
         """Drop tasks past deadline or exceeding retry limit."""
         retries = self._task_retries.get(task.task_id, 0)
-        if retries >= self.MAX_TASK_RETRIES:
+        if retries >= self.cfg.max_task_retries:
             self._fail_task(task, now, "max_retries")
             return True
         if task.deadline > 0 and now > task.deadline:
@@ -349,7 +381,7 @@ class RobotPlatformCoordinator:
         """Increment retry count; return True if the task may be requeued."""
         retries = self._task_retries.get(task.task_id, 0) + 1
         self._task_retries[task.task_id] = retries
-        if retries >= self.MAX_TASK_RETRIES:
+        if retries >= self.cfg.max_task_retries:
             self._fail_task(task, now, reason)
             return False
         self._worm_event(
@@ -404,6 +436,17 @@ class RobotPlatformCoordinator:
             if not self.lift.request(lane.lift_id, robot.robot_id, lane.floor, now):
                 return False
         return True
+
+    def _release_lifts_for_assignment(
+        self, robot: FleetState, assignment: TaskAssignment
+    ) -> None:
+        """Release any lifts reserved for an assignment that failed to dispatch."""
+        for lane_id in assignment.path:
+            lane = self.fmap.lane(lane_id)
+            if lane is None or lane.lift_id is None:
+                continue
+            if self.lift.current_user(lane.lift_id) == robot.robot_id:
+                self.lift.release(lane.lift_id, robot.robot_id)
 
     def _breaker_closed(self, robot_id: str) -> bool:
         adapter = self.adapter_for(robot_id)
@@ -488,6 +531,9 @@ class RobotPlatformCoordinator:
             if lane is None or lane.intersection_id is None:
                 continue
             if self.traffic.may_enter(lane.intersection_id, lane.direction):
+                # Light is green for this robot — clear any stale HOLD
+                # retries so the adapter doesn't keep re-sending them.
+                adapter.clear_pending_holds(robot_id)
                 continue
             cmd = adapter.request_hold(robot_id, f"red_intersection:{lane.intersection_id}", now)
             result.commands.append(cmd)
@@ -544,13 +590,19 @@ class RobotPlatformCoordinator:
             for lane_id in path[idx:]:
                 lane = self.fmap.lane(lane_id)
                 if lane is not None and lane.intersection_id:
-                    self.traffic.report_waiting_robot(
-                        lane.intersection_id,
-                        robot_id,
-                        direction=lane.direction,
-                        priority=0,
-                        now=now,
-                    )
+                    if self.traffic.may_enter(lane.intersection_id, lane.direction):
+                        # Robot can proceed — clear stale waiting state so
+                        # the light doesn't falsely report demand and so
+                        # deadlock detection doesn't fire on phantom waits.
+                        self.traffic.clear_waiting(lane.intersection_id, lane.direction)
+                    else:
+                        self.traffic.report_waiting_robot(
+                            lane.intersection_id,
+                            robot_id,
+                            direction=lane.direction,
+                            priority=0,
+                            now=now,
+                        )
                     break
 
     def _reap_offline_assignments(self, now: float) -> None:
@@ -739,6 +791,12 @@ class RobotPlatformCoordinator:
         if lane is None:
             return
         if lane.to_node == last_node:
+            # Idempotency: skip if this lane was already reported for this
+            # robot (prevents duplicate progress reports when the same robot
+            # state is processed multiple times within a single tick).
+            if self._last_reported_lane.get(robot_id) == lane_id:
+                return
+            self._last_reported_lane[robot_id] = lane_id
             # Robot reached the end of the current expected lane.
             # Only process one lane per tick — if the robot traversed
             # multiple nodes since the last tick, subsequent ticks will

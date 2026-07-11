@@ -1,0 +1,1796 @@
+=== COMMENT 1 ===
+ID: 4935898402
+Author: github-actions[bot]
+Created: 2026-07-10T13:36:42Z
+Body:
+## 🤖 AI Code Review
+
+好的，我来对这三个 Grafana Dashboard JSON 文件进行代码审查。
+
+### 总体评价
+
+这三个仪表板定义整体结构清晰，使用了 Grafana 的标准 JSON Schema，配置了合理的数据源、刷新率和时间范围。面板类型选择（Gauge, Stat, Timeseries, BarGauge）与监控指标的特性匹配度较高。阈值和颜色配置也基本合理，能够直观地反映系统健康状态。
+
+以下是针对每个文件的详细审查意见。
+
+---
+
+### 1. `infrastructure-health.json` (基础设施健康)
+
+**问题 1: 阈值步骤缺少起始值 (第 17 行)**
+- **问题**: `thresholds` 的 `steps` 数组第一个元素 `{ "color": "green" }` 没有 `value` 字段。在 Grafana 中，这通常意味着从 `-Infinity` 到下一个阈值之间使用该颜色。虽然这可以工作，但最佳实践是显式设置 `value` 为 `0`，以提高可读性和明确性。
+- **建议**: 修改为 `{ "color": "green", "value": 0 }`。
+
+**问题 2: 类似问题存在于第 36, 45, 54, 63 行**
+- **问题**: 所有面板的 `thresholds.steps` 第一个元素都缺少 `value` 字段。
+- **建议**: 统一为每个 `steps` 的第一个元素添加 `"value": 0`。
+
+**问题 3: 面板 3 "Safe Mode Status" 的映射配置 (第 42-44 行)**
+- **问题**: `mappings` 的配置结构有误。`options` 应该是一个对象，其键是数值，值是显示配置。但这里 `options` 是一个数组，这会导致 Grafana 解析失败或行为异常。
+- **建议**: 修改为：
+  ```json
+  "mappings": [{
+    "type": "value",
+    "options": {
+      "0": { "text": "NORMAL", "color": "green" },
+      "1": { "text": "SAFE MODE", "color": "red" }
+    }
+  }]
+  ```
+
+**问题 4: 面板 4 "Checkpoint Latency" 和面板 5 "SQLite WAL Size" 的阈值单位 (第 54, 63 行)**
+- **问题**: 阈值的 `value` 没有明确单位。虽然 `unit` 字段已经设置为 `ms` 和 `MB`，但阈值数值本身（如 3000, 5000, 50, 100）是裸数字。这没问题，但为了清晰，可以考虑在面板标题或描述中说明阈值含义。
+- **建议**: 非强制，但可以考虑在面板描述中添加说明，例如 `"description": "Thresholds: Yellow > 3s, Red > 5s"`。
+
+---
+
+### 2. `robot-fleet.json` (机器人车队概览)
+
+**问题 1: 面板 2 "Robots Offline (>30s)" 的 PromQL 表达式 (第 36 行)**
+- **问题**: `count(time() - sap_bridge_robot_last_seen > 30)` 这个表达式在语法上是错误的。`count()` 需要一个向量作为参数，但 `time() - sap_bridge_robot_last_seen > 30` 是一个瞬时向量选择器，它返回的是满足条件的序列。正确的用法是 `count(...)` 或 `count(... by (...))`。更常见的写法是：
+  ```promql
+  count(sap_bridge_robot_last_seen < time() - 30)
+  ```
+  或者使用 `count(... by ())` 来确保返回一个单一值。
+- **建议**: 修改为 `count(sap_bridge_robot_last_seen < time() - 30)` 或 `count(time() - sap_bridge_robot_last_seen > 30) > 0` (后者会返回 1 或 0，但 `count` 应该作用于指标)。
+
+**问题 2: 面板 3 "Robots with Low Battery (<20%)" 的 PromQL 表达式 (第 44 行)**
+- **问题**: `count(sap_bridge_battery_percent < 20)` 这个表达式在语法上也是错误的。`sap_bridge_battery_percent < 20` 是一个布尔表达式，它返回的是 0 或 1 的序列，而不是一个向量。`count()` 不能直接作用于布尔表达式。
+- **建议**: 修改为 `count(sap_bridge_battery_percent < 20)` 或更常见的 `count(sap_bridge_battery_percent < 20)`。实际上，PromQL 允许 `count(<布尔表达式>)`，它会计算满足条件的序列数量。所以这个表达式可能可以工作，但为了清晰，建议使用 `count(sap_bridge_battery_percent < 20)`。
+
+**问题 3: 面板 4 "Total Active Robots" 的 PromQL 表达式 (第 52 行)**
+- **问题**: `count(sap_bridge_battery_percent)` 会计算所有具有 `battery_percent` 指标的机器人数量。这假设所有活跃的机器人都会报告电池百分比，这可能是正确的。但如果有机器人不报告电池（例如，刚启动），则不会被计数。
+- **建议**: 如果存在一个更通用的“机器人活跃”指标（如 `sap_bridge_robot_up`），使用它会更准确。否则，当前表达式是可接受的，但需要在仪表板描述中注明其局限性。
+
+**问题 4: 面板 6 "Last Seen per Robot" 的 PromQL 表达式 (第 72 行)**
+- **问题**: `time() - sap_bridge_robot_last_seen` 会为每个机器人生成一个时间序列。如果机器人数量很多，这个面板可能会变得非常拥挤且难以阅读。
+- **建议**: 考虑使用 `stat` 面板显示最大/最小/平均延迟，或者使用 `table` 面板列出每个机器人的延迟。如果坚持使用 `timeseries`，可以添加一个 `legendFormat` 来显示机器人名称，但要注意性能。
+
+---
+
+### 3. `sap-bridge-overview.json` (SAP 桥接概览)
+
+**问题 1: 面板 7 "Error Rate (%)" 的 PromQL 表达式 (第 101 行)**
+- **问题**: `rate(sap_bridge_orders_failed_total[5m]) / clamp_min(rate(sap_bridge_orders_created_total[5m]), 1)` 这个表达式在分母为 0 时使用了 `clamp_min` 来避免除零错误。这是一个好的实践。但是，`clamp_min(..., 1)` 会将分母强制为至少 1，这意味着当没有订单创建时，错误率会显示为 0 或一个很小的值，这可能会掩盖问题。
+- **建议**: 更常见的做法是使用 `or` 运算符或 `> 0` 来过滤掉分母为 0 的情况。例如：
+  ```promql
+  rate(sap_bridge_orders_failed_total[5m]) / rate(sap_bridge_orders_created_total[5m]) > 0
+  ```
+  或者使用 `(rate(...) / rate(...)) or vector(0)` 来在无数据时显示 0。
+
+**问题 2: 面板 1 "Order Throughput" 的颜色覆盖 (第 15-18 行)**
+- **问题**: 使用 `byName` 匹配器来设置颜色是脆弱的，因为它依赖于 `legendFormat` 的精确字符串。如果将来修改了 `legendFormat`，颜色将失效。
+- **建议**: 使用更稳定的匹配器，例如 `byRegexp` 或 `byFrameRefID`。例如，使用 `byFrameRefID` 并匹配 `refId` (`A`, `B`, `C`) 会更可靠。
+
+**问题 3: 面板 5 "Queue Depth" 和面板 6 "Dead Letter Queue" 的布局 (第 56, 64 行)**
+- **问题**: 面板 5 的 `gridPos` 是 `{ "h": 4, "w": 12, "x": 12, "y": 4 }`，面板 6 是 `{ "h": 4, "w": 12, "x": 12, "y": 8 }`。它们都从 `x=12` 开始，宽度为 12，这意味着它们会并排放置在右侧。但是，面板 2, 3, 4 占据了 `x=12` 到 `x=24` 的区域（每个宽度为 4），并且它们的高度是 4。所以面板 5 和 6 会与面板 2, 3, 4 重叠。
+- **建议**: 调整面板 5 和 6 的 `y` 坐标。面板 2, 3, 4 占据了 `y=0` 到 `y=4` 的区域。面板 5 应该从 `y=4` 开始，面板 6 从 `y=8` 开始。但是，面板 1 占据了 `y=0` 到 `y=8` 的区域（高度为 8）。所以面板 5 和 6 应该放在面板 1 下方，即 `y=8` 和 `y=12`。或者，将面板 2, 3, 4 放在面板 1 下方，然后面板 5 和 6 再往下放。
+
+**问题 4: 面板 4 "Service Up" 的 PromQL 表达式 (第 82 行)**
+- **问题**: `up{job="sap-bridge"}` 是 Prometheus 的默认指标，表示目标是否可达。这是一个好的选择。但是，如果 `sap-bridge` 服务有多个实例，这个表达式会返回多个时间序列，而 `stat` 面板默认只显示第一个。这可能会掩盖部分实例宕机的情况。
+- **建议**: 如果服务是多实例的，考虑使用 `min(up{job="sap-bridge"})` 来显示最差情况，或者使用 `count(up{job="sap-bridge"} == 1)` 来显示在线实例数。
+
+### 总结
+
+- **主要问题**: `robot-fleet.json` 中的 PromQL 表达式有语法错误，`infrastructure-health.json` 中的映射配置结构错误，`sap-bridge-overview.json` 中的面板布局重叠。
+- **次要问题**: 阈值步骤缺少起始值，颜色覆盖匹配器不够健壮，错误率计算方式可以改进。
+- **最佳实践**: 所有仪表板都使用了 `schemaVersion: 39`，这是一个较新的版本，很好。建议在面板描述中添加更多上下文信息，以帮助运维人员理解指标含义和阈值设置。
+
+请根据以上建议进行修改，特别是修复 PromQL 语法错误和面板布局问题，这些会直接影响仪表板的可用性。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 2 ===
+ID: 4936050861
+Author: github-actions[bot]
+Created: 2026-07-10T13:53:43Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是一个关于三个Grafana仪表板JSON配置的PR。整体来看，代码结构清晰，仪表板设计合理，覆盖了关键监控指标。以下是我的详细评审意见：
+
+### 总体评价
+
+三个仪表板（基础设施健康、机器人车队、SAP桥接）的配置基本正确，使用了合适的图表类型和PromQL查询。但存在一些潜在的问题和可以改进的地方，主要集中在**查询逻辑的正确性**、**阈值配置的完整性**以及**最佳实践**上。
+
+---
+
+### 1. 严重问题：`robot-fleet.json` 中的 `Offline` 查询逻辑错误
+
+**文件**: `monitoring/dashboards/robot-fleet.json`
+**行号**: 第30行
+**问题**: `expr: "count(sap_bridge_robot_last_seen < time() - 30)"`
+**分析**: 这个查询在语法上是错误的。`sap_bridge_robot_last_seen` 是一个时间戳（Unix时间戳），`time()` 是当前时间。`sap_bridge_robot_last_seen < time() - 30` 会返回一个布尔值（0或1），但 `count()` 函数会计算所有时间序列的数量，而不是满足条件的数量。这会导致结果始终等于机器人的总数，而不是离线数量。
+**建议**: 使用 `count(... or vector(0))` 或更标准的 `count(... == 1)` 模式。正确的查询应该是：
+```promql
+count(sap_bridge_robot_last_seen < time() - 30 or vector(0))
+```
+或者更清晰的方式：
+```promql
+count(sap_bridge_robot_last_seen < time() - 30)
+```
+但需要确保指标是瞬时向量。更推荐的做法是使用 `count(... == 1)` 来计数，但这里需要先通过 `(...)` 生成一个瞬时向量。建议改为：
+```promql
+count((sap_bridge_robot_last_seen < time() - 30) == 1)
+```
+
+### 2. 潜在问题：`robot-fleet.json` 中的 `Low Battery` 查询可能不准确
+
+**文件**: `monitoring/dashboards/robot-fleet.json`
+**行号**: 第38行
+**问题**: `expr: "count(sap_bridge_battery_percent < 20)"`
+**分析**: 这个查询假设 `sap_bridge_battery_percent` 是一个瞬时向量。如果某个机器人没有上报数据（例如离线），它不会被计数。这可能导致低估低电量机器人的数量。
+**建议**: 如果希望包含离线机器人（假设它们可能电量耗尽），可以结合 `last_seen` 指标。但更简单的做法是保持现状，并在仪表板说明中注明“仅统计有数据上报的机器人”。如果希望更精确，可以添加一个注释或使用 `or` 操作符处理缺失数据。
+
+### 3. 配置问题：`infrastructure-health.json` 中 `Safe Mode Status` 的阈值颜色未定义
+
+**文件**: `monitoring/dashboards/infrastructure-health.json`
+**行号**: 第37-38行
+**问题**: `"mappings": [{ "options": { "0": { "text": "NORMAL", "color": "green" }, "1": { "text": "SAFE MODE", "color": "red" } }, "type": "value" }]`
+**分析**: 这里使用了 `mappings` 来映射值到文本和颜色，这是正确的。但是，`thresholds` 配置被完全省略了。虽然 `mappings` 可以独立工作，但省略 `thresholds` 可能会导致Grafana在渲染时使用默认阈值（可能为红色），从而覆盖 `mappings` 中定义的颜色。这是一个潜在的显示问题。
+**建议**: 添加一个空的或默认的 `thresholds` 配置，以确保 `mappings` 的颜色生效。例如：
+```json
+"thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+```
+或者，如果希望完全依赖 `mappings`，可以设置 `thresholds` 为一个不会干扰的配置。
+
+### 4. 最佳实践：`sap-bridge-overview.json` 中 `Error Rate` 的除零保护
+
+**文件**: `monitoring/dashboards/sap-bridge-overview.json`
+**行号**: 第103行
+**问题**: `expr: "(rate(sap_bridge_orders_failed_total[5m]) / rate(sap_bridge_orders_created_total[5m])) or vector(0)"`
+**分析**: 这个查询使用了 `or vector(0)` 来处理除零的情况，这是正确的做法。但是，如果 `rate(sap_bridge_orders_created_total[5m])` 为0，`or vector(0)` 会返回0，但此时 `rate(sap_bridge_orders_failed_total[5m])` 可能也为0，结果正确。然而，如果创建速率为0但失败速率不为0（理论上不可能，但数据延迟可能导致），结果会是0，这可能掩盖问题。
+**建议**: 这是一个可接受的折中方案。如果希望更精确，可以使用 `clamp_min` 或更复杂的逻辑，但当前方案对于监控仪表板来说已经足够。可以添加一个注释说明。
+
+### 5. 代码风格与一致性
+
+- **缩进**: JSON文件缩进不一致（2空格 vs 4空格）。建议统一使用2空格缩进，这是Grafana和大多数JSON工具的标准。
+- **字段顺序**: 字段顺序不一致（例如 `type` 有时在 `title` 之前，有时在之后）。虽然JSON不要求顺序，但保持一致性有助于可读性。
+- **`gridPos` 布局**: 布局看起来合理，但 `robot-fleet.json` 中 `Battery Levels` 面板宽度为24（全宽），而其他面板宽度为6。这可能导致在宽屏上显示不均衡。建议考虑使用更均衡的布局，例如将电池面板放在顶部，下面放四个统计面板（每个宽度6）。
+
+### 总结
+
+| 文件 | 行号 | 严重程度 | 问题 | 建议 |
+|------|------|----------|------|------|
+| robot-fleet.json | 30 | **严重** | `Offline` 查询逻辑错误，`count()` 使用不当 | 使用 `count((sap_bridge_robot_last_seen < time() - 30) == 1)` |
+| robot-fleet.json | 38 | 中等 | `Low Battery` 查询可能遗漏离线机器人 | 保持现状，或添加注释说明 |
+| infrastructure-health.json | 37-38 | 中等 | `Safe Mode Status` 缺少 `thresholds` 配置 | 添加默认 `thresholds` 配置 |
+| sap-bridge-overview.json | 103 | 低 | 除零保护逻辑可接受，但可改进 | 保持现状，或添加注释 |
+| 所有文件 | 全局 | 低 | JSON缩进不一致 | 统一使用2空格缩进 |
+
+**总体结论**: 代码质量良好，仪表板设计合理。主要需要修复 `robot-fleet.json` 中的离线机器人计数查询，这是一个逻辑错误，会导致仪表板显示错误数据。其他问题属于优化建议。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 3 ===
+ID: 4936539768
+Author: github-actions[bot]
+Created: 2026-07-10T14:49:37Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是一个非常庞大且高质量的 PR。代码结构清晰，测试覆盖全面，新增的模拟器、仪表盘和适配器增强都很有价值。以下是我的详细审查意见：
+
+## 总体评价
+
+**代码质量很高**，逻辑清晰，测试完善。主要关注点在于一些潜在的边界情况、并发安全性和代码健壮性。
+
+---
+
+## 1. 核心逻辑与潜在 Bug
+
+### `core/coordinator.py` (第 258-286 行)
+
+**问题：`assigned_robots` 集合可能导致任务分配不均**
+
+- **行 261**: `assigned_robots: set[str] = set()` 在每次 `tick` 时创建。
+- **行 268-269**: 新增了 `r.robot_id not in assigned_robots` 检查。
+- **行 286**: `assigned_robots.add(robot.robot_id)` 在 `adapter` 检查之后才添加。
+
+**潜在问题**：如果一个机器人通过了所有候选条件（行 267-275），但 `adapter` 返回 `None`（行 288），该机器人会被跳过，但**不会被加入 `assigned_robots`**。这意味着在同一个 `tick` 中，该机器人可能被再次考虑分配给另一个任务，导致同一个 `tick` 内重复尝试。
+
+**建议修复**：将 `assigned_robots.add(robot.robot_id)` 移到 `adapter` 检查之前，或者移到候选列表生成之后。
+
+```python
+# 建议修改为：
+for task in tasks:
+    # ... 现有逻辑 ...
+    candidates = [
+        r for r in self._robot_states.values()
+        if r.robot_id not in assigned_robots  # 保持此检查
+        and r.robot_id not in self._active_assignments
+        and not r.degraded
+        # ... 其他条件 ...
+    ]
+    
+    # 在筛选候选者后，立即将所有候选者标记为已分配
+    for r in candidates:
+        assigned_robots.add(r.robot_id)
+    
+    # ... 后续逻辑 ...
+    if not candidates:
+        continue
+    
+    robot = self._select_best_candidate(task, candidates)
+    if robot is None:
+        continue
+    
+    adapter = self.adapter_for(robot.robot_id)
+    if adapter is None:
+        # 此时 robot 已在 assigned_robots 中，不会重复分配
+        if self._requeue_task(task, now, "no_adapter"):
+            remaining.append(task)
+        continue
+    
+    # 不再需要 assigned_robots.add(robot.robot_id)
+```
+
+### `traffic_coordinator_v5/simulator/fleet.py` (第 55-56 行)
+
+**问题：私有属性赋值可能导致类型混淆**
+
+```python
+self._mqtt._on_order = self._route_order
+self._mqtt._on_instant_actions = self._route_instant_actions
+```
+
+这里直接修改了 `MqttVDAClient` 的私有属性。虽然 Python 没有真正的私有，但这破坏了封装性。如果 `MqttVDAClient` 的构造函数已经接收了 `on_order` 和 `on_instant_actions` 回调，这里应该使用公开的 setter 方法。
+
+**建议**：在 `MqttVDAClient` 中添加公开的 setter 方法，或者通过构造函数传递回调。
+
+### `traffic_coordinator_v5/simulator/robot.py` (第 119-120 行)
+
+**问题：`_finish_path` 中的充电逻辑可能不准确**
+
+```python
+def _finish_path(self) -> None:
+    if self.current_lane_id in self.lane_graph.charger_lanes():
+        self.mode = SimRobotMode.CHARGING
+    else:
+        self.mode = SimRobotMode.IDLE
+```
+
+如果机器人完成路径时停在充电车道上，但电池电量很高（例如 90%），它仍然会进入充电模式。这可能导致不必要的充电行为。
+
+**建议**：添加电池电量检查，只有当电量低于某个阈值时才进入充电模式。
+
+---
+
+## 2. 安全问题
+
+### `traffic_coordinator_v5/simulator/mqtt_client.py` (第 80-85 行)
+
+**问题：异常处理过于宽泛**
+
+```python
+try:
+    self._client.connect(self._broker_host, self._broker_port, keepalive=60)
+    self._client.loop_start()
+except Exception:
+    logger.exception("Simulator failed to connect to MQTT broker")
+```
+
+捕获所有异常并仅记录日志，可能导致连接失败被静默忽略。后续的 `publish_state` 等方法会因 `self._client` 为 `None` 而静默返回（第 143 行）。
+
+**建议**：至少记录错误并设置一个标志，或者重新抛出异常让调用者处理。
+
+### `traffic_coordinator_v5/simulator/mqtt_client.py` (第 105 行)
+
+**问题：Last Will 消息可能泄露内部信息**
+
+```python
+lwt_topic = f"vda5050/{self._brand}/simulator/connection"
+self._client.will_set(
+    lwt_topic,
+    json.dumps({"connectionState": "CONNECTIONBROKEN"}),
+    qos=1,
+    retain=True,
+)
+```
+
+虽然这不是严重的安全问题，但 `CONNECTIONBROKEN` 状态可能被外部系统利用来检测模拟器的健康状况。
+
+---
+
+## 3. 性能问题
+
+### `traffic_coordinator_v5/simulator/map.py` (第 60-140 行)
+
+**问题：`_compute_bfs_positions` 每次创建 `LaneGraph` 时都会执行**
+
+如果地图很大（数百个节点），BFS 布局计算可能成为性能瓶颈。虽然对于模拟器来说可以接受，但如果 `LaneGraph` 被频繁创建，建议缓存结果。
+
+**建议**：考虑将位置计算延迟到首次需要时（lazy evaluation），或者将结果序列化到 YAML 文件中。
+
+### `traffic_coordinator_v5/simulator/cli.py` (第 141-143 行)
+
+**问题：主循环中的 `time.sleep(0.1)` 可能导致 CPU 空转**
+
+```python
+while not shutdown_requested:
+    time.sleep(0.1)
+```
+
+虽然 `time.sleep` 会释放 CPU，但 0.1 秒的轮询间隔对于长时间运行的模拟器来说可能不够高效。
+
+**建议**：使用 `threading.Event.wait()` 替代 `time.sleep`，这样可以在收到信号时立即退出。
+
+---
+
+## 4. 代码风格与最佳实践
+
+### `traffic_coordinator_v5/simulator/fleet.py` (第 55-56 行)
+
+**问题：直接修改私有属性**
+
+如前所述，应避免直接修改 `_mqtt._on_order`。
+
+### `traffic_coordinator_v5/simulator/fleet.py` (第 169-172 行)
+
+**问题：`set_command_handlers` 方法中的类型注解不正确**
+
+```python
+def set_command_handlers(
+    self,
+    on_order: Callable[[str, dict], None] | None = None,
+    on_instant_actions: Callable[[str, dict], None] | None = None,
+) -> None:
+    self._route_order = on_order or self._route_order  # type: ignore[assignment]
+    self._route_instant_actions = on_instant_actions or self._route_instant_actions  # type: ignore[assignment]
+```
+
+这里使用了 `type: ignore`，说明类型检查器不满意。更好的做法是使用公开的 setter 或属性。
+
+### `traffic_coordinator_v5/simulator/robot.py` (第 1 行)
+
+**问题：`from __future__ import annotations` 的使用**
+
+虽然这是好的实践，但需要注意这会影响所有类型注解的求值方式。确保整个项目一致使用。
+
+### 仪表盘 JSON 文件
+
+**问题：硬编码的 datasource UID**
+
+```json
+"datasource": { "type": "prometheus", "uid": "prometheus" }
+```
+
+`uid: "prometheus"` 是 Grafana 默认的 Prometheus 数据源 UID，但在不同环境中可能不同。建议在 Grafana 中通过变量或 provisioning 配置来管理。
+
+### `traffic_coordinator_v5/simulator/Dockerfile` (第 17 行)
+
+**问题：HEALTHCHECK 命令可能过于简单**
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "from traffic_coordinator_v5.simulator import FleetSimulator, LaneGraph" || exit 1
+```
+
+这个健康检查只验证了模块可以导入，没有检查模拟器是否实际运行。建议使用更实际的检查，例如检查 MQTT 连接或进程状态。
+
+---
+
+## 5. 测试相关
+
+### `traffic_coordinator_v5/tests/test_simulator_scenarios.py`
+
+**问题：测试可能依赖于执行顺序**
+
+- **行 78**: `self.skip_ingestion: set[str] = set()` 在 `__init__` 中初始化。
+- **行 247-248**: 在 `test_fault_recovery` 中，`harness.skip_ingestion.add("R-001")` 后调用了 `harness.tick(10)`，然后 `harness.skip_ingestion.discard("R-001")`。
+
+如果测试之间的 `CoordinatorHarness` 实例被重用（虽然看起来是每个测试方法创建新的），`skip_ingestion` 的状态可能会泄漏。
+
+**建议**：确保每个测试方法都创建新的 `CoordinatorHarness` 实例，或者使用 `pytest.fixture` 的 `scope="function"`。
+
+### `traffic_coordinator_v5/tests/test_simulator_scenarios.py` (第 237 行)
+
+**问题：断言可能过于脆弱**
+
+```python
+assert any(t.task_id == "o1-0" for t in harness.coordinator._task_queue) or \
+    len(harness.coordinator._active_assignments) == 0
+```
+
+这个断言使用了 `or`，意味着只要其中一个条件成立就通过。这可能导致测试在某些情况下通过，但实际逻辑是错误的。
+
+**建议**：明确期望的行为，分别断言两个条件。
+
+---
+
+## 总结
+
+| 类别 | 严重程度 | 建议 |
+|------|---------|------|
+| `coordinator.py` 任务分配 | **高** | 修复 `assigned_robots` 集合的添加时机 |
+| `fleet.py` 私有属性赋值 | 中 | 添加公开 setter 方法 |
+| `robot.py` 充电逻辑 | 低 | 添加电池电量检查 |
+| `mqtt_client.py` 异常处理 | 中 | 不要静默忽略连接失败 |
+| `map.py` 性能 | 低 | 考虑懒加载或缓存 |
+| 测试稳定性 | 中 | 确保测试隔离，避免脆弱断言 |
+
+**总体建议**：修复 `coordinator.py` 中的任务分配逻辑（高优先级），其他问题可根据项目节奏逐步优化。代码整体质量很高，新增的模拟器功能非常实用。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 4 ===
+ID: 4937044966
+Author: github-actions[bot]
+Created: 2026-07-10T15:47:10Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是一个非常庞大且高质量的 PR。它主要做了以下几件事：
+
+1.  **核心逻辑修复 (coordinator.py):** 修复了任务分配时可能将同一个机器人分配给多个任务的 bug。
+2.  **新功能引入 (bootstrap.py):** 为通用适配器增加了对 `SensorHealth` 和 `CapabilityVector` 等新消息类型的解析支持。
+3.  **全新子系统 (simulator):** 引入了一个完整的 VDA5050 机器人模拟器，包括 CLI、地图、MQTT 客户端、机器人物理模拟和车队管理。
+4.  **监控仪表盘:** 添加了三个 Grafana 仪表盘 JSON 配置文件。
+5.  **依赖与配置更新:** 添加了 `paho-mqtt` 依赖，更新了测试路径。
+
+总体来看，代码质量很高，结构清晰，测试覆盖全面。以下是我的详细审查意见：
+
+### 1. 核心逻辑 Bug 修复 (coordinator.py)
+
+*   **问题:** 在 `assign_tasks` 方法中，修复了一个潜在的并发/重复分配问题。旧代码在遍历任务列表时，会为每个任务独立地筛选候选机器人，这可能导致同一个机器人被分配给多个任务。
+*   **修复:** 引入了 `assigned_robots: set[str]` 集合，在筛选每个任务的候选机器人时，会排除已经分配出去的机器人 (`r.robot_id not in assigned_robots`)。这是一个正确且高效的修复。
+*   **建议:** 无。代码逻辑清晰，修复正确。
+
+### 2. 新功能代码审查 (bootstrap.py)
+
+*   **问题 1 (行 41-66):** `_parse_sensor_health` 函数。逻辑正确，但可以更健壮。
+    *   **建议:** 在 `_status` 内部函数中，`value.get(key, "HEALTHY")` 如果 `value` 是 `None` 会报错。虽然外层有 `if not isinstance(value, dict): return SensorHealth()` 的保护，但防御性编程总是好的。可以改为 `value.get(key) or "HEALTHY"`。
+
+*   **问题 2 (行 68-99):** `_parse_capability` 函数。同样，逻辑正确。
+    *   **建议:** 在 `_primitives` 内部函数中，`value.get("action_primitives", ...)` 如果 `value` 是 `None` 会报错。同样，外层有保护，但可以更健壮。
+
+*   **问题 3 (行 122-138):** `_create_generic_adapter` 函数。`last_node_id` 的解析逻辑被修改了。
+    *   **旧逻辑:** `raw.get("last_node_id", raw.get("lane_id", raw.get("lastNodeId", "")))`
+    *   **新逻辑:** `raw.get("last_node_id", raw.get("lastNodeId", raw.get("lane_id", "")))`
+    *   **分析:** 这是一个**行为变更**。旧逻辑优先使用 `lane_id` 作为 `last_node_id` 的备选，新逻辑优先使用 `lastNodeId`。如果上游系统同时提供了 `lane_id` 和 `lastNodeId`，行为会不同。需要确认这是否是预期的变更。如果 `lane_id` 是更准确的“当前所在车道”信息，那么旧逻辑可能更优。**请确认此变更的意图。**
+
+### 3. 全新模拟器子系统 (traffic_coordinator_v5/simulator/)
+
+这是一个非常出色的实现，代码结构清晰，模块化程度高。
+
+*   **CLI (cli.py):**
+    *   **问题:** `_start_lane_for_node` 函数 (行 103-107)。如果 `node_id` 没有出边，它会回退到 `lane_graph.first_lane()`。这可能导致机器人被放置在一个完全无关的起始车道上，与用户指定的 `--start-node` 意图不符。
+    *   **建议:** 如果找不到从 `node_id` 出发的车道，应该记录一个警告并返回 `None`，让调用者（`run` 函数）处理。或者，在 `run` 函数中，如果 `start_lane` 为 `None`，则使用 `lane_graph.first_lane()` 并记录一条信息日志。
+
+*   **机器人模型 (robot.py):**
+    *   **问题 1 (行 155-163):** `tick` 方法中的充电逻辑。当机器人处于 `IDLE` 模式且在充电器上且电量低时，会自动进入 `CHARGING` 模式。这是一个很好的设计。
+    *   **问题 2 (行 169-170):** `tick` 方法中的速度计算。`max_lane_speed` 的计算是 `lane.max_speed if lane.max_speed > 0 else self.config.max_speed`。如果 `lane.max_speed` 为 0，它会使用 `config.max_speed`。但如果 `lane.max_speed` 是负数呢？虽然不合理，但防御性编程可以处理。
+        *   **建议:** 改为 `max_lane_speed = lane.max_speed if lane.max_speed > 0 else self.config.max_speed`。或者更严格地：`max_lane_speed = max(0, lane.max_speed) if lane.max_speed else self.config.max_speed`。
+    *   **问题 3 (行 282):** `state_payload` 方法。`capability` 字段是硬编码的。对于模拟器来说可以接受，但如果未来需要模拟不同能力的机器人，这里可能需要支持配置。
+        *   **建议:** 可以考虑从 `RobotConfig` 中读取这些值，或者允许在 `assign_order` 时传入。
+
+*   **地图模型 (map.py):**
+    *   **问题 1 (行 68-139):** `_compute_bfs_positions` 函数。这是一个非常复杂的布局算法。它使用 BFS 来为没有坐标的节点分配位置。逻辑看起来是合理的，但有一个潜在问题：`component_spacing = 50.0` 是硬编码的。如果地图很大，组件间的间距可能不够。
+        *   **建议:** 可以考虑根据地图中最大组件的宽度动态计算间距，或者将其作为 `LaneGraph` 的一个参数。
+    *   **问题 2 (行 108):** `frontier = [root]` 和 `while frontier: node = frontier.pop(0)`。这是一个 BFS，但使用 `pop(0)` 在列表上的时间复杂度是 O(n)。对于大型图，这可能会成为性能瓶颈。
+        *   **建议:** 使用 `collections.deque` 来实现 BFS 队列。`frontier = deque([root])` 和 `node = frontier.popleft()`。
+
+*   **MQTT 客户端 (mqtt_client.py):**
+    *   **问题 1 (行 72):** `connect` 方法。`callback_api_version` 被设置为 `VERSION2`。这是 paho-mqtt 2.0 的新特性。需要确保项目中使用的 `paho-mqtt` 版本 >= 2.0。`pyproject.toml` 中已经添加了 `"paho-mqtt>=2.0,<3.0"`，所以没问题。
+    *   **问题 2 (行 111):** `_on_connect` 回调。在连接成功时，它会为所有已注册的机器人订阅主题并发布 `ONLINE` 消息。这是一个很好的设计，确保了重连后的状态同步。
+    *   **问题 3 (行 142):** `_on_message` 回调。主题解析逻辑 `parts = topic.split("/")` 假设主题格式严格为 `vda5050/{manufacturer}/{serialNumber}/{suffix}`。如果主题有额外的层级（例如，某些 MQTT 桥接会添加前缀），这个解析会失败。
+        *   **建议:** 可以使用更健壮的主题匹配方式，例如使用 `mqtt.Client.message_callback_add` 来为特定模式注册回调，或者使用正则表达式。对于当前用例，简单的 split 可能已经足够，但值得注意。
+
+### 4. 测试代码审查
+
+*   **测试覆盖:** 测试非常全面，涵盖了单元测试 (`test_simulator_robot.py`, `test_simulator_fleet.py`) 和集成场景测试 (`test_simulator_scenarios.py`)。这是一个巨大的加分项。
+*   **场景测试 (test_simulator_scenarios.py):**
+    *   **`CoordinatorHarness` 类:** 这是一个非常巧妙的测试夹具，它将 `FleetSimulator` 和 `RobotPlatformCoordinator` 连接起来，无需 MQTT 即可进行离线集成测试。设计模式很好。
+    *   **问题 1 (行 141-142):** `_apply_result` 方法。它通过检查 `result.commands` 来应用 HOLD/RETREAT/SPEED_CAP 命令。然后，它会**无条件地恢复所有未被 HOLD 的机器人** (`if robot_id not in held_ids and robot.held: robot.resume()`)。
+        *   **分析:** 这是一个**潜在的逻辑错误**。`coordinator.tick()` 返回的命令是**增量**的，即它只告诉模拟器“现在应该做什么”。如果上一个 tick 命令某个机器人 HOLD，而这个 tick 没有命令，模拟器不应该自动恢复它，除非 coordinator 明确发送了 RESUME 命令。当前的实现假设 coordinator 在每个 tick 都会为所有需要 HOLD 的机器人发送命令，否则就恢复。这可能与 coordinator 的实际行为不符。
+        *   **建议:** 更健壮的方式是让 `CoordinatorHarness` 维护一个“期望状态”的映射，并根据 `result.commands` 来更新这个映射，然后应用到模拟器上。或者，在每次应用命令前，先清除所有机器人的 HOLD 状态，然后再应用 coordinator 发来的 HOLD 命令。这样可以确保模拟器的状态与 coordinator 的意图完全同步。当前实现可能在某些边缘情况下导致测试结果不准确。
+
+### 5. 仪表盘 JSON 文件
+
+*   **问题:** 这些是标准的 Grafana 仪表盘 JSON 文件。没有代码逻辑问题。
+*   **建议:** 确保 `datasource` 中的 `uid` (`"prometheus"`) 在目标 Grafana 实例中是正确配置的。这是一个常见的部署问题。
+
+### 6. 其他文件
+
+*   **pyproject.toml:** 添加 `paho-mqtt` 依赖和更新测试路径，看起来正确。
+
+### 总结
+
+| 类别 | 问题 | 严重性 | 建议 |
+| :--- | :--- | :--- | :--- |
+| **Bug 修复** | `coordinator.py` 中的重复分配问题 | 高 | 修复正确，无需更改。 |
+| **逻辑变更** | `bootstrap.py` 中 `last_node_id` 的 fallback 顺序变更 | 中 | **需要确认**这是否是预期行为。 |
+| **新功能** | `bootstrap.py` 中 `_parse_sensor_health` 和 `_parse_capability` | 低 | 增加对 `None` value 的防御性检查。 |
+| **模拟器** | `cli.py` 中 `_start_lane_for_node` 的回退逻辑 | 中 | 当找不到起始车道时，应记录警告而不是静默回退。 |
+| **模拟器** | `robot.py` 中 `max_lane_speed` 的负数处理 | 低 | 增加对负值的防御性检查。 |
+| **模拟器** | `map.py` 中 BFS 使用 `list.pop(0)` | 中 | 使用 `collections.deque` 提高性能。 |
+| **模拟器** | `map.py` 中 `component_spacing` 硬编码 | 低 | 考虑动态计算或作为参数。 |
+| **模拟器** | `mqtt_client.py` 中主题解析过于简单 | 低 | 对于当前用例可能足够，但值得注意。 |
+| **测试** | `test_simulator_scenarios.py` 中 `_apply_result` 的机器人恢复逻辑 | **高** | 当前实现可能导致模拟器状态与 coordinator 意图不同步。**建议重写为基于期望状态或先清除再应用的方式。** |
+
+**总体评价:** 这是一个非常优秀的 PR。代码质量高，测试覆盖全面，新功能设计良好。主要问题集中在 `test_simulator_scenarios.py` 中的测试夹具逻辑，这可能会影响集成测试的可靠性。请优先处理这个问题。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 5 ===
+ID: 4940743030
+Author: github-actions[bot]
+Created: 2026-07-11T00:29:48Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是一个相当大规模的 PR，涉及多个模块的改动。我将按照您的要求，从 Bug、安全、性能和代码风格四个方面进行审查。
+
+---
+
+### 代码审查报告
+
+#### 1. 核心逻辑错误 (Bugs & Logic Errors)
+
+*   **`core/coordinator.py` (第 268 行): 任务分配逻辑缺陷**
+    *   **问题**: 新引入的 `assigned_robots` 集合用于确保一个 tick 内一个机器人只被分配一个任务。然而，`candidates` 列表的过滤条件中包含了 `r.robot_id not in assigned_robots`。这意味着，如果 `_active_assignments` 中已经有一个机器人，它不会被选为候选。这本身是正确的。但问题在于，`assigned_robots` 是在 `adapter` 检查之后才被更新的（第 289 行）。
+    *   **场景**: 假设有两个任务 `T1` 和 `T2`，以及一个机器人 `R1`。`R1` 不在 `_active_assignments` 中。`T1` 被处理，`R1` 被选为候选，但 `adapter_for(R1)` 返回 `None`。此时，`T1` 被重新排队，但 `R1` 已经被添加到了 `assigned_robots` 集合中。当处理 `T2` 时，`R1` 因为 `assigned_robots` 而被排除，尽管它实际上并没有被分配任何任务。
+    *   **建议**: 将 `assigned_robots.add(robot.robot_id)` 移到 `adapter` 检查之前，或者更安全地，只在确认分配成功后添加。更好的做法是重构逻辑，先找到所有可用的机器人，再尝试分配。
+
+*   **`traffic_coordinator_v5/simulator/robot.py` (第 196-198 行): 路径完成后的状态处理**
+    *   **问题**: 在 `_finish_path` 方法中，当路径完成后，机器人被设置为 `IDLE` 状态。但是，如果机器人当前所在的 `current_lane_id` 是一个充电站 (`charger_lanes()`)，并且电池电量低于阈值，它应该自动进入 `CHARGING` 模式。然而，`_finish_path` 直接设置了 `IDLE`，而自动充电逻辑只在 `tick` 方法的 `IDLE` 分支中（第 144-152 行）。这意味着机器人需要额外一个 tick 才能进入充电模式。
+    *   **建议**: 在 `_finish_path` 方法中，添加一个检查，如果满足充电条件，直接设置 `mode = SimRobotMode.CHARGING`，而不是 `IDLE`。
+
+*   **`sap-bridge/services/sap_coordinator_bridge.py` (第 120-122 行): 任务完成确认逻辑过于乐观**
+    *   **问题**: 代码假设任何不在 `active_order_ids` 中的已提交 SAP 任务都已经完成，并直接向 SAP 发送确认。这是一个非常危险的假设。任务可能因为各种原因失败（例如，机器人故障、路径不可达、被取消），但这里没有区分“完成”和“失败/取消”。
+    *   **建议**: Coordinator 的状态查询接口 (`/state`) 应该提供更详细的任务状态信息，例如“已完成”、“已失败”、“已取消”。`SapCoordinatorBridge` 应该根据这些明确的状态来确认任务，而不是仅凭“不在活跃列表中”就下结论。如果无法从 Coordinator 获取失败状态，至少应该记录一个警告，并考虑一个重试或死信机制。
+
+#### 2. 安全问题 (Security Issues)
+
+*   **`traffic_coordinator_v5/traffic_coordinator_main.py` (第 400-460 行): 新增 HTTP 端点缺乏认证**
+    *   **问题**: 新添加的 `/estop`, `/robot/{id}/recover`, `/lane/{id}/block`, `/lane/{id}/unblock` 等端点，在 `do_POST` 方法中处理。虽然代码中有一个 `_check_auth` 函数，但它只在 `do_GET` 的 `/state` 和 `/metrics` 路径中被调用。这些新的 POST 端点**完全没有进行任何认证检查**。任何能够访问该 HTTP 服务的人都可以触发紧急停止、封锁车道等危险操作。
+    *   **建议**: 在所有需要权限的 POST 端点（包括 `/estop`, `/robot/{id}/recover`, `/lane/{id}/block`, `/lane/{id}/unblock`, 以及原有的 `/order` 和 `/order/{id}/cancel`）的处理逻辑开始处，添加 `_check_auth(self)` 调用。
+
+#### 3. 性能问题 (Performance Concerns)
+
+*   **`traffic_coordinator_v5/simulator/map.py` (第 40-50 行): `_compute_bfs_positions` 方法复杂度**
+    *   **问题**: 这个方法在 `LaneGraph` 初始化时被调用，用于计算所有节点的位置。它使用了 BFS 和嵌套循环。对于大型地图（数千个节点和车道），这个计算可能会成为启动时的性能瓶颈。
+    *   **建议**: 考虑将计算出的位置缓存到磁盘（例如，作为地图 YAML 文件的一部分），或者使用更高效的布局算法。对于模拟器来说，这个计算可能可以接受，但值得注意。
+
+*   **`traffic_coordinator_v5/traffic_coordinator_main.py` (第 141-155 行): 快照序列化**
+    *   **问题**: `STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())` 在每个快照间隔都会序列化整个 Coordinator 状态。如果状态对象很大（包含大量机器人、任务等），这个序列化操作可能会阻塞主 tick 循环，尤其是在使用 `LocalStateStore`（可能基于文件或内存）时。
+    *   **建议**: 考虑使用异步或线程池来执行快照保存操作，避免阻塞主循环。或者，评估快照的频率和大小，看是否有必要每次都保存完整状态。
+
+#### 4. 代码风格与最佳实践 (Code Style & Best Practices)
+
+*   **`core/coordinator.py` (第 261 行): 类型提示**
+    *   **问题**: `assigned_robots: set[str] = set()` 是一个好的实践。但为了更清晰，可以将其类型提示为 `set[str]`。
+    *   **建议**: 保持现状，这是好的。
+
+*   **`traffic_coordinator_v5/simulator/fleet.py` (第 155-156 行): 直接访问私有属性**
+    *   **问题**: `robot._path = []` 和 `robot._path_index = 0` 在 `_apply_action` 方法中直接修改了 `SimulatedRobot` 的私有属性。这破坏了封装性。
+    *   **建议**: 在 `SimulatedRobot` 类中添加一个公共方法，例如 `cancel_order()` 或 `reset_path()`，来封装这些操作。`_apply_action` 应该调用这个公共方法。
+
+*   **`traffic_coordinator_v5/traffic_coordinator_main.py` (第 400-460 行): URL 路由逻辑**
+    *   **问题**: URL 路由是通过 `path.startswith()` 和 `path.endswith()` 的组合来手动解析的。这种方法容易出错且难以维护。例如，`/robot/foo/recover` 和 `/robot/bar/progress` 的解析逻辑非常相似，但分散在多个 `if` 块中。
+    *   **建议**: 强烈建议使用一个轻量级的 Web 框架（如 FastAPI 或 Flask）来处理路由。这会使代码更清晰、更健壮、更易于扩展。如果必须使用 `BaseHTTPRequestHandler`，考虑使用一个简单的路由字典或正则表达式来集中管理路由。
+
+*   **`traffic_coordinator_v5/simulator/robot.py` (第 282 行): 硬编码的 ISO 时间戳格式**
+    *   **问题**: `_iso_now` 方法返回的时间戳格式是固定的 `"%Y-%m-%dT%H:%M:%S.000Z"`，这假设了毫秒部分始终为 `.000`。
+    *   **建议**: 使用 `datetime.datetime.now(datetime.timezone.utc).isoformat()` 来生成符合 ISO 8601 标准的时间戳，它会更精确。
+
+*   **`traffic_coordinator_v5/traffic_coordinator_main.py` (第 270-310 行): Prometheus 指标格式**
+    *   **问题**: 手动拼接 Prometheus 文本格式的指标字符串。这容易出错（例如，忘记转义字符、格式错误）。
+    *   **建议**: 使用官方的 `prometheus_client` 库来定义和暴露指标。这会更安全、更标准，并且可以自动处理多种格式。
+
+*   **`traffic_coordinator_v5/simulator/cli.py` (第 143 行): 信号处理**
+    *   **问题**: `_signal_handler` 函数内部使用了 `nonlocal shutdown_requested`。虽然这在 CLI 脚本中可行，但更好的做法是使用 `threading.Event` 或 `asyncio.Event` 来管理关闭信号，这与 `FleetSimulator` 内部使用的 `_stop_event` 模式保持一致。
+    *   **建议**: 在 `run` 函数中创建一个 `threading.Event`，并在信号处理函数中设置它。主循环等待这个事件，而不是检查一个布尔标志。
+
+### 总结
+
+这个 PR 引入了大量有价值的新功能，包括 VDA5050 模拟器、SAP 桥接、新的 HTTP 端点和监控仪表板。代码整体结构清晰，测试覆盖也做得不错。
+
+**最需要优先修复的问题是：**
+1.  **安全**: 新的 POST 端点缺乏认证，这是一个严重的安全漏洞。
+2.  **逻辑**: SAP 桥接中的任务确认逻辑过于乐观，可能导致数据不一致。
+3.  **逻辑**: Coordinator 中的任务分配逻辑在 `adapter` 检查失败后错误地标记机器人已分配。
+
+修复这些问题后，这个 PR 将是一个高质量的贡献。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 6 ===
+ID: 4940940981
+Author: github-actions[bot]
+Created: 2026-07-11T01:00:23Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是对该 PR 的代码审查。
+
+### 总体评价
+
+本次 PR 改动量较大，主要包含以下核心功能：
+1.  **协调器核心逻辑改进**：在 `coordinator.py` 中修复了任务分配时可能将同一机器人分配给多个任务的 Bug。
+2.  **碰撞检测优化**：`robot_as_obstacle.py` 中引入了 `COLLISION_MARGIN`，区分了物理碰撞检测和安全距离走廊，逻辑更清晰。
+3.  **VDA5050 模拟器**：新增了一套完整的、基于 MQTT 的 VDA5050 机器人模拟器，包含 `FleetSimulator`、`SimulatedRobot`、`LaneGraph` 等组件，并提供了 Docker 化部署和单元测试。
+4.  **SAP 桥接服务**：新增 `sap_coordinator_bridge.py`，用于轮询 SAP 任务并转发给协调器，以及将协调器的完成状态回传给 SAP。
+5.  **监控仪表盘**：新增了三个 Grafana 仪表盘 JSON 配置文件，用于监控基础设施、机器人车队和 SAP 桥接状态。
+6.  **HTTP API 扩展**：`traffic_coordinator_main.py` 新增了 `/estop`、`/robot/{id}/recover`、`/lane/{id}/block` 等端点，并实现了状态快照持久化。
+7.  **通用适配器增强**：`bootstrap.py` 中的通用适配器现在能解析 `SensorHealth` 和 `CapabilityVector` 等结构化数据。
+
+代码整体质量较高，结构清晰，测试覆盖也做得不错。以下是一些具体问题和建议。
+
+---
+
+### 1. Bug 与逻辑错误
+
+#### 文件: `core/coordinator.py` (第 258-304 行)
+
+*   **问题**: 修复了 `assigned_robots` 集合的使用，这是一个正确的 Bug 修复。原代码在遍历任务时，没有记录已分配任务的机器人，导致同一个机器人可能被分配给多个任务。新代码通过 `assigned_robots` 集合避免了这个问题。
+*   **建议**: 无，这是一个好的修复。
+
+#### 文件: `sap-bridge/services/sap_coordinator_bridge.py` (第 107-109 行)
+
+*   **问题**: `_poll_coordinator_state` 方法中，`import time` 是冗余的，因为文件顶部已经 `import time`。
+*   **建议**: 移除第 107 行的 `import time`。
+
+#### 文件: `traffic_coordinator_v5/simulator/robot.py` (第 228-229 行)
+
+*   **问题**: `_finish_path` 方法中，将 `self.distance_along_lane` 设置为 `self.lane_graph.length(self.current_lane_id)`。此时 `self.current_lane_id` 是路径中最后一条车道的 ID，但机器人已经完成了该车道，这个设置可能让状态机认为机器人还在该车道上。
+*   **建议**: 将 `self.distance_along_lane` 重置为 0.0，或者保持为最后一条车道的长度（如果后续逻辑依赖于此）。从逻辑上看，任务完成后，机器人应该停在终点节点，`distance_along_lane` 设为 0.0 更符合“到达节点”的语义。
+
+    ```python
+    def _finish_path(self) -> None:
+        self._path = []
+        self._path_index = 0
+        self.velocity = 0.0
+        self.distance_along_lane = 0.0  # 重置为0，表示在节点上
+        self.mode = SimRobotMode.IDLE
+    ```
+
+---
+
+### 2. 安全问题
+
+#### 文件: `traffic_coordinator_v5/traffic_coordinator_main.py` (第 400-460 行)
+
+*   **问题**: 新增的 `/estop`、`/robot/{id}/recover`、`/lane/{id}/block` 等端点没有进行身份验证。虽然 `/state` 和 `/metrics` 端点有 `_check_auth` 检查，但这些新的、具有破坏性的操作（如紧急停止、封锁车道）却可以直接访问。
+*   **建议**: 为这些端点添加身份验证。可以复用 `_check_auth` 函数，或者为这些管理操作引入更严格的认证机制（如 API Key + 签名）。
+
+    ```python
+    # 示例：在 /estop 处理逻辑前添加
+    if not _check_auth(self):
+        self._json(401, {"error": "unauthorized"})
+        return
+    ```
+
+---
+
+### 3. 性能问题
+
+#### 文件: `traffic_coordinator_v5/simulator/map.py` (第 60-140 行)
+
+*   **问题**: `_compute_bfs_positions` 方法在每次 `LaneGraph` 初始化时都会执行，如果地图很大（节点和车道很多），这个计算可能会成为性能瓶颈。虽然目前看起来是合理的，但需要注意。
+*   **建议**: 考虑将计算出的位置缓存到文件或数据库中，或者提供一个懒加载机制，只在需要时才计算。对于测试场景，可以提供一个预定义位置的构造函数。
+
+#### 文件: `sap-bridge/services/sap_coordinator_bridge.py` (第 97-98 行)
+
+*   **问题**: `_poll_sap_tasks` 方法每次轮询都调用 `backend.list_tasks`，如果 SAP 任务列表很大，可能会造成不必要的网络开销和内存占用。
+*   **建议**: 考虑使用分页（`top=50` 已经做了限制）和增量拉取（只拉取上次轮询后新增的任务）。可以记录上次成功拉取的时间戳，并在查询时使用。
+
+---
+
+### 4. 代码风格与最佳实践
+
+#### 文件: `core/coordinator.py` (第 258-304 行)
+
+*   **问题**: 在 `for task in tasks:` 循环内部，`candidates` 列表推导式使用了 `r.robot_id not in assigned_robots` 来过滤。这是一个好的做法，但可以更清晰地表达意图。
+*   **建议**: 无，代码可读性良好。
+
+#### 文件: `core/platform/robot_as_obstacle.py` (第 114-130 行)
+
+*   **问题**: `_margin` 函数定义在 `_obb_overlap` 内部，虽然可行，但将其提升为类方法或模块级函数可能更清晰，尤其是在它被多次调用时。
+*   **建议**: 将 `_margin` 定义为 `@staticmethod`，放在 `_obb_overlap` 之前。
+
+    ```python
+    @staticmethod
+    def _margin(fp: Footprint) -> float:
+        if fp.half_length == 0.0 and fp.half_width == 0.0:
+            return fp.corridor
+        return RobotAsObstacle.COLLISION_MARGIN
+
+    @staticmethod
+    def _obb_overlap(a: Footprint, b: Footprint) -> bool:
+        # ... 使用 RobotAsObstacle._margin(fp)
+    ```
+
+#### 文件: `traffic_coordinator_v5/simulator/cli.py` (第 82 行)
+
+*   **问题**: `_start_lane_for_node` 函数中，如果 `node_id` 没有出边，会返回 `lane_graph.first_lane()`。这个回退逻辑可能不是用户期望的，如果指定了一个无效的 `--start-node`，应该报错而不是静默地使用第一个车道。
+*   **建议**: 当 `node_id` 没有出边时，记录一个警告或直接报错退出。
+
+    ```python
+    def _start_lane_for_node(lane_graph: LaneGraph, node_id: str) -> str | None:
+        for lane in lane_graph.all_lanes():
+            if lane.from_node == node_id:
+                return lane.lane_id
+        logger.warning("Node %s has no outgoing lanes, falling back to first lane", node_id)
+        return lane_graph.first_lane()
+    ```
+
+#### 文件: `traffic_coordinator_v5/simulator/fleet.py` (第 152 行)
+
+*   **问题**: `set_command_handlers` 方法使用了 `type: ignore[assignment]` 来绕过类型检查。这通常意味着类型设计上可以改进。
+*   **建议**: 考虑使用 `Callable` 类型的 `Optional` 参数，并在内部处理 `None` 的情况，而不是在赋值时忽略类型。
+
+    ```python
+    def set_command_handlers(
+        self,
+        on_order: Callable[[str, dict], None] | None = None,
+        on_instant_actions: Callable[[str, dict], None] | None = None,
+    ) -> None:
+        if on_order is not None:
+            self._route_order = on_order
+        if on_instant_actions is not None:
+            self._route_instant_actions = on_instant_actions
+    ```
+
+#### 文件: `traffic_coordinator_v5/traffic_coordinator_main.py` (第 270-290 行)
+
+*   **问题**: `/metrics` 端点现在手动构建 Prometheus 文本格式。虽然可行，但使用 `prometheus_client` 库会更标准、更健壮，并且能自动处理类型和文档。
+*   **建议**: 引入 `prometheus_client` 库，定义 Counter 和 Gauge 指标，并使用 `generate_latest()` 生成响应。
+
+#### 文件: `traffic_coordinator_v5/traffic_coordinator_main.py` (第 400-460 行)
+
+*   **问题**: 多个新端点（`/estop`, `/robot/{id}/recover` 等）的处理逻辑中，都包含了 `COORDINATOR.tick(now)` 和 `_publish_tick_result(result)`。这会导致在 HTTP 请求处理路径中执行协调器的核心 tick 逻辑，可能会阻塞请求处理线程。
+*   **建议**: 这些端点应该只负责提交命令（如 `emergency_stop`、`manual_recover`），而 tick 逻辑应该由后台线程 `_background_tick` 统一执行。这样可以避免 HTTP 请求处理时间过长，并保持状态更新的一致性。
+
+    ```python
+    # 在 /estop 处理逻辑中
+    if path == "/estop":
+        zone_id = body.get("zone_id")
+        COORDINATOR.emergency_stop(zone_id, now)
+        # 不在这里调用 tick，等待后台线程处理
+        self._json(200, {"estop": True, "zone": zone_id})
+        return
+    ```
+
+---
+
+### 总结
+
+这是一个非常出色的 PR，引入了大量有价值的新功能和改进。上述建议主要集中在安全加固、性能考量和代码风格的一致性上。特别是 **安全漏洞（第2点）** 和 **HTTP 请求中执行 tick 逻辑（第4点）** 这两个问题，建议在合并前优先处理。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 7 ===
+ID: 4941072242
+Author: github-actions[bot]
+Created: 2026-07-11T01:19:45Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是对该 PR 的代码审查。
+
+### 总体评价
+
+这个 PR 的规模很大，引入了多个新功能模块：VDA5050 模拟器、SAP 桥接服务、监控仪表板、基础设施健康检查，以及对核心协调器和适配器的多项增强。整体代码质量较高，结构清晰，测试覆盖也比较全面。以下是一些需要关注和改进的具体点。
+
+---
+
+### 1. 核心逻辑与 Bug
+
+**`core/coordinator.py` (第 258-307 行)**
+*   **潜在 Bug：`assigned_robots` 集合的用途与 `_active_assignments` 重叠。**
+    *   **问题：** 新引入的 `assigned_robots` 集合用于在一次 `tick` 中防止同一机器人被分配多个任务。然而，`_active_assignments` 字典已经包含了当前有活跃任务的机器人。在 `candidates` 列表的过滤条件中，同时检查 `assigned_robots` 和 `_active_assignments` 是冗余的，但更重要的是，`assigned_robots` 只在当前 `tick` 内有效，而 `_active_assignments` 是跨 `tick` 的。这本身不是 bug，但逻辑可以更清晰。
+    *   **建议：** 考虑将 `assigned_robots` 的用途明确化。如果目的是防止同一个 `tick` 内重复分配，那么 `_active_assignments` 的检查已经足够了（因为任务分配后，机器人会立即被加入 `_active_assignments`）。`assigned_robots` 可能是一个额外的安全网，但它的存在可能会在未来维护时造成混淆。建议添加注释说明其与 `_active_assignments` 的关系，或者如果确认冗余，可以移除。
+
+**`core/platform/robot_as_obstacle.py` (第 114-130 行)**
+*   **逻辑问题：`_margin` 函数对虚拟墙的处理可能不正确。**
+    *   **问题：** `_margin` 函数中，对于虚拟墙（`half_length == 0.0 and half_width == 0.0`），返回了 `fp.corridor`。这意味着虚拟墙的碰撞检测仍然使用了安全距离走廊，而不是新的 `COLLISION_MARGIN`。这与注释中“Overlap detection for emergency HOLD commands should reflect actual body overlap plus a small tolerance”的意图相悖。虚拟墙应该被视为一个点，其碰撞检测应该使用更严格的 `COLLISION_MARGIN` 来触发紧急停止。
+    *   **建议：** 将虚拟墙的 margin 也改为 `COLLISION_MARGIN`，或者根据业务逻辑重新评估。如果虚拟墙确实需要更大的安全距离，那么应该保留当前逻辑，但需要更新注释以解释原因。
+
+**`sap-bridge/services/sap_coordinator_bridge.py` (第 119-153 行)**
+*   **潜在 Bug：无法区分任务完成与失败。**
+    *   **问题：** 代码中明确注释了“cannot distinguish completed/failed from coordinator state”。这意味着，如果一个任务在协调器端失败（例如，机器人无法执行），桥接服务仍然会将其视为“完成”并确认给 SAP。这会导致 SAP 系统中的数据不一致。
+    *   **建议：** 这是一个严重的功能缺失。必须找到一种方法来区分完成和失败。可能的方案包括：
+        1.  **扩展协调器的状态 API：** 让协调器暴露一个已完成/失败任务的列表，并包含状态信息。
+        2.  **利用协调器的日志/事件：** 如果协调器有事件流，桥接服务可以订阅这些事件来获取准确的状态。
+        3.  **临时方案：** 在无法区分的情况下，**不要自动确认**。改为将任务标记为“待人工审核”，或者记录一个高优先级的告警。当前直接确认的行为风险很高。
+
+### 2. 安全问题
+
+**`traffic_coordinator_v5/traffic_coordinator_main.py` (第 400-460 行)**
+*   **缺少认证/授权检查。**
+    *   **问题：** 新添加的端点（`/estop`, `/robot/{id}/recover`, `/lane/{id}/block` 等）是高风险操作。它们没有像 `/state` 和 `/metrics` 那样进行 `_check_auth` 认证检查。任何能够访问该 HTTP 服务的人都可以触发紧急停止或封锁车道。
+    *   **建议：** 为所有新添加的、会改变系统状态的 POST 端点添加认证检查。例如：
+        ```python
+        if path == "/estop":
+            if not _check_auth(self):
+                self._json(401, {"error": "unauthorized"})
+                return
+            # ... rest of the logic
+        ```
+        对其他端点（`/robot/.../recover`, `/lane/.../block`, `/lane/.../unblock`）也做同样的处理。
+
+### 3. 性能问题
+
+**`traffic_coordinator_v5/simulator/map.py` (第 57-140 行)**
+*   **`_compute_bfs_positions` 方法在初始化时可能成为性能瓶颈。**
+    *   **问题：** 该方法在 `LaneGraph` 初始化时被调用，用于计算所有节点的位置。如果地图非常大（例如，数千个节点和车道），这个 BFS 计算可能会消耗显著的时间（尽管是 O(N)）。对于模拟器来说，这可能不是问题，但如果 `LaneGraph` 被用于其他性能敏感的路径，就需要留意。
+    *   **建议：** 这是一个设计上的权衡。目前看来是可接受的。可以考虑将计算结果缓存或序列化，以便在多次启动时复用，但这会增加复杂性。当前实现对于模拟器场景是合理的。
+
+### 4. 代码风格与最佳实践
+
+**`sap-bridge/services/sap_coordinator_bridge.py` (第 1-159 行)**
+*   **代码风格：`import time` 在函数内部。**
+    *   **问题：** 在第 109 行，`import time` 被放在了 `_poll_coordinator_state` 方法内部。虽然 Python 允许这样做，但通常不推荐，因为它会降低代码可读性，并且每次调用该方法时都会重新导入模块（尽管有缓存，但风格不佳）。
+    *   **建议：** 将 `import time` 移到文件顶部的全局导入区域。
+
+**`traffic_coordinator_v5/traffic_coordinator_main.py` (第 270-350 行)**
+*   **代码风格：`/metrics` 端点的 Prometheus 文本格式是手动构建的。**
+    *   **问题：** 手动拼接字符串来生成 Prometheus 指标格式容易出错且难以维护。如果指标数量增加，代码会变得非常冗长。
+    *   **建议：** 考虑使用 `prometheus_client` 库。它可以更简洁、更健壮地定义和暴露指标。例如：
+        ```python
+        from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+
+        # 在模块级别定义指标
+        tc_uplinks_total = Counter('tc_uplinks_total', 'Total robot state uplinks received')
+        # ... 其他指标
+
+        # 在 /metrics 端点处理函数中
+        self.send_response(200)
+        self.send_header('Content-Type', CONTENT_TYPE_LATEST)
+        self.end_headers()
+        self.wfile.write(generate_latest())
+        ```
+        这需要添加 `prometheus_client` 作为依赖。
+
+**`traffic_coordinator_v5/traffic_coordinator_main.py` (第 400-460 行)**
+*   **代码风格：重复的路径解析和认证逻辑。**
+    *   **问题：** 多个新端点（`/robot/.../recover`, `/lane/.../block` 等）都包含了类似的路径分割、ID 验证和认证检查（如果添加了的话）代码。这违反了 DRY（Don't Repeat Yourself）原则。
+    *   **建议：** 创建一个辅助函数来处理这些通用逻辑，例如：
+        ```python
+        def _handle_resource_action(self, path: str, action: str, now: float) -> bool:
+            # 解析路径，提取 resource_type (robot/lane) 和 resource_id
+            # 进行认证和 ID 验证
+            # 调用 COORDINATOR 的相应方法
+            # 返回 True 如果处理成功，否则 False
+        ```
+        然后在 `do_POST` 中调用这个辅助函数，可以大大简化代码。
+
+**`traffic_coordinator_v5/simulator/fleet.py` (第 1-181 行)**
+*   **最佳实践：`_run_loop` 中的 `time.sleep` 和 `self._stop_event.wait` 混用。**
+    *   **问题：** `_run_loop` 方法中，先调用了 `tick_once` 和 `_publish_states`，然后调用了 `self._stop_event.wait(self._publish_interval)`。这意味着一个循环的总耗时是 `tick_once` + `_publish_states` + `_publish_interval`。如果前两个操作耗时较长，实际的循环间隔会大于 `_publish_interval`。
+    *   **建议：** 更精确的做法是记录循环开始时间，计算 `tick_once` 和 `_publish_states` 的耗时，然后只等待剩余的时间。或者，如果对实时性要求不高，当前做法也是可以接受的。
+
+### 总结
+
+这个 PR 引入了非常有价值的新功能，代码质量整体很高。主要需要关注的是：
+1.  **安全风险：** 新端点缺少认证，这是最严重的问题，必须修复。
+2.  **功能缺陷：** SAP 桥接服务无法区分任务成功/失败，可能导致数据不一致，需要设计解决方案。
+3.  **代码质量：** 可以通过引入辅助函数和 Prometheus 客户端库来减少重复代码并提高可维护性。
+
+修复上述问题后，这个 PR 就可以合并了。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 8 ===
+ID: 4941110256
+Author: github-actions[bot]
+Created: 2026-07-11T01:26:07Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是对该 PR 的代码审查。
+
+### 总体评价
+这个 PR 规模很大，引入了多个新功能：VDA5050 模拟器、SAP 桥接器、监控仪表盘、自动进度报告、紧急停止/车道阻塞 API、状态快照等。代码整体结构清晰，测试覆盖良好，但存在一些需要关注的逻辑问题和潜在风险。
+
+### 1. 关键问题与 Bug
+
+#### a) `_auto_report_progress` 中的无限循环风险 (coordinator.py: 696-732)
+- **问题**: `_auto_report_progress` 方法中的 `for lane_id in path[idx:]` 循环在 `lane.to_node != last_node` 时 `break`，但如果 `lane.to_node == last_node` 且 `report_progress` 返回 `True`，循环会继续。如果 `path` 中有多个连续 lane 的 `to_node` 都等于 `last_node`，循环会一直执行，直到 `report_progress` 返回 `False` 或遍历完所有 lane。这本身不是无限循环，但逻辑上可能不正确：一个 `last_node_id` 不应该能匹配多个连续的 lane。
+- **建议**: 循环应该只处理第一个匹配的 lane。找到匹配的 lane 并成功报告进度后，应该 `break` 而不是继续循环。
+
+```python
+# coordinator.py 第 722 行附近
+for lane_id in path[idx:]:
+    lane = self.fmap.lane(lane_id)
+    if lane is None or lane.to_node != last_node:
+        break
+    if not self.report_progress(robot_id, lane_id, now):
+        break
+    break  # <--- 添加这一行，只处理第一个匹配的 lane
+```
+
+#### b) `_auto_report_progress` 在 `tick` 中被调用，可能导致状态不一致 (coordinator.py: 160)
+- **问题**: `_auto_report_progress` 在 `tick` 方法中被调用，而 `tick` 方法本身会处理任务分配、碰撞检测等。在 `tick` 内部修改 `_active_assignments` 和 `_robot_lane` 等状态，可能会与 `tick` 的其他部分产生竞态条件或逻辑冲突。例如，`report_progress` 可能会在 `tick` 进行任务分配之前或之后修改状态，导致意外的行为。
+- **建议**: 将 `_auto_report_progress` 的调用移出 `tick` 方法，或者将其逻辑集成到 `tick` 的某个特定阶段（例如，在状态更新之后，但在任务分配之前）。或者，将其作为 MQTT 消息处理的一部分，在接收到机器人状态更新时调用。
+
+#### c) `SapCoordinatorBridge` 的 `_poll_coordinator_state` 方法对任务完成/失败的判断过于武断 (sap_coordinator_bridge.py: 113-169)
+- **问题**: 该方法通过检查订单是否在 `active_assignments` 中来判断任务是否完成。如果订单从 `active_assignments` 中消失（例如，由于机器人故障、手动取消或协调器重启），它会在 `GRACE_POLLS` 次轮询后自动确认到 SAP。这可能导致 SAP 认为任务已完成，而实际上任务可能失败或被取消。
+- **建议**:
+    1.  **增加更明确的完成信号**: 协调器应该提供一个更明确的“任务完成”状态，而不是仅仅依赖订单从活跃列表中消失。例如，可以添加一个 `completed_assignments` 字段到 `/state` 端点。
+    2.  **区分失败和取消**: 协调器应该区分任务失败和任务取消，并分别报告。`SapCoordinatorBridge` 应该根据这些不同的状态采取不同的行动（例如，失败则通知 SAP，取消则忽略）。
+    3.  **使用更安全的确认机制**: 在 `AUTO_CONFIRM` 模式下，至少应该记录一个警告日志，如代码所示。更好的做法是，即使自动确认，也记录一个“可能已完成”的事件，而不是“已完成”。
+
+#### d) `_auto_report_progress` 中 `adapter.current_path` 的调用可能返回过时数据 (coordinator.py: 720)
+- **问题**: `adapter.current_path(robot_id)` 返回的是适配器内部缓存的路径。这个路径可能不是协调器当前分配给该机器人的最新路径。如果协调器在 `tick` 中更新了分配，但适配器尚未同步，`_auto_report_progress` 可能会基于过时的路径来报告进度。
+- **建议**: 直接从 `_active_assignments` 中获取当前分配的任务路径，而不是依赖适配器。这可以确保进度报告基于协调器的最新状态。
+
+### 2. 安全问题
+
+#### a) 监控仪表板中的 Prometheus 查询可能泄露敏感信息 (robot-fleet.json, sap-bridge-overview.json)
+- **问题**: 仪表板中的 Prometheus 查询（如 `sap_bridge_battery_percent`）直接暴露了指标名称。如果这些指标包含敏感信息（例如，机器人 ID、订单 ID），则任何可以访问 Grafana 的人都能看到。
+- **建议**: 确保 Prometheus 指标本身不包含敏感数据。如果必须包含，考虑在 Grafana 层面进行数据脱敏或使用更严格的访问控制。
+
+### 3. 性能问题
+
+#### a) `_auto_report_progress` 在每个 `tick` 中为每个机器人执行 O(n) 的路径搜索 (coordinator.py: 720-724)
+- **问题**: `_auto_report_progress` 在每个 `tick` 中为每个有活跃分配的机器人调用 `adapter.current_path`，然后遍历路径。如果机器人数量很多，或者路径很长，这可能会成为性能瓶颈。
+- **建议**: 优化路径搜索。例如，可以缓存每个机器人当前所在的路径索引，或者使用更高效的数据结构（如哈希表）来快速查找 lane 是否在路径中。
+
+#### b) `SapCoordinatorBridge` 的轮询频率 (sap_coordinator_bridge.py: 16)
+- **问题**: `SAP_TC_POLL_INTERVAL` 默认值为 5 秒。如果 SAP 系统或协调器负载很高，这个频率可能过高，导致不必要的压力。
+- **建议**: 根据实际需求调整默认轮询间隔。可以考虑使用更长的间隔（例如 10-15 秒），或者实现自适应轮询策略。
+
+### 4. 代码风格与最佳实践
+
+#### a) 类型提示不一致 (多处)
+- **问题**: 部分函数参数和返回值缺少类型提示，或者使用了 `Any` 类型。
+- **建议**: 为所有函数参数和返回值添加明确的类型提示，以提高代码可读性和可维护性。例如，`_parse_sensor_health` 和 `_parse_capability` 函数的 `raw` 参数应该使用 `dict[str, Any]` 而不是 `dict`。
+
+#### b) 魔法数字 (多处)
+- **问题**: 代码中存在一些魔法数字，例如 `GRACE_POLLS = 2` (sap_coordinator_bridge.py: 139)，`component_spacing = 50.0` (map.py: 88)。
+- **建议**: 将这些魔法数字定义为有意义的常量，并添加注释说明其用途。
+
+#### c) 异常处理过于宽泛 (多处)
+- **问题**: 许多 `try...except` 块捕获了过于宽泛的 `Exception`，这可能会隐藏真正的错误。
+- **建议**: 尽可能捕获更具体的异常类型。例如，在 `_background_tick` 中，应该捕获 `STATE_STORE.set` 可能抛出的特定异常（如 `ConnectionError`、`TimeoutError`），而不是通用的 `Exception`。
+
+#### d) 测试代码中的硬编码路径 (test_simulator_scenarios.py)
+- **问题**: 测试代码中使用了 `tempfile.TemporaryDirectory()` 来创建临时目录，这是一个好的做法。但是，`CoordinatorHarness` 的 `__del__` 方法中调用了 `self._tmp.cleanup()`，这可能会导致在测试失败时资源未被正确清理。
+- **建议**: 使用 `pytest` 的 `tmp_path` fixture 来管理临时目录，它会在测试结束后自动清理。
+
+### 总结
+这个 PR 引入了许多有价值的功能，但 `_auto_report_progress` 的逻辑和 `SapCoordinatorBridge` 的任务完成判断机制存在潜在风险。建议在合并前解决上述问题，特别是关于状态一致性和任务完成确认的 bug。代码风格和性能方面的问题可以后续逐步优化。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 9 ===
+ID: 4941270332
+Author: github-actions[bot]
+Created: 2026-07-11T01:45:12Z
+Body:
+## 🤖 AI Code Review
+
+好的，我来对这份 PR diff 进行代码审查。
+
+## 代码审查报告
+
+### 1. 关键 Bug 与逻辑错误
+
+**a) `_auto_report_progress` 中的无限循环风险 (coordinator.py:696-736)**
+
+```python
+# coordinator.py:722-728
+for lane_id in path[idx:]:
+    lane = self.fmap.lane(lane_id)
+    if lane is None or lane.to_node != last_node:
+        break
+    # Advance waypoint for the lane the robot just completed.
+    # Only process one lane per tick — if the robot traversed multiple
+    # nodes since the last tick, subsequent ticks will catch up.
+    self.report_progress(robot_id, lane_id, now)
+    break
+```
+
+**问题**: 循环体末尾有 `break`，但循环条件 `for lane_id in path[idx:]` 本身不会导致无限循环。然而，如果 `lane.to_node == last_node` 始终成立（例如，多个 lane 指向同一个节点），循环会遍历所有后续 lane 并调用 `report_progress`，这与注释 "Only process one lane per tick" 矛盾。
+
+**建议**: 移除 `break` 前的循环逻辑，或者将 `for` 改为 `if` 以确保只处理一个 lane。
+
+```python
+# 修复方案：只检查第一个匹配的 lane
+for lane_id in path[idx:]:
+    lane = self.fmap.lane(lane_id)
+    if lane is not None and lane.to_node == last_node:
+        self.report_progress(robot_id, lane_id, now)
+        break
+    break  # 不匹配则立即停止
+```
+
+**b) 任务分配中的 `assigned_robots` 集合未考虑机器人离线 (coordinator.py:259-307)**
+
+```python
+# coordinator.py:259-269
+assigned_robots: set[str] = set()
+for task in tasks:
+    if self._is_expired_or_exhausted(task, now):
+        continue
+    candidates = [
+        r for r in self._robot_states.values()
+        if r.robot_id not in assigned_robots
+        and r.robot_id not in self._active_assignments
+        and not r.degraded
+        and not self.failover.is_offline(r.robot_id)
+        ...
+    ]
+```
+
+**问题**: `assigned_robots` 只在当前 tick 内有效，但 `_active_assignments` 在 `dispatch` 成功后才会更新（第 308 行）。如果同一个 tick 内有两个任务，第一个任务分配了机器人 R1，第二个任务在 `_active_assignments` 更新前检查，`assigned_robots` 能防止重复分配。但如果第一个任务的 `dispatch` 失败（第 304-305 行 continue），`assigned_robots` 中仍然有 R1，导致 R1 在本 tick 内无法被分配其他任务。
+
+**建议**: 在 `dispatch` 失败时从 `assigned_robots` 中移除机器人。
+
+```python
+# coordinator.py:304-309
+if not adapter.dispatch(robot.robot_id, assignment, now):
+    assigned_robots.discard(robot.robot_id)  # 添加这一行
+    continue
+assigned_robots.add(robot.robot_id)
+self._active_assignments[robot.robot_id] = assignment
+```
+
+**c) `SapCoordinatorBridge` 中 `_poll_coordinator_state` 的 `active_order_ids` 解析 (sap_coordinator_bridge.py:129-140)**
+
+```python
+# sap_coordinator_bridge.py:129-140
+active = result.data.get("active_assignments", {})
+active_order_ids = set()
+if isinstance(active, dict):
+    for _robot, assign in active.items():
+        if isinstance(assign, dict):
+            oid = assign.get("order_id", "")
+            if oid:
+                active_order_ids.add(oid)
+        elif isinstance(assign, list):
+            for a in assign:
+                if isinstance(a, dict):
+                    oid = a.get("order_id", "")
+                    if oid:
+                        active_order_ids.add(oid)
+```
+
+**问题**: `active_assignments` 的值可能是 `TaskAssignment` 对象而非字典。如果 `assign` 是对象，`assign.get("order_id")` 会抛出 `AttributeError`。
+
+**建议**: 使用 `getattr` 或类型检查。
+
+```python
+# 修复方案
+if hasattr(assign, 'task_id'):
+    oid = assign.task_id
+elif isinstance(assign, dict):
+    oid = assign.get("order_id", "")
+else:
+    oid = ""
+```
+
+### 2. 安全问题
+
+**a) 缺少输入验证 (traffic_coordinator_main.py:400-460)**
+
+多个新端点（`/estop`, `/robot/{id}/recover`, `/lane/{id}/block` 等）没有对请求体进行充分的验证。例如，`/estop` 接受 `zone_id` 但未验证其格式。
+
+**建议**: 对所有用户输入进行正则表达式验证，或使用 Pydantic 模型。
+
+**b) 快照数据未加密 (traffic_coordinator_main.py:141-150)**
+
+```python
+STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+```
+
+快照可能包含敏感信息（机器人状态、任务分配等）。如果 `LocalStateStore` 使用文件存储，这些数据可能被未授权访问。
+
+**建议**: 对快照数据进行加密，或确保存储路径权限正确。
+
+### 3. 性能问题
+
+**a) `_auto_report_progress` 每次 tick 都调用 (coordinator.py:160)**
+
+```python
+self._auto_report_progress(state.robot_id, now)
+```
+
+**问题**: 每次状态更新都调用此方法，即使机器人没有活跃任务。对于大量机器人，这会增加不必要的开销。
+
+**建议**: 在方法开头添加快速检查，如果没有活跃任务则立即返回（已实现），但可以考虑在调用点也进行检查：
+
+```python
+if state.robot_id in self._active_assignments:
+    self._auto_report_progress(state.robot_id, now)
+```
+
+**b) `SapCoordinatorBridge` 的轮询间隔 (sap_coordinator_bridge.py:81-87)**
+
+```python
+async def _run(self) -> None:
+    while not self._stop.is_set():
+        try:
+            await self._poll_sap_tasks()
+            await self._poll_coordinator_state()
+        except Exception as exc:
+            logger.warning("SAP-TC bridge cycle error: %s", exc)
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL)
+        except asyncio.TimeoutError:
+            pass
+```
+
+**问题**: 默认轮询间隔为 5 秒，对于高吞吐量场景可能不够。此外，`_poll_sap_tasks` 和 `_poll_coordinator_state` 是串行执行的，可能阻塞。
+
+**建议**: 考虑并行执行两个轮询任务，或使用更短的间隔（如 2 秒）。
+
+### 4. 代码风格与最佳实践
+
+**a) 魔法数字 (robot_as_obstacle.py:51)**
+
+```python
+COLLISION_MARGIN = 0.05   # physical body overlap tolerance for HOLD commands
+```
+
+**问题**: 0.05 米的碰撞余量没有注释说明其来源。对于不同尺寸的机器人，这个值可能需要调整。
+
+**建议**: 添加注释说明这个值的确定依据，或将其设为可配置参数。
+
+**b) 重复的 `_SAFE_ID_RE` 检查 (traffic_coordinator_main.py:400-460)**
+
+多个端点重复使用相同的正则表达式检查。建议提取为辅助函数：
+
+```python
+def _validate_id(id_str: str) -> bool:
+    return bool(_SAFE_ID_RE.match(id_str))
+```
+
+**c) 模拟器中的 `_run_loop` 使用 `time.sleep` (fleet.py:82-87)**
+
+```python
+def _run_loop(self) -> None:
+    while self._running and not self._stop_event.is_set():
+        now = time.monotonic()
+        self.tick_once(self._publish_interval)
+        self._publish_states(now)
+        self._stop_event.wait(self._publish_interval)
+```
+
+**问题**: `_stop_event.wait(self._publish_interval)` 在事件未设置时会等待整个间隔，但 `tick_once` 和 `_publish_states` 的执行时间未计入。这可能导致实际 tick 间隔略长于配置值。
+
+**建议**: 使用更精确的定时方式：
+
+```python
+def _run_loop(self) -> None:
+    while self._running and not self._stop_event.is_set():
+        tick_start = time.monotonic()
+        self.tick_once(self._publish_interval)
+        self._publish_states(tick_start)
+        elapsed = time.monotonic() - tick_start
+        wait_time = max(0, self._publish_interval - elapsed)
+        self._stop_event.wait(wait_time)
+```
+
+**d) 测试中的 `CoordinatorHarness.__del__` 可能引发异常 (test_simulator_scenarios.py:57-59)**
+
+```python
+def __del__(self):
+    if hasattr(self, "_tmp"):
+        self._tmp.cleanup()
+```
+
+**问题**: `__del__` 中调用 `cleanup()` 可能抛出异常，且 `hasattr` 检查在 `__del__` 中不可靠。
+
+**建议**: 使用 `contextlib.closing` 或 `pytest.fixture` 的 `yield` 模式来管理临时目录。
+
+### 5. 总结
+
+**优点**:
+- 新增的 VDA5050 模拟器功能完整，测试覆盖良好
+- `_auto_report_progress` 解决了协议级模拟器的关键需求
+- 碰撞检测的 `COLLISION_MARGIN` 设计合理
+- 监控面板配置完整，覆盖了关键指标
+
+**主要问题**:
+1. `_auto_report_progress` 中的循环逻辑与注释不一致
+2. 任务分配失败时 `assigned_robots` 未正确清理
+3. `SapCoordinatorBridge` 中 `active_assignments` 的类型处理不健壮
+4. 新端点缺少输入验证
+
+**建议优先级**:
+- **高**: 修复 `_auto_report_progress` 循环逻辑和 `assigned_robots` 清理
+- **中**: 添加输入验证、修复 `SapCoordinatorBridge` 的类型处理
+- **低**: 优化性能、改进代码风格
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 10 ===
+ID: 4941567229
+Author: github-actions[bot]
+Created: 2026-07-11T02:19:21Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是对本次 PR 的代码审查。
+
+本次 PR 变更量较大，主要包含以下核心改动：
+1.  **核心逻辑增强**：在 `coordinator.py` 中新增 `_auto_report_progress` 方法，允许通过 VDA5050 状态推断机器人进度；在任务分配循环中引入 `assigned_robots` 集合，防止同一 tick 内重复分配。
+2.  **碰撞检测优化**：在 `robot_as_obstacle.py` 中引入 `COLLISION_MARGIN`，将紧急 HOLD 命令的碰撞检测与安全距离走廊解耦。
+3.  **新模块引入**：新增 `traffic_coordinator_v5/simulator/` 模块，这是一个完整的 VDA5050 模拟器，用于集成测试。
+4.  **SAP 桥接**：新增 `sap-bridge/services/sap_coordinator_bridge.py`，实现 SAP 任务与 Coordinator 订单的双向同步。
+5.  **基础设施**：新增多个 Grafana 监控面板、Docker Compose 配置、Prometheus 指标端点、以及基于 `LocalStateStore` 的崩溃恢复快照功能。
+6.  **API 扩展**：在 `traffic_coordinator_main.py` 和 `sap-bridge` 客户端中新增了 `estop`、`block/unblock lane`、`recover`、`progress` 等端点。
+
+以下是针对各文件的详细审查意见：
+
+---
+
+### 1. `core/coordinator.py`
+
+**问题 1 (Bug): `_auto_report_progress` 可能导致无限循环或跳过进度 (第 696-730 行)**
+
+*   **问题描述**: `_auto_report_progress` 方法在 `tick` 循环中被调用。它遍历 `path[idx:]` 并检查 `lane.to_node != last_node`。如果 `last_node` 与路径中多个连续车道的 `to_node` 都匹配（例如，一个长路径被分割成多个短车道，但共享同一个中间节点），循环会在第一个匹配的车道处 `break`。这本身是设计意图（每个 tick 只处理一个车道）。然而，如果 `last_node` 与路径中**第一个**车道的 `to_node` 不匹配，循环会立即 `break`，不会检查后续车道。这可能导致进度报告被跳过，直到下一个 tick 的 `pose.last_node_id` 发生变化。
+*   **建议**: 逻辑上，应该寻找 `last_node` 与 `lane.to_node` 匹配的**第一个**车道。当前实现是正确的，但注释和逻辑可以更清晰。更严重的问题是，如果 `last_node` 与路径中**任何**车道的 `to_node` 都不匹配，该方法会静默返回，不会报错。这可能导致机器人卡住。
+*   **修复建议**: 在 `for` 循环前添加一个日志，记录 `last_node` 和当前路径，以便调试。如果循环结束后没有找到匹配的车道，可以考虑记录一个 `WARNING` 日志。
+
+**问题 2 (Bug): `assigned_robots` 集合的引入可能导致任务分配饥饿 (第 259-307 行)**
+
+*   **问题描述**: 引入 `assigned_robots` 集合是为了防止同一 tick 内重复分配。但是，如果 `_active_assignments` 的更新（第 308 行）和 `assigned_robots` 的添加（第 307 行）之间存在异常（例如 `adapter.dispatch` 抛出异常），`assigned_robots` 集合中的机器人 ID 不会被清理，导致该机器人永远不会被分配新任务，直到 Coordinator 重启。
+*   **建议**: 这是一个典型的“部分失败”问题。
+*   **修复建议**: 将 `adapter.dispatch` 和后续的状态更新包裹在 `try...except` 块中。如果 `dispatch` 失败，应从 `assigned_robots` 中移除该机器人 ID，并记录错误。或者，将 `assigned_robots` 的添加放在 `dispatch` 成功之后。
+
+```python
+# 建议的修复方案
+try:
+    adapter.dispatch(robot.robot_id, assignment, now)
+except Exception as e:
+    logger.error("Failed to dispatch task %s to robot %s: %s", assignment.task_id, robot.robot_id, e)
+    # 不要将机器人加入 assigned_robots，允许它在后续 tick 中被重新分配
+    continue
+
+assigned_robots.add(robot.robot_id)
+self._active_assignments[robot.robot_id] = assignment
+self._update_occupancy(robot.robot_id, assignment.path[0])
+assigned.append((robot.robot_id, assignment))
+```
+
+---
+
+### 2. `core/platform/robot_as_obstacle.py`
+
+**问题 3 (逻辑/设计): `COLLISION_MARGIN` 的引入可能改变碰撞检测行为 (第 51, 114-130 行)**
+
+*   **问题描述**: 将虚拟墙的 `corridor` 替换为 `COLLISION_MARGIN` 是一个好的设计解耦。但是，`_margin` 函数对虚拟墙（`half_length == 0 and half_width == 0`）返回 `fp.corridor`，而对物理机器人返回 `COLLISION_MARGIN`。这意味着虚拟墙的碰撞检测范围保持不变，而物理机器人之间的碰撞检测范围被显著缩小（从 `corridor` 到 `0.05`）。这可能会增加物理机器人之间发生实际碰撞的风险，因为 `SPEED_CAP` 和 `COLLISION_HOLD` 之间的缓冲区变小了。
+*   **建议**: 这个改动需要仔细评估。`COLLISION_MARGIN` 的值 `0.05` 非常小，几乎等于物理接触。如果 `SPEED_CAP` 的响应不够快，机器人可能在 `COLLISION_HOLD` 发出前就撞上。
+*   **修复建议**: 
+    1.  确认 `COLLISION_MARGIN` 的值是否经过充分测试。
+    2.  考虑将 `COLLISION_MARGIN` 设为可配置参数，而不是硬编码。
+    3.  在文档或注释中明确说明，这个改动是为了让 `COLLISION_HOLD` 成为真正的最后一道防线，而安全距离由 `SafeDistanceCalculator` 层负责。
+
+---
+
+### 3. `sap-bridge/services/sap_coordinator_bridge.py`
+
+**问题 4 (Bug): `_poll_coordinator_state` 中的状态解析逻辑脆弱 (第 122-140 行)**
+
+*   **问题描述**: 代码尝试解析 `active_assignments` 字典，但处理了 `dict` 和 `list` 两种类型。这暗示了 Coordinator 返回的数据结构可能不一致。如果 Coordinator 返回了一个全新的、未预料到的结构，这段代码会静默失败，导致 SAP 任务永远不会被确认。
+*   **建议**: 依赖一个不稳定的 API 结构是危险的。
+*   **修复建议**: 
+    1.  在 `TrafficCoordinatorClient` 中增加一个专门的 `get_active_order_ids()` 方法，该方法解析 `/state` 端点并返回一个干净的 `set[str]`。这样，桥接层就不需要关心 Coordinator 的内部数据结构。
+    2.  或者，在桥接层添加更健壮的类型检查和日志记录，以便在数据结构发生变化时能快速发现。
+
+**问题 5 (Bug): `AUTO_CONFIRM` 逻辑可能导致错误确认 (第 142-170 行)**
+
+*   **问题描述**: 代码明确注释说“cannot distinguish completed/failed”。当 `AUTO_CONFIRM=1` 时，任何从 `active_assignments` 中消失的 SAP 订单都会被自动确认到 SAP。如果订单因为失败、被取消或其他非正常原因消失，这会导致 SAP 认为任务已完成，而实际上并未完成。
+*   **建议**: 这是一个非常危险的操作。
+*   **修复建议**: 
+    1.  强烈建议将 `AUTO_CONFIRM` 的默认值设为 `0`，强制人工介入。
+    2.  如果必须自动确认，至少应该查询 Coordinator 的 `_task_queue` 或历史记录，确认订单是否以“完成”状态结束。如果 Coordinator 不提供这个信息，应该优先开发这个功能，而不是盲目确认。
+
+---
+
+### 4. `traffic_coordinator_v5/traffic_coordinator_main.py`
+
+**问题 6 (Security): 新的 HTTP 端点缺少输入验证 (第 400-460 行)**
+
+*   **问题描述**: `/estop`、`/robot/{id}/recover`、`/lane/{id}/block` 等新端点虽然对 `robot_id` 和 `lane_id` 使用了 `_SAFE_ID_RE` 正则表达式进行验证，但对 `body` 中的其他参数（如 `zone_id`、`reached_lane`）的验证不够严格。特别是 `reached_lane`，虽然也用了正则，但 `_SAFE_ID_RE` 的定义（未在 diff 中显示）可能过于宽松。
+*   **建议**: 对所有用户输入进行严格的类型和格式验证。
+*   **修复建议**: 
+    1.  检查 `_SAFE_ID_RE` 的定义，确保它只允许字母、数字、下划线和连字符，并且有长度限制。
+    2.  对 `zone_id` 进行类似的验证。
+    3.  考虑使用 Pydantic 或类似的库来定义请求体模型，自动进行验证。
+
+**问题 7 (Performance): 快照保存可能阻塞 tick 循环 (第 141-155 行)**
+
+*   **问题描述**: `STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())` 在后台 tick 线程中同步执行。如果 `snapshot()` 或 `set()` 操作耗时较长（例如，序列化大量数据或写入磁盘），它会阻塞整个 tick 循环，导致机器人状态更新延迟。
+*   **建议**: I/O 操作不应在关键路径上同步执行。
+*   **修复建议**: 使用 `asyncio.to_thread` 或 `concurrent.futures.ThreadPoolExecutor` 将快照保存操作移到单独的线程中执行。
+
+```python
+# 建议的修复方案
+import concurrent.futures
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+def _background_tick(stop_event):
+    # ...
+    if now - last_snapshot >= SNAPSHOT_INTERVAL:
+        _executor.submit(_save_snapshot, COORDINATOR.snapshot())
+        last_snapshot = now
+    # ...
+
+def _save_snapshot(snapshot_data):
+    try:
+        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
+    except Exception as exc:
+        print(f"[snapshot] save failed: {exc}")
+```
+
+---
+
+### 5. 其他文件
+
+*   **`traffic_coordinator_v5/simulator/`**: 整体代码质量很高，结构清晰，测试覆盖全面。这是一个非常好的集成测试工具。
+*   **`monitoring/dashboards/`**: 新增的 Grafana 面板配置看起来标准且有用。
+*   **`pyproject.toml`**: 新增 `paho-mqtt` 依赖，并将测试路径扩展到 `traffic_coordinator_v5/tests`，这些都是合理的改动。
+
+### 总结
+
+本次 PR 引入了大量有价值的新功能和改进，特别是 VDA5050 模拟器和 SAP 桥接器。然而，存在几个关键的 Bug 和设计问题需要解决：
+
+1.  **`coordinator.py`**: `assigned_robots` 的异常安全问题可能导致机器人永久性饥饿。**必须修复**。
+2.  **`sap_coordinator_bridge.py`**: `AUTO_CONFIRM` 逻辑可能导致错误的 SAP 确认。**强烈建议修改默认行为**。
+3.  **`traffic_coordinator_main.py`**: 快照保存可能阻塞 tick 循环。**建议优化**。
+4.  **`robot_as_obstacle.py`**: `COLLISION_MARGIN` 的值需要审慎评估和测试。
+
+在合并之前，请务必解决上述问题。代码风格和整体架构是合理的。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 11 ===
+ID: 4942041066
+Author: github-actions[bot]
+Created: 2026-07-11T03:27:47Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是对该 PR 的代码审查。
+
+本次 PR 规模较大，引入了多个新功能：VDA5050 模拟器、SAP 桥接服务、基础设施监控面板、自动进度报告、碰撞检测优化以及 HTTP API 扩展。整体代码质量较高，结构清晰，测试覆盖也做得不错。以下是一些需要关注的问题和改进建议。
+
+### 1. 核心逻辑与 Bug
+
+**文件: `core/coordinator.py`**
+
+*   **第 265-268 行: `assigned_robots` 集合的作用域**
+    *   **问题**: `assigned_robots` 集合在 `_dispatch_tasks` 方法内部定义。这意味着每次调用该方法（每个 tick）都会创建一个新的空集合。它的目的是防止在同一个 tick 内将多个任务分配给同一个机器人。这个逻辑是正确的，但需要注意：如果 `_dispatch_tasks` 在一个 tick 内被多次调用（虽然目前看来不会），这个集合会失效。
+    *   **建议**: 当前实现是安全的，因为 `_dispatch_tasks` 在每个 tick 只被调用一次。可以添加一个注释说明这一点，或者将其提升为实例变量（`self._assigned_robots_this_tick`）并在每次 tick 开始时重置，以增强健壮性。
+
+*   **第 708-745 行: `_auto_report_progress` 方法**
+    *   **问题 1 (逻辑错误)**: 第 730-731 行的循环逻辑有误。当 `lane.to_node != last_node` 时，`break` 会退出循环。但 `last_node` 是机器人当前所在的节点。如果机器人刚刚完成了一条车道 `L1`（`L1.to_node == last_node`），循环会处理 `L1`。但如果机器人已经完成了多条车道（例如，由于 tick 间隔较大），`path[idx:]` 中的第一条车道可能不是机器人刚刚完成的那条。循环会错误地处理第一条匹配的车道，而不是机器人实际完成的那条。
+    *   **建议**: 应该从 `path[idx:]` 中找到第一个 `lane.to_node == last_node` 的车道，然后只处理那一条。修改后的逻辑如下：
+        ```python
+        # 找到机器人当前所在的节点对应的车道
+        for lane_id in path[idx:]:
+            lane = self.fmap.lane(lane_id)
+            if lane is None:
+                break
+            if lane.to_node == last_node:
+                # 找到了机器人刚刚完成的车道
+                self.report_progress(robot_id, lane_id, now)
+                break
+            # 如果当前车道不是机器人所在的节点，说明机器人还在路上，停止查找
+            if lane.from_node != last_node:
+                break
+        ```
+        这个逻辑更清晰：它遍历路径，找到第一个终点与机器人当前位置匹配的车道，然后报告进度。如果当前车道不是机器人所在的节点，说明机器人还在路上，就停止查找。
+
+    *   **问题 2 (性能/逻辑)**: 每次 tick 都会调用 `adapter.current_path(robot_id)`。如果 `current_path` 的实现涉及复杂的计算或 I/O 操作，这可能会成为性能瓶颈。
+    *   **建议**: 如果 `current_path` 的开销较大，可以考虑缓存路径，或者只在机器人状态发生变化时（例如，收到新的任务分配）才更新路径。
+
+**文件: `core/platform/robot_as_obstacle.py`**
+
+*   **第 117-122 行: `_margin` 函数**
+    *   **问题**: 对于虚拟墙（`half_length == 0 and half_width == 0`），函数返回 `fp.corridor`。这意味着虚拟墙的碰撞检测仍然使用安全距离走廊，而不是物理碰撞余量。这可能导致虚拟墙的碰撞检测过于严格。
+    *   **建议**: 这是设计上的选择。如果虚拟墙的目的是模拟一个物理障碍物，那么使用 `COLLISION_MARGIN` 可能更合适。如果虚拟墙的目的是创建一个安全区域，那么使用 `corridor` 是正确的。建议添加注释说明这个设计决策。
+
+### 2. 安全问题
+
+**文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+
+*   **第 437-438 行: `/robot/{id}/recover` 和 `/robot/{id}/progress` 端点**
+    *   **问题**: 这些端点没有进行身份验证。任何知道机器人 ID 的人都可以触发恢复或报告进度。
+    *   **建议**: 应该为这些端点添加与 `/state` 和 `/metrics` 相同的身份验证机制（`_check_auth`）。或者，如果这些是内部操作，应该通过其他方式（如内部网络、API 网关）进行保护。
+
+*   **第 456-457 行: `/lane/{id}/block` 和 `/lane/{id}/unblock` 端点**
+    *   **问题**: 同上，这些端点也没有身份验证。阻塞/解除阻塞车道是一个高风险操作。
+    *   **建议**: 必须添加身份验证。
+
+### 3. 性能问题
+
+**文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+
+*   **第 145-148 行: 快照保存**
+    *   **问题**: 使用 `concurrent.futures.ThreadPoolExecutor` 来异步保存快照是一个好方法。但是，如果快照数据非常大，或者 `STATE_STORE.set` 操作很慢，这可能会在后台积累大量未完成的任务，导致内存问题。
+    *   **建议**: 可以考虑限制队列大小，或者使用一个简单的单线程后台任务来处理快照保存。如果快照失败，应该记录错误，而不是静默地忽略。
+
+**文件: `sap-bridge/services/sap_coordinator_bridge.py`**
+
+*   **第 92-93 行: `_poll_sap_tasks` 方法**
+    *   **问题**: `backend.list_tasks` 被调用时使用了 `top=50`。如果 SAP 中有大量待处理任务，这可能会导致每次轮询都处理不完，新任务被不断延迟。
+    *   **建议**: 考虑实现分页或增量拉取。例如，记录上次处理的任务 ID，然后只拉取比它更新的任务。
+
+### 4. 代码风格与最佳实践
+
+*   **文件: `core/coordinator.py`**
+    *   **第 19 行**: 新增了 `import logging`，但文件中没有使用 `logger`。`logger` 在第 44 行定义，但在 `_auto_report_progress` 方法中没有使用。建议在 `_auto_report_progress` 中添加日志记录，以便调试。
+    *   **第 265-268 行**: 注释 `# Track robots assigned during *this* tick...` 很好，清晰解释了 `assigned_robots` 的作用。
+
+*   **文件: `traffic_coordinator_v5/simulator/robot.py`**
+    *   **第 1 行**: 文件头部的 `"""Per-robot state machine..."""` 文档字符串很好。
+    *   **第 65 行**: `_path` 和 `_path_index` 被标记为 `repr=False`，这是一个好习惯，可以避免在日志中打印出巨大的路径列表。
+
+*   **文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+    *   **第 1-30 行**: 文件头部的文档字符串非常详细，列出了所有 HTTP 端点，这是一个很好的实践。
+    *   **第 284-413 行**: `do_POST` 方法中的路由逻辑使用了大量的 `if` 语句。随着端点数量的增加，这可能会变得难以维护。
+    *   **建议**: 考虑使用一个简单的路由字典或一个更结构化的路由框架（如 `werkzeug.routing`）来管理端点。
+
+*   **文件: `sap-bridge/services/sap_coordinator_bridge.py`**
+    *   **第 1-15 行**: 文件头部的文档字符串非常清晰，解释了桥接服务的目的和环境变量。
+    *   **第 101-102 行**: `AUTO_CONFIRM` 环境变量的注释很好，明确指出了风险。
+
+### 总结
+
+这是一个高质量的 PR，引入了重要的新功能。主要问题集中在：
+1.  `_auto_report_progress` 中的逻辑错误，可能导致进度报告不准确。
+2.  新添加的 HTTP 端点缺乏身份验证，存在安全风险。
+3.  快照保存和 SAP 任务拉取可能存在性能瓶颈。
+
+建议在合并前修复这些问题。代码风格和测试覆盖都非常出色。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 12 ===
+ID: 4942691653
+Author: github-actions[bot]
+Created: 2026-07-11T05:19:39Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是一个相当大的 PR，涉及多个模块的改动。我将按文件逐一进行审查。
+
+### 总体评价
+
+这个 PR 引入了多个重要功能：VDA5050 模拟器、SAP 桥接器、监控仪表盘、以及核心协调器的多项增强（自动进度报告、碰撞检测优化、状态快照等）。代码质量整体较高，结构清晰，测试覆盖也比较全面。但存在一些潜在的问题和需要改进的地方。
+
+---
+
+### 1. `core/coordinator.py`
+
+#### 1.1 `_auto_report_progress` 方法 (第 708-744 行)
+
+*   **逻辑错误 (Bug):** 第 738 行的 `break` 会导致循环在检查第一个 lane 后就退出，无论该 lane 是否匹配。这意味着 `_auto_report_progress` 实际上只检查了 `path[idx]` 这一个 lane，而不是遍历 `path[idx:]` 中的所有 lane。
+    *   **建议修复:** 将第 738 行的 `break` 移到 `for` 循环外部，或者改为 `continue`。如果目的是“只处理一个 lane per tick”，那么应该在找到匹配的 lane 并调用 `report_progress` 后 `break`，而不是在第一个不匹配的 lane 上 `break`。
+    ```python
+    # 修复后的逻辑
+    for lane_id in path[idx:]:
+        lane = self.fmap.lane(lane_id)
+        if lane is None:
+            break
+        if lane.to_node == last_node:
+            self.report_progress(robot_id, lane_id, now)
+            break  # 找到匹配后跳出循环，符合“只处理一个 lane per tick”的意图
+        # 如果当前 lane 不匹配，继续检查下一个 lane
+        # 原来的 break 在这里是错误的
+    ```
+
+#### 1.2 任务分配中的 `assigned_robots` 集合 (第 265-280 行)
+
+*   **逻辑正确性:** 使用 `assigned_robots` 集合来防止同一个 tick 内重复分配机器人，这是一个很好的做法。但是，需要确认 `_active_assignments` 的更新时机。代码中 `_active_assignments` 是在 `adapter.dispatch` 成功后更新的（第 316 行）。在 `adapter.dispatch` 抛出异常的情况下，`assigned_robots` 集合中已经添加了该机器人，但 `_active_assignments` 中没有。这会导致该机器人在本次 tick 中无法被再次考虑，但这是合理的，因为 dispatch 失败意味着机器人状态不确定，不应再分配新任务。
+*   **建议:** 逻辑正确，无需修改。
+
+#### 1.3 `_auto_report_progress` 的调用时机 (第 163 行)
+
+*   **性能/逻辑:** `_auto_report_progress` 在 `ingest_uplink` 中被调用。如果 `ingest_uplink` 被频繁调用（例如，每个 MQTT 消息都触发一次），那么 `_auto_report_progress` 也会被频繁调用。虽然它内部有快速返回的检查，但每次调用都会进行字典查找。如果性能成为瓶颈，可以考虑在 `tick` 方法中批量处理。
+*   **建议:** 当前实现可以接受，但未来如果遇到性能问题，可以考虑优化。
+
+---
+
+### 2. `core/platform/robot_as_obstacle.py`
+
+#### 2.1 `_obb_overlap` 方法 (第 114-130 行)
+
+*   **逻辑正确性:** 引入 `COLLISION_MARGIN` 来区分物理碰撞和安全距离，这是一个很好的设计。`_margin` 函数对虚拟墙（`half_length` 和 `half_width` 都为 0）使用其 `corridor` 属性，对其他实体使用 `COLLISION_MARGIN`，逻辑清晰。
+*   **潜在问题:** `_margin` 函数是 `_obb_overlap` 的内部函数，每次调用 `_obb_overlap` 时都会重新定义。虽然 Python 对此有优化，但为了清晰和微小的性能提升，可以将其提升为模块级函数或静态方法。
+*   **建议:** 当前实现没有问题，可以接受。
+
+---
+
+### 3. `sap-bridge/services/sap_coordinator_bridge.py`
+
+#### 3.1 `_poll_coordinator_state` 方法 (第 100-172 行)
+
+*   **逻辑正确性:** 使用 `GRACE_POLLS` 来避免过早确认任务，这是一个很好的容错机制。但是，`AUTO_CONFIRM` 默认为 `False`，这意味着任务完成后永远不会自动确认到 SAP，需要人工介入。这可能不符合生产环境的期望。
+    *   **建议:** 考虑增加一个更可靠的确认机制，例如：
+        1.  Coordinator 提供一个 `/completed` 或 `/history` 端点，列出已完成/失败的任务。
+        2.  桥接器定期查询该端点，而不是通过“任务不在活跃列表中”来推断。
+        3.  或者，在 Coordinator 端，当任务完成时，主动通过 MQTT 或 HTTP 回调通知桥接器。
+*   **潜在问题:** `_poll_coordinator_state` 方法中，`active_order_ids` 的构建逻辑比较复杂，需要处理 `active_assignments` 字典中 value 可能是 dict 或 list 的情况。这增加了代码的复杂性和出错的可能性。
+    *   **建议:** 如果可能，统一 Coordinator `/state` 接口中 `active_assignments` 的数据结构。如果无法统一，建议添加更详细的注释和单元测试来覆盖这些边缘情况。
+
+---
+
+### 4. `traffic_coordinator_v5/simulator/robot.py`
+
+#### 4.1 `tick` 方法 (第 139-216 行)
+
+*   **逻辑正确性:** `tick` 方法中的 `_guard` 变量（第 174 行）用于防止死循环，这是一个很好的安全措施。但是，`_guard` 的初始值 `len(self._path) + 1` 可能不够大。如果 `dt` 非常大，或者 lane 长度非常小，机器人可能在一次 `tick` 中穿过多个 lane，`_guard` 可能会被耗尽。
+    *   **建议:** 将 `_guard` 设置为一个更大的固定值，例如 `100` 或 `len(self._path) * 2`，以确保在极端情况下也能正常工作。
+    ```python
+    _guard = len(self._path) * 2 + 10  # 更安全的 guard 值
+    ```
+
+---
+
+### 5. `traffic_coordinator_v5/traffic_coordinator_main.py`
+
+#### 5.1 `/metrics` 端点 (第 304-347 行)
+
+*   **代码风格/可维护性:** 手动构建 Prometheus 文本格式的 metrics 输出是可行的，但容易出错且难以维护。如果未来需要添加更多 metrics，这段代码会变得非常冗长。
+    *   **建议:** 强烈建议使用 `prometheus_client` 库。它可以自动处理 metrics 的注册、类型、描述和格式化，大大简化代码并降低出错风险。
+    ```python
+    from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+
+    # 在模块级别定义 metrics
+    tc_uplinks_total = Counter('tc_uplinks_total', 'Total robot state uplinks received')
+    # ... 其他 metrics
+
+    # 在 /metrics 端点中
+    def do_GET(self):
+        if path == "/metrics":
+            self.send_response(200)
+            self.send_header('Content-Type', CONTENT_TYPE_LATEST)
+            self.end_headers()
+            self.wfile.write(generate_latest())
+    ```
+
+#### 5.2 状态快照 (第 142-155 行, 第 202-212 行)
+
+*   **性能/正确性:** 快照保存是在一个单独的线程池中异步执行的（`_snap_executor.submit(_save_snapshot, snap)`）。这很好，不会阻塞 tick 循环。但是，快照恢复是在主线程中同步执行的（第 205-212 行）。如果快照数据很大，恢复过程可能会阻塞 HTTP 服务器的启动。
+    *   **建议:** 对于大多数场景，当前实现可以接受。如果快照数据非常大，可以考虑异步恢复，但需要确保在恢复完成之前，HTTP 服务器不会处理需要完整状态的请求。
+
+---
+
+### 6. 其他文件
+
+*   **`docker-compose-v5.yml`:** 新增的 `v5-simulator` 服务配置看起来正确。
+*   **`monitoring/dashboards/`:** 新增的 Grafana 仪表盘 JSON 文件格式正确，指标名称与代码中一致。
+*   **`pyproject.toml`:** 新增 `paho-mqtt` 依赖，并将测试路径扩展到 `traffic_coordinator_v5/tests`，这些都是合理的改动。
+*   **`sap-bridge/clients/traffic_coordinator_client.py`:** 新增的 `emergency_stop`, `block_lane`, `unblock_lane` 方法及其异步版本，与 Coordinator 的新端点对应。
+*   **`sap-bridge/main.py`:** 集成了 `SapCoordinatorBridge`，并实现了 `/zone/{zone_id}/lock` 和 `/zone/{zone_id}/unlock` 端点，逻辑正确。
+*   **`traffic_coordinator_v5/bootstrap.py`:** 新增了 `_parse_sensor_health` 和 `_parse_capability` 函数，用于解析更丰富的机器人状态信息，这是一个很好的改进。
+*   **`traffic_coordinator_v5/simulator/`:** 整个模拟器模块结构清晰，代码质量高，测试覆盖全面。
+
+### 总结
+
+这是一个高质量的 PR，引入了有价值的新功能。主要问题在于 `_auto_report_progress` 中的逻辑错误，以及 `/metrics` 端点的实现方式。其他问题多为建议性的改进。
+
+**必须修复:**
+1.  `core/coordinator.py` 中 `_auto_report_progress` 方法的 `break` 逻辑错误。
+
+**强烈建议修复:**
+1.  `traffic_coordinator_v5/traffic_coordinator_main.py` 中使用 `prometheus_client` 库来生成 metrics。
+
+**建议改进:**
+1.  `sap-bridge/services/sap_coordinator_bridge.py` 中考虑更可靠的任务确认机制。
+2.  `traffic_coordinator_v5/simulator/robot.py` 中增加 `_guard` 的初始值。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 13 ===
+ID: 4942941466
+Author: github-actions[bot]
+Created: 2026-07-11T06:08:21Z
+Body:
+## 🤖 AI Code Review
+
+好的，这是一个非常庞大且高质量的 PR。它引入了 VDA5050 模拟器、SAP 桥接器、新的 HTTP 端点、监控仪表板以及核心协调器的多项改进。代码整体结构清晰，测试覆盖率高，但仍有几个值得关注的潜在问题和改进点。
+
+以下是针对该 PR 的代码审查：
+
+### 1. 核心逻辑与 Bug 分析
+
+#### 1.1 `_auto_report_progress` 可能导致状态不一致 (core/coordinator.py: 708-748)
+
+-   **问题**: 此方法通过推断 `pose.last_node_id` 来推进任务进度。如果 `last_node_id` 与当前车道的 `to_node` 匹配，它会调用 `self.report_progress`。然而，`report_progress` 内部会更新占用 (`_update_occupancy`) 并可能触发任务完成逻辑。如果模拟器或真实机器人在一个 tick 内跨越了多个节点，此方法只会处理第一个节点（如注释所述），但 `report_progress` 的副作用（如释放旧车道占用）可能已经发生，导致后续 tick 的状态与机器人实际位置不一致。
+-   **建议**: 在 `_auto_report_progress` 中，应确保在调用 `report_progress` 后，机器人的内部状态（如 `_robot_states`）与协调器的状态（如 `_active_assignments`）保持同步。或者，更安全的方式是让模拟器/机器人显式地通过 HTTP 或 MQTT 报告进度，而不是依赖推断。如果必须使用推断，请考虑在 `tick` 循环中处理所有已到达的节点，而不是每个 tick 只处理一个。
+
+#### 1.2 `_obb_overlap` 碰撞检测逻辑变更 (core/platform/robot_as_obstacle.py: 114-127)
+
+-   **问题**: 新逻辑为普通机器人引入了 `COLLISION_MARGIN = 0.05`，但为虚拟墙保留了 `corridor`。这改变了碰撞检测的语义。`corridor` 原本用于安全距离，现在被用于虚拟墙的碰撞检测。如果虚拟墙的 `corridor` 值很大（例如，用于创建安全缓冲区），那么 `_obb_overlap` 会认为机器人与虚拟墙的碰撞范围非常大，可能导致过早的 HOLD 命令。
+-   **建议**:
+    1.  明确 `corridor` 在虚拟墙上的用途。如果它代表安全距离，那么将其用于碰撞检测是合理的。如果不是，建议为虚拟墙也使用一个固定的、较小的 `COLLISION_MARGIN`。
+    2.  考虑将 `COLLISION_MARGIN` 设为可配置参数，以便在不同场景下调整。
+
+#### 1.3 `SapCoordinatorBridge` 中的任务确认逻辑 (sap-bridge/services/sap_coordinator_bridge.py: 91-177)
+
+-   **问题**: `_poll_coordinator_state` 方法通过检查订单是否不再出现在 `active_assignments` 中来推断任务完成。这存在几个问题：
+    1.  **无法区分完成与失败**: 如代码注释所述，无法区分任务是被成功完成还是被取消/失败。`AUTO_CONFIRM=0` 时，任务会卡在 `_submitted` 集合中，需要人工干预。`AUTO_CONFIRM=1` 时，可能会错误地将失败的任务确认给 SAP。
+    2.  **竞态条件**: 在 `GRACE_POLLS` 窗口内，如果任务被重新分配给另一个机器人，它可能会短暂地不在 `active_assignments` 中，导致误判。
+-   **建议**:
+    1.  **引入任务状态追踪**: 协调器应该提供一个 API 来查询特定订单的最终状态（已完成、失败、已取消）。`SapCoordinatorBridge` 应该使用这个 API，而不是通过推断。
+    2.  **改进推断逻辑**: 如果无法添加新 API，可以结合 `_submitted` 和 `_confirmed` 集合，并检查任务是否在 `_inactive_since` 中停留了足够长的时间，同时确保该任务没有被重新提交。但这仍然无法解决根本问题。
+
+#### 1.4 模拟器中的 `_finish_path` 逻辑 (traffic_coordinator_v5/simulator/robot.py: 222-228)
+
+-   **问题**: 当路径完成时，`_finish_path` 将 `distance_along_lane` 设置为车道的全长。这会导致 `_pose()` 方法返回车道的终点坐标。然而，`state_payload()` 中的 `lastNodeId` 是车道的 `to_node`。这看起来是正确的，但需要确保协调器的 `_auto_report_progress` 能够正确处理这种情况，即机器人停在车道的末端，其 `last_node_id` 等于车道的 `to_node`。
+-   **建议**: 这是一个边缘情况，但值得在集成测试中验证，确保 `_auto_report_progress` 不会在任务完成后错误地再次触发进度报告。
+
+### 2. 安全问题
+
+#### 2.1 所有 POST 端点都需要认证 (traffic_coordinator_v5/traffic_coordinator_main.py: 352-354)
+
+-   **问题**: 代码注释指出“所有 POST 端点都需要认证”，这是一个很好的安全实践。但是，`/estop`、`/lane/{id}/block` 等关键操作应该使用更严格的授权机制，而不仅仅是 API Key 认证。任何拥有 API Key 的客户端都可以触发紧急停止或阻塞车道。
+-   **建议**: 考虑引入基于角色的访问控制（RBAC）或至少为这些关键操作使用单独的、权限更高的 API Key。
+
+#### 2.2 `_SAFE_ID_RE` 正则表达式 (traffic_coordinator_v5/traffic_coordinator_main.py: 47)
+
+-   **问题**: 代码中使用了 `_SAFE_ID_RE` 来验证 robot_id、lane_id 等，但该正则表达式的定义没有在 diff 中显示。如果正则表达式过于宽松，可能会引入注入风险。
+-   **建议**: 请确保 `_SAFE_ID_RE` 是一个严格的正则表达式，只允许字母、数字、下划线和连字符，并限制长度。
+
+### 3. 性能问题
+
+#### 3.1 `_background_tick` 中的快照保存 (traffic_coordinator_v5/traffic_coordinator_main.py: 142-158)
+
+-   **问题**: 快照保存被提交到一个 `ThreadPoolExecutor`。虽然这不会阻塞 tick 循环，但如果快照数据非常大或序列化/反序列化很慢，它可能会消耗大量内存或 CPU 资源。此外，如果快照保存失败，错误只被打印到 stdout，没有更健壮的告警机制。
+-   **建议**:
+    1.  考虑使用异步 I/O 来保存快照，而不是线程池，以避免 GIL 的影响。
+    2.  为快照保存添加重试逻辑和告警。
+    3.  评估快照数据的大小。如果它包含所有机器人的状态，可能会非常大。考虑只保存关键状态（如活动分配、任务队列）。
+
+#### 3.2 `SapCoordinatorBridge` 的轮询间隔 (sap-bridge/services/sap_coordinator_bridge.py: 13)
+
+-   **问题**: 默认轮询间隔为 5 秒。如果 SAP 系统有大量任务，或者协调器处理速度很快，这个间隔可能太短，导致不必要的负载。如果间隔太长，任务延迟会增加。
+-   **建议**: 使轮询间隔可配置，并根据实际吞吐量进行调整。考虑使用指数退避策略，在空闲时增加间隔。
+
+### 4. 代码风格与最佳实践
+
+#### 4.1 `_parse_sensor_health` 和 `_parse_capability` 的健壮性 (traffic_coordinator_v5/bootstrap.py: 41-100)
+
+-   **问题**: 这些解析函数试图处理多种键名（如 `sensor_health` 和 `sensorHealth`），这是一个很好的做法。但是，它们依赖于 `raw.get("sensor_health") or raw.get("sensorHealth")`，如果其中一个键的值为 `None` 或空字典，`or` 运算符会短路并尝试另一个键。这可能会导致意外行为，例如，如果 `sensor_health` 是一个空字典 `{}`，它会被视为 `False`，然后会去查找 `sensorHealth`。
+-   **建议**: 使用更明确的逻辑：
+    ```python
+    value = raw.get("sensor_health")
+    if value is None:
+        value = raw.get("sensorHealth")
+    if value is None:
+        return SensorHealth()
+    ```
+
+#### 4.2 模拟器中的 `_apply_action` 方法 (traffic_coordinator_v5/simulator/fleet.py: 145-165)
+
+-   **问题**: `INSTANTVELOCITY` 的处理逻辑有些混乱。当 `max_speed` 存在时，它设置速度上限；当 `linear_x` 存在且为负时，它执行 `hold("retreat")`。这混合了两种不同的语义。
+-   **建议**: 将 `INSTANTVELOCITY` 的处理拆分为更清晰的逻辑：
+    -   如果 `max_speed` 存在，则设置速度上限。
+    -   如果 `linear_x` 存在，则根据其值设置目标速度（正数为前进，负数为后退）。
+    -   如果两者都存在，`max_speed` 应作为上限。
+
+#### 4.3 测试中的 `CoordinatorHarness` 类 (traffic_coordinator_v5/tests/test_simulator_scenarios.py: 30-120)
+
+-   **问题**: 这个测试工具类非常有用，但它直接访问了 `harness.fleet._robots` 等私有属性。虽然这在测试中是可以接受的，但最好提供公共方法或属性来访问这些内部状态，以便在重构时减少测试的脆弱性。
+-   **建议**: 为 `FleetSimulator` 添加 `get_all_robots()` 或 `robot_ids` 属性，并在测试中使用它们。
+
+#### 4.4 监控仪表板中的 PromQL 查询 (monitoring/dashboards/robot-fleet.json: 47)
+
+-   **问题**: `count(sap_bridge_robot_last_seen < time() - 30) or vector(0)` 这个查询假设 `sap_bridge_robot_last_seen` 是一个 gauge 指标，其值是 Unix 时间戳。这是一个合理的假设，但 PromQL 中的比较操作符会返回一个瞬时向量，其中包含满足条件的序列。如果没有任何机器人离线，这个查询会返回一个空向量，`or vector(0)` 确保在这种情况下返回 0。
+-   **建议**: 这是一个正确的 PromQL 用法。没有需要修改的地方。
+
+### 总结
+
+这是一个非常出色的 PR，引入了大量有价值的功能。主要关注点在于 `_auto_report_progress` 的潜在状态不一致问题、`SapCoordinatorBridge` 的任务确认逻辑的健壮性，以及关键操作的安全性。建议在合并前解决这些问题，特别是 1.1 和 1.3。
+---
+*Powered by DeepSeek API*
+
+
+=== COMMENT 14 ===
+ID: 4943057794
+Author: github-actions[bot]
+Created: 2026-07-11T06:27:10Z
+Body:
+## 🤖 AI Code Review
+
+好的，我来对这份 PR diff 进行代码审查。
+
+## 代码审查报告
+
+### 1. Bug 与逻辑错误
+
+**文件: `core/coordinator.py`**
+
+- **第 267 行**: `assigned_robots: set[str] = set()` 在 `_dispatch_tasks` 方法内部定义。如果该方法在一次 tick 中被多次调用（虽然当前代码结构看起来只调用一次），这个集合会被重置，可能导致同一个机器人在一次 tick 中被分配多个任务。建议将其提升为实例变量或在方法外部维护。
+
+- **第 309-318 行**: `dispatch` 异常处理中，如果 `adapter.dispatch` 抛出异常，会调用 `self._requeue_task` 并将任务重新加入 `remaining` 列表。但此时 `self._active_assignments` 尚未更新，而 `assigned_robots` 集合中也没有添加该机器人。这可能导致该任务在后续循环中被再次尝试分配给同一个机器人，形成无限重试。建议在 `except` 块中也将该机器人从 `assigned_robots` 中移除（如果已添加），或者增加重试次数限制。
+
+- **第 708-748 行 (`_auto_report_progress`)**: 该方法在 `tick` 开始时被调用（第 163 行），但 `report_progress` 内部可能会修改 `_active_assignments`。如果 `report_progress` 导致任务完成并移除 assignment，后续的 `_dispatch_tasks` 逻辑可能会基于过时的状态运行。建议在 `tick` 方法中调整调用顺序，或者确保 `_auto_report_progress` 不会在 `_dispatch_tasks` 执行期间造成状态不一致。
+
+**文件: `traffic_coordinator_v5/simulator/robot.py`**
+
+- **第 185-186 行**: `_guard` 变量用于防止死循环，但其初始值 `len(self._path) * 2 + 10` 在路径很长时可能不够。更安全的做法是使用一个固定的较大值（如 1000）或基于 `dt` 和最大速度计算。
+
+- **第 235-236 行**: `_finish_path` 方法中，`self.distance_along_lane = self.lane_graph.length(self.current_lane_id)` 将距离设置为当前车道的全长。但此时 `self.current_lane_id` 是路径中的最后一个车道，机器人应该已经到达该车道的终点。这个赋值可能使机器人的位置超出车道终点。建议直接设置为 `self.lane_graph.length(self.current_lane_id)` 或 0，取决于后续逻辑是否需要。
+
+**文件: `traffic_coordinator_v5/simulator/fleet.py`**
+
+- **第 88 行**: `self.tick_once(self._publish_interval)` 在 `_run_loop` 中每次循环都使用 `self._publish_interval` 作为 `dt`。但 `_publish_interval` 是固定的，而实际时间间隔可能因系统负载而变化。建议使用实际经过的时间（`time.monotonic()` 差值）作为 `dt`，以保证模拟的物理准确性。
+
+### 2. 安全问题
+
+**文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+
+- **第 349-351 行**: 注释提到所有 POST 端点都需要认证，但代码中 `_check_auth` 的调用是在 `do_POST` 方法开头统一进行的（第 354 行）。这看起来是正确的，但需要确认 `_check_auth` 的实现是否足够健壮（例如，是否使用了安全的 API key 比较方式，避免时序攻击）。
+
+- **第 416-423 行 (`/estop`)**: `zone_id` 参数直接传递给 `COORDINATOR.emergency_stop`。如果 `zone_id` 为空字符串，代码会将其转换为 `None`。但需要确保 `emergency_stop` 方法正确处理 `None` 值（例如，停止所有区域），并且不会因为空字符串而引发意外行为。
+
+### 3. 性能问题
+
+**文件: `core/coordinator.py`**
+
+- **第 708-748 行 (`_auto_report_progress`)**: 该方法在每个 tick 中为每个有活跃 assignment 的机器人执行。它调用了 `adapter.current_path(robot_id)` 和 `self.fmap.lane(lane_id)`。如果机器人数量很多，这些操作可能会成为性能瓶颈。建议考虑缓存 `current_path` 的结果，或者仅在机器人状态发生变化时（例如，`last_node_id` 改变）才执行此方法。
+
+**文件: `traffic_coordinator_v5/simulator/map.py`**
+
+- **第 49-60 行 (`_compute_bfs_positions`)**: 该方法在 `LaneGraph` 初始化时被调用，如果地图很大，BFS 布局计算可能会消耗较多 CPU。对于大型地图，建议考虑使用更高效的布局算法，或者将布局结果缓存到文件中。
+
+### 4. 代码风格与最佳实践
+
+**文件: `core/coordinator.py`**
+
+- **第 19 行**: 新增的 `import logging` 很好，但建议将 `logger` 的命名统一为 `_logger`（带下划线前缀），以表示模块私有。
+
+**文件: `traffic_coordinator_v5/simulator/cli.py`**
+
+- **第 148-149 行**: `shutdown_requested` 变量在 `_signal_handler` 中被修改，但该变量在外部作用域中定义。虽然 Python 的 `nonlocal` 声明使其工作，但更好的做法是使用 `threading.Event` 或 `asyncio.Event` 来管理关闭信号，以避免潜在的竞态条件。
+
+**文件: `traffic_coordinator_v5/simulator/robot.py`**
+
+- **第 1 行**: 建议添加模块文档字符串，描述 `SimulatedRobot` 和 `RobotConfig` 的用途。
+
+- **第 292 行**: `_iso_now` 方法返回的时间戳格式固定为 `000Z`（毫秒部分为零）。对于需要更高时间精度的场景，建议使用 `datetime.utcnow().isoformat()` 或 `time.time_ns()` 生成更精确的时间戳。
+
+**文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+
+- **第 142-155 行**: `_background_tick` 函数中的 `_snap_executor` 是一个 `ThreadPoolExecutor`，但只用于提交快照保存任务。对于这种简单的后台任务，使用 `threading.Thread` 可能更轻量。此外，`_snap_executor.shutdown(wait=False)` 在退出时不会等待正在执行的任务完成，可能导致快照数据丢失。建议使用 `wait=True` 或增加一个超时参数。
+
+- **第 202-213 行**: 快照恢复逻辑在模块加载时执行。如果 `STATE_STORE.get(SNAPSHOT_KEY)` 返回的数据损坏或格式不兼容，`COORDINATOR.restore(_saved)` 可能会抛出异常。建议增加更详细的错误处理，例如记录错误日志并优雅地降级（忽略损坏的快照）。
+
+### 总结
+
+这份 PR 引入了大量新功能，包括 VDA5050 模拟器、SAP 桥接、监控仪表板和新的 HTTP 端点。整体代码质量较高，但存在一些潜在的 bug 和性能问题，特别是在 `coordinator.py` 中的任务调度逻辑和 `_auto_report_progress` 方法。建议重点关注上述提到的 bug 修复和性能优化建议，以确保系统的稳定性和可靠性。
+---
+*Powered by DeepSeek API*
+
+

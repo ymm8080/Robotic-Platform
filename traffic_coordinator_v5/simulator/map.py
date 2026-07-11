@@ -19,6 +19,9 @@ class LaneGraph:
     coordinates.
     """
 
+    # Metres between disconnected components in the BFS layout.
+    COMPONENT_SPACING = 50.0
+
     def __init__(self, fmap: FixedLaneMap, node_positions: dict[str, tuple[float, float]] | None = None) -> None:
         self._fmap = fmap
         self._positions = node_positions or {}
@@ -57,6 +60,10 @@ class LaneGraph:
         component is laid out independently along the x-axis so lanes do not
         overlap. Within a component, each child node is placed ``lane.length``
         metres away from its parent in a deterministic angular fan.
+
+        Performance: O(V + E) — linear in graph size.  For very large maps,
+        provide explicit (x, y) coordinates in the YAML ``nodes`` block to
+        skip this computation entirely.
         """
         positions: dict[str, tuple[float, float]] = {}
         lanes = self._fmap.all_lanes()
@@ -82,7 +89,7 @@ class LaneGraph:
         visited_nodes: set[str] = set()
         component_roots = sorted(all_nodes)
         component_index = 0
-        component_spacing = 50.0  # metres between disconnected components
+        component_spacing = self.COMPONENT_SPACING
 
         for start in component_roots:
             if start in visited_nodes:

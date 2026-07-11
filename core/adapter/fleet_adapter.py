@@ -302,3 +302,19 @@ class FleetAdapter:
     def ack_command(self, seq: int) -> bool:
         """SCS acknowledges command ``seq``; return True if it was pending."""
         return self._unacked.pop(seq, None) is not None
+
+    def clear_pending_holds(self, robot_id: str) -> None:
+        """Drop all unacked HOLD commands for *robot_id*.
+
+        Called when the condition that triggered the HOLD no longer applies
+        (e.g. traffic light turned green) so stale retries don't keep the
+        robot frozen.
+        """
+        for seq in list(self._unacked):
+            cmd = self._unacked[seq]
+            if cmd.robot_id == robot_id and cmd.action == "HOLD":
+                self._unacked.pop(seq, None)
+        self.pending_commands = [
+            c for c in self.pending_commands
+            if not (c.robot_id == robot_id and c.action == "HOLD")
+        ]

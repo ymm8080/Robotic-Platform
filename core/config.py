@@ -77,7 +77,13 @@ class CoreConfig:
     governance: GovernanceConfig = field(default_factory=GovernanceConfig)
     worm: WormConfig = field(default_factory=WormConfig)
     charger: ChargerConfig = field(default_factory=ChargerConfig)
+    # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
+    # Default 0.0 (disabled) for test compatibility; production sets via
+    # TC_REGISTRATION_STAGGER_SECONDS env var in traffic_coordinator_main.py
+    registration_stagger_seconds: float = 0.0
     # 演示模式硬编码 (灰犀牛 #18): PRODUCTION / DEMO, 启动自检
     mode: str = "PRODUCTION"
     # N-1 版本兼容承诺 (灰犀牛 #7)
     supported_versions: tuple[str, ...] = ("5.0", "4.1", "4.0")
+    # Maximum retries before a task is failed and dropped.
+    max_task_retries: int = 3

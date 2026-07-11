@@ -1,0 +1,77 @@
+=== LAST COMMENT (#14) ===
+ID: 4943057794
+Author: github-actions[bot]
+Created: 2026-07-11T06:27:10Z
+Body:
+## 🤖 AI Code Review
+
+好的，我来对这份 PR diff 进行代码审查。
+
+## 代码审查报告
+
+### 1. Bug 与逻辑错误
+
+**文件: `core/coordinator.py`**
+
+- **第 267 行**: `assigned_robots: set[str] = set()` 在 `_dispatch_tasks` 方法内部定义。如果该方法在一次 tick 中被多次调用（虽然当前代码结构看起来只调用一次），这个集合会被重置，可能导致同一个机器人在一次 tick 中被分配多个任务。建议将其提升为实例变量或在方法外部维护。
+
+- **第 309-318 行**: `dispatch` 异常处理中，如果 `adapter.dispatch` 抛出异常，会调用 `self._requeue_task` 并将任务重新加入 `remaining` 列表。但此时 `self._active_assignments` 尚未更新，而 `assigned_robots` 集合中也没有添加该机器人。这可能导致该任务在后续循环中被再次尝试分配给同一个机器人，形成无限重试。建议在 `except` 块中也将该机器人从 `assigned_robots` 中移除（如果已添加），或者增加重试次数限制。
+
+- **第 708-748 行 (`_auto_report_progress`)**: 该方法在 `tick` 开始时被调用（第 163 行），但 `report_progress` 内部可能会修改 `_active_assignments`。如果 `report_progress` 导致任务完成并移除 assignment，后续的 `_dispatch_tasks` 逻辑可能会基于过时的状态运行。建议在 `tick` 方法中调整调用顺序，或者确保 `_auto_report_progress` 不会在 `_dispatch_tasks` 执行期间造成状态不一致。
+
+**文件: `traffic_coordinator_v5/simulator/robot.py`**
+
+- **第 185-186 行**: `_guard` 变量用于防止死循环，但其初始值 `len(self._path) * 2 + 10` 在路径很长时可能不够。更安全的做法是使用一个固定的较大值（如 1000）或基于 `dt` 和最大速度计算。
+
+- **第 235-236 行**: `_finish_path` 方法中，`self.distance_along_lane = self.lane_graph.length(self.current_lane_id)` 将距离设置为当前车道的全长。但此时 `self.current_lane_id` 是路径中的最后一个车道，机器人应该已经到达该车道的终点。这个赋值可能使机器人的位置超出车道终点。建议直接设置为 `self.lane_graph.length(self.current_lane_id)` 或 0，取决于后续逻辑是否需要。
+
+**文件: `traffic_coordinator_v5/simulator/fleet.py`**
+
+- **第 88 行**: `self.tick_once(self._publish_interval)` 在 `_run_loop` 中每次循环都使用 `self._publish_interval` 作为 `dt`。但 `_publish_interval` 是固定的，而实际时间间隔可能因系统负载而变化。建议使用实际经过的时间（`time.monotonic()` 差值）作为 `dt`，以保证模拟的物理准确性。
+
+### 2. 安全问题
+
+**文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+
+- **第 349-351 行**: 注释提到所有 POST 端点都需要认证，但代码中 `_check_auth` 的调用是在 `do_POST` 方法开头统一进行的（第 354 行）。这看起来是正确的，但需要确认 `_check_auth` 的实现是否足够健壮（例如，是否使用了安全的 API key 比较方式，避免时序攻击）。
+
+- **第 416-423 行 (`/estop`)**: `zone_id` 参数直接传递给 `COORDINATOR.emergency_stop`。如果 `zone_id` 为空字符串，代码会将其转换为 `None`。但需要确保 `emergency_stop` 方法正确处理 `None` 值（例如，停止所有区域），并且不会因为空字符串而引发意外行为。
+
+### 3. 性能问题
+
+**文件: `core/coordinator.py`**
+
+- **第 708-748 行 (`_auto_report_progress`)**: 该方法在每个 tick 中为每个有活跃 assignment 的机器人执行。它调用了 `adapter.current_path(robot_id)` 和 `self.fmap.lane(lane_id)`。如果机器人数量很多，这些操作可能会成为性能瓶颈。建议考虑缓存 `current_path` 的结果，或者仅在机器人状态发生变化时（例如，`last_node_id` 改变）才执行此方法。
+
+**文件: `traffic_coordinator_v5/simulator/map.py`**
+
+- **第 49-60 行 (`_compute_bfs_positions`)**: 该方法在 `LaneGraph` 初始化时被调用，如果地图很大，BFS 布局计算可能会消耗较多 CPU。对于大型地图，建议考虑使用更高效的布局算法，或者将布局结果缓存到文件中。
+
+### 4. 代码风格与最佳实践
+
+**文件: `core/coordinator.py`**
+
+- **第 19 行**: 新增的 `import logging` 很好，但建议将 `logger` 的命名统一为 `_logger`（带下划线前缀），以表示模块私有。
+
+**文件: `traffic_coordinator_v5/simulator/cli.py`**
+
+- **第 148-149 行**: `shutdown_requested` 变量在 `_signal_handler` 中被修改，但该变量在外部作用域中定义。虽然 Python 的 `nonlocal` 声明使其工作，但更好的做法是使用 `threading.Event` 或 `asyncio.Event` 来管理关闭信号，以避免潜在的竞态条件。
+
+**文件: `traffic_coordinator_v5/simulator/robot.py`**
+
+- **第 1 行**: 建议添加模块文档字符串，描述 `SimulatedRobot` 和 `RobotConfig` 的用途。
+
+- **第 292 行**: `_iso_now` 方法返回的时间戳格式固定为 `000Z`（毫秒部分为零）。对于需要更高时间精度的场景，建议使用 `datetime.utcnow().isoformat()` 或 `time.time_ns()` 生成更精确的时间戳。
+
+**文件: `traffic_coordinator_v5/traffic_coordinator_main.py`**
+
+- **第 142-155 行**: `_background_tick` 函数中的 `_snap_executor` 是一个 `ThreadPoolExecutor`，但只用于提交快照保存任务。对于这种简单的后台任务，使用 `threading.Thread` 可能更轻量。此外，`_snap_executor.shutdown(wait=False)` 在退出时不会等待正在执行的任务完成，可能导致快照数据丢失。建议使用 `wait=True` 或增加一个超时参数。
+
+- **第 202-213 行**: 快照恢复逻辑在模块加载时执行。如果 `STATE_STORE.get(SNAPSHOT_KEY)` 返回的数据损坏或格式不兼容，`COORDINATOR.restore(_saved)` 可能会抛出异常。建议增加更详细的错误处理，例如记录错误日志并优雅地降级（忽略损坏的快照）。
+
+### 总结
+
+这份 PR 引入了大量新功能，包括 VDA5050 模拟器、SAP 桥接、监控仪表板和新的 HTTP 端点。整体代码质量较高，但存在一些潜在的 bug 和性能问题，特别是在 `coordinator.py` 中的任务调度逻辑和 `_auto_report_progress` 方法。建议重点关注上述提到的 bug 修复和性能优化建议，以确保系统的稳定性和可靠性。
+---
+*Powered by DeepSeek API*
+

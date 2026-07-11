@@ -193,6 +193,37 @@ class MqttGateway(InboundGateway, OutboundGateway):
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
 
+        # ── MQTT authentication (v5.x zero-trust) ──────────────
+        mqtt_username = os.environ.get("MQTT_USERNAME", "")
+        if mqtt_username:
+            password = self._load_mqtt_password()
+            if password:
+                self._client.username_pw_set(mqtt_username, password)
+                logger.info("MqttGateway: using MQTT auth for user %s", mqtt_username)
+            else:
+                logger.error(
+                    "MqttGateway: MQTT_USERNAME is set but no password found "
+                    "(set MQTT_PASSWORD or MQTT_PASSWORD_FILE). "
+                    "Aborting connection — auth misconfiguration."
+                )
+                self._client = None
+                return
+
+        # ── TLS (off by default; enable with MQTT_USE_TLS=true) ─
+        if os.environ.get("MQTT_USE_TLS", "false").lower() == "true":
+            ca_cert = os.environ.get("MQTT_CA_CERT", "")
+            client_cert = os.environ.get("MQTT_CLIENT_CERT", "")
+            client_key = os.environ.get("MQTT_CLIENT_KEY", "")
+            if ca_cert:
+                self._client.tls_set(
+                    ca_certs=ca_cert,
+                    certfile=client_cert or None,
+                    keyfile=client_key or None,
+                )
+                logger.info("MqttGateway: TLS enabled")
+            else:
+                logger.warning("MqttGateway: MQTT_USE_TLS=true but MQTT_CA_CERT not set")
+
         # Set Last Will: if TC goes down, operators see OFFLINE
         self._client.will_set(
             "vda5050/traffic-coordinator/connection",
