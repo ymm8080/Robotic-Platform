@@ -734,12 +734,16 @@ class RobotPlatformCoordinator:
         path, idx = adapter.current_path(robot_id)
         for lane_id in path[idx:]:
             lane = self.fmap.lane(lane_id)
-            if lane is None or lane.to_node != last_node:
+            if lane is None:
                 break
-            # Advance waypoint for the lane the robot just completed.
-            # Only process one lane per tick — if the robot traversed multiple
-            # nodes since the last tick, subsequent ticks will catch up.
-            self.report_progress(robot_id, lane_id, now)
+            if lane.to_node == last_node:
+                # Found the lane the robot just completed.
+                # Only process one lane per tick — if the robot traversed
+                # multiple nodes since the last tick, subsequent ticks will
+                # catch up.
+                self.report_progress(robot_id, lane_id, now)
+                break
+            # Robot hasn't reached the end of this lane yet
             break
 
     def report_progress(self, robot_id: str, reached_lane: str, now: float) -> bool:

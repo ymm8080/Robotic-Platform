@@ -415,8 +415,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/estop":
-            zone_id = body.get("zone_id")
-            COORDINATOR.emergency_stop(zone_id, now)
+            zone_id = body.get("zone_id", "")
+            if zone_id and not _SAFE_ID_RE.match(zone_id):
+                self._json(400, {"error": "invalid zone_id"})
+                return
+            COORDINATOR.emergency_stop(zone_id or None, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)
             self._json(200, {"estop": True, "zone": zone_id})
