@@ -74,9 +74,12 @@ class MqttVDAClient:
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         # Last Will: if the simulator process dies, all robots appear broken.
-        lwt_topic = f"vda5050/{self._brand}/simulator/connection"
+        # Use a per-instance topic (includes a unique suffix) so that stale
+        # retained messages from a previous crash do not confuse downstream
+        # systems.  The stale LWT is also explicitly cleared on connect.
+        self._lwt_topic = f"vda5050/{self._brand}/simulator/{self._client_id()}/connection"
         self._client.will_set(
-            lwt_topic,
+            self._lwt_topic,
             json.dumps({"connectionState": "CONNECTIONBROKEN"}),
             qos=1,
             retain=True,
@@ -98,6 +101,9 @@ class MqttVDAClient:
             return
         for robot_id in list(self._robot_ids):
             self.publish_connection(robot_id, "OFFLINE")
+        # Clear the retained LWT so it does not linger after a clean shutdown.
+        with contextlib.suppress(Exception):
+            self._client.publish(self._lwt_topic, payload=b"", qos=1, retain=True)
         with contextlib.suppress(Exception):
             self._client.loop_stop()
             self._client.disconnect()
@@ -106,6 +112,15 @@ class MqttVDAClient:
     def _on_connect(self, client: mqtt.Client, _userdata: Any, _flags: Any, rc: int, _props: Any = None) -> None:
         if rc == 0:
             self._connected = True
+            # Clear any stale retained LWT from a previous crash so downstream
+            # systems do not see a lingering CONNECTIONBROKEN message.
+            with contextlib.suppress(Exception):
+                client.publish(
+                    f"vda5050/{self._brand}/simulator/connection",
+                    payload=b"",
+                    qos=1,
+                    retain=True,
+                )
             for robot_id in self._robot_ids:
                 self._subscribe_for(robot_id)
                 self.publish_connection(robot_id, "ONLINE")

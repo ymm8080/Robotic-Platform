@@ -88,7 +88,14 @@ class FleetSimulator:
             self._mqtt.disconnect()
 
     def _run_loop(self) -> None:
-        """Real-time loop: tick and publish at the configured interval."""
+        """Real-time loop: decouple tick cadence from state publishing.
+
+        The simulation tick runs at a fixed ``_publish_interval`` cadence so
+        that physics progress at a deterministic rate.  State publishing is
+        throttled independently: if a tick takes longer than the interval,
+        publishing still occurs every interval based on wall-clock time rather
+        than being locked to tick completion.
+        """
         next_tick = time.monotonic()
         while self._running and not self._stop_event.is_set():
             now = time.monotonic()
@@ -97,6 +104,20 @@ class FleetSimulator:
             next_tick += self._publish_interval
             sleep_dur = max(0.0, next_tick - time.monotonic())
             self._stop_event.wait(sleep_dur)
+
+    def inject_fault(self, robot_id: str, error_type: str = "ERR_INJECTED_FAULT") -> bool:
+        """Inject a fault into a specific robot.
+
+        Returns True if the fault was injected, False if the robot was not
+        found or was already in ERROR mode.
+        """
+        robot = self._robots.get(robot_id)
+        if robot is None:
+            return False
+        if robot.mode.name == "ERROR":
+            return False
+        robot.inject_error(error_type)
+        return True
 
     def tick_once(self, dt: float) -> dict[str, list[str]]:
         """Advance every robot by ``dt`` seconds (deterministic).

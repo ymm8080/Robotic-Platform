@@ -262,20 +262,26 @@ class RobotPlatformCoordinator:
         # Track robots assigned during *this* tick to prevent double-assignment
         # before _active_assignments is updated (which happens after successful dispatch).
         assigned_robots: set[str] = set()
+
+        # Pre-compute the set of eligible robots once per tick instead of
+        # rebuilding the candidates list for every task.  ``assigned_robots``
+        # is subtracted inside the loop so that robots dispatched earlier in
+        # this tick are not considered for subsequent tasks.
+        base_candidates = [
+            r for r in self._robot_states.values()
+            if r.robot_id not in self._active_assignments
+            and not r.degraded
+            and not self.failover.is_offline(r.robot_id)
+            and self.failover.accepts_new_tasks(r.robot_id, now)
+            and self._breaker_closed(r.robot_id)
+            and self._intersection_clear(r.robot_id)
+        ]
+
         for task in tasks:
             if self._is_expired_or_exhausted(task, now):
                 continue
 
-            candidates = [
-                r for r in self._robot_states.values()
-                if r.robot_id not in assigned_robots
-                and r.robot_id not in self._active_assignments
-                and not r.degraded
-                and not self.failover.is_offline(r.robot_id)
-                and self.failover.accepts_new_tasks(r.robot_id, now)
-                and self._breaker_closed(r.robot_id)
-                and self._intersection_clear(r.robot_id)
-            ]
+            candidates = [r for r in base_candidates if r.robot_id not in assigned_robots]
             result = self.allocator.allocate(task, candidates)
             if not result.assigned:
                 if self._requeue_task(task, now, result.reason):
@@ -306,7 +312,21 @@ class RobotPlatformCoordinator:
                     remaining.append(task)
                 continue
 
-            adapter.dispatch(robot.robot_id, assignment, now)
+            # Attempt dispatch; only mark the robot as assigned if dispatch
+            # succeeds so that a transient failure (e.g. network error) does
+            # not prevent the robot from receiving a different task in the
+            # same tick.
+            try:
+                adapter.dispatch(robot.robot_id, assignment, now)
+            except Exception as exc:
+                if self._requeue_task(task, now, f"dispatch_error:{exc}"):
+                    remaining.append(task)
+                self._worm_event(
+                    now, "ERROR", robot.robot_id,
+                    {"task_id": task.task_id, "dispatch_error": str(exc)},
+                )
+                continue
+
             assigned_robots.add(robot.robot_id)
             self._active_assignments[robot.robot_id] = assignment
             self._update_occupancy(robot.robot_id, assignment.path[0])
@@ -720,15 +740,19 @@ class RobotPlatformCoordinator:
             return
 
         path, idx = adapter.current_path(robot_id)
-        for lane_id in path[idx:]:
+        # Search through remaining lanes for the first one whose ``to_node``
+        # matches ``last_node``.  We must not break on the first non-matching
+        # lane because the robot may have traversed it already (e.g. at an
+        # intersection where multiple lanes converge to the same node).
+        for offset, lane_id in enumerate(path[idx:]):
             lane = self.fmap.lane(lane_id)
-            if lane is None or lane.to_node != last_node:
+            if lane is not None and lane.to_node == last_node:
+                # Advance waypoint for the lane the robot just completed.
+                # Only process one lane per tick — if the robot traversed
+                # multiple nodes since the last tick, subsequent ticks will
+                # catch up.
+                self.report_progress(robot_id, lane_id, now)
                 break
-            # Advance waypoint for the lane the robot just completed.
-            # Only process one lane per tick — if the robot traversed multiple
-            # nodes since the last tick, subsequent ticks will catch up.
-            self.report_progress(robot_id, lane_id, now)
-            break
 
     def report_progress(self, robot_id: str, reached_lane: str, now: float) -> bool:
         """Report a reached waypoint; returns True if the active assignment is complete."""

@@ -163,10 +163,10 @@ def run(argv: list[str] | None = None) -> int:
             if args.fault_prob > 0:
                 import random
 
-                for rid, robot in fleet._robots.items():
-                    if random.random() < args.fault_prob and robot.mode.name != "ERROR":
-                        robot.inject_error("ERR_INJECTED_FAULT")
-                        logger.warning("Injected fault into %s", rid)
+                for rid in fleet.robot_ids:
+                    if random.random() < args.fault_prob:
+                        if fleet.inject_fault(rid, "ERR_INJECTED_FAULT"):
+                            logger.warning("Injected fault into %s", rid)
     finally:
         fleet.stop()
         logger.info("Simulator stopped")

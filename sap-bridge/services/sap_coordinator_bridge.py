@@ -20,6 +20,7 @@ import contextlib
 import logging
 import os
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -33,6 +34,66 @@ WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
 # confirmation.  Set to "1" (default) for automatic confirmation.
 AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "1") == "1"
+
+
+@dataclass
+class CoordinatorAssignment:
+    """Structured representation of one active coordinator assignment."""
+
+    task_id: str = ""
+    path: list[str] = field(default_factory=list)
+    max_speed: float = 0.0
+
+    @property
+    def order_id(self) -> str:
+        """Extract the order_id from the task_id (format: ``order_id`` or ``charge:robot_id``)."""
+        return self.task_id
+
+
+@dataclass
+class CoordinatorState:
+    """Typed wrapper for the coordinator ``/state`` response.
+
+    Provides a stable, typed interface for downstream consumers (like the
+    SAP bridge) so that changes to the raw API response structure do not
+    cause silent failures.
+    """
+
+    active_assignments: int = 0
+    assignments: dict[str, CoordinatorAssignment] = field(default_factory=dict)
+    pending_tasks: int = 0
+
+    @classmethod
+    def from_api(cls, data: dict | None) -> "CoordinatorState":
+        """Parse a raw API response dict into a typed object.
+
+        Falls back gracefully: if the ``assignments`` field is missing,
+        returns an empty dict so callers can treat ``not state.assignments``
+        uniformly.
+        """
+        if not data or not isinstance(data, dict):
+            return cls()
+        raw_assignments = data.get("assignments", {})
+        assignments: dict[str, CoordinatorAssignment] = {}
+        if isinstance(raw_assignments, dict):
+            for robot_id, raw in raw_assignments.items():
+                if not isinstance(raw, dict):
+                    continue
+                assignments[robot_id] = CoordinatorAssignment(
+                    task_id=str(raw.get("task_id", "")),
+                    path=list(raw.get("path", [])),
+                    max_speed=float(raw.get("max_speed", 0.0)),
+                )
+        return cls(
+            active_assignments=int(data.get("active_assignments", 0)),
+            assignments=assignments,
+            pending_tasks=int(data.get("pending_tasks", 0)),
+        )
+
+    @property
+    def active_order_ids(self) -> set[str]:
+        """Return the set of task_ids currently active in the coordinator."""
+        return {a.order_id for a in self.assignments.values()}
 
 
 class SapCoordinatorBridge:
@@ -117,22 +178,12 @@ class SapCoordinatorBridge:
         result = await self._tc.state_async()
         if not result.ok or not result.data:
             return
-        # Coordinator state includes active_assignments dict; we look for
-        # SAP-prefixed orders that are no longer active (meaning completed or failed).
-        active = result.data.get("active_assignments", {})
-        active_order_ids = set()
-        if isinstance(active, dict):
-            for _robot, assign in active.items():
-                if isinstance(assign, dict):
-                    oid = assign.get("order_id", "")
-                    if oid:
-                        active_order_ids.add(oid)
-                elif isinstance(assign, list):
-                    for a in assign:
-                        if isinstance(a, dict):
-                            oid = a.get("order_id", "")
-                            if oid:
-                                active_order_ids.add(oid)
+
+        # Use the typed CoordinatorState wrapper instead of fragile inline
+        # dict/list parsing.  This ensures that changes to the API response
+        # structure are handled gracefully.
+        state = CoordinatorState.from_api(result.data)
+        active_order_ids = state.active_order_ids
 
         GRACE_POLLS = 2
         for tid in list(self._submitted):

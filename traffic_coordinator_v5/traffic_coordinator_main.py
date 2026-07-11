@@ -86,6 +86,10 @@ def _load_api_key() -> str:
 
 TC_API_KEY = _load_api_key()
 
+if not TC_API_KEY:
+    print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints are unauthenticated. "
+          "Set TC_API_KEY or TC_API_KEY_FILE in production.")
+
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
@@ -281,12 +285,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"error": "unauthorized"})
                 return
             state = COORDINATOR.query_state()
+            # Include structured assignment details so downstream systems (e.g.
+            # the SAP bridge) can track active orders without fragile parsing.
+            assignments_detail = {
+                rid: {
+                    "task_id": a.task_id,
+                    "path": list(a.path),
+                    "max_speed": a.max_speed,
+                }
+                for rid, a in COORDINATOR._active_assignments.items()
+            }
             self._json(
                 200,
                 {
                     "locked_zones": state.locked_zones,
                     "pending_tasks": state.pending_tasks,
                     "active_assignments": state.active_assignments,
+                    "assignments": assignments_detail,
                     "pending_commands": state.pending_commands,
                     "metrics": state.metrics.__dict__,
                     "robots": {
@@ -341,6 +356,9 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         now = time.monotonic()
 
+        # All POST endpoints (including /estop, /robot/{id}/recover,
+        # /lane/{id}/block, /lane/{id}/unblock) require authentication via
+        # the same X-API-Key mechanism used by GET /state and /metrics.
         if not _check_auth(self):
             self._json(401, {"error": "unauthorized"})
             return

@@ -166,6 +166,12 @@ class SimulatedRobot:
             return reached
 
         # TASKING with a path: move along current lane.
+        # If battery is critically low during TASKING, transition to ERROR
+        # to prevent the robot from dying mid-mission.
+        if self.battery_percent <= 0.0:
+            self.inject_error("ERR_BATTERY_DEPLETED")
+            return reached
+
         lane = self.lane_graph.lane(self.current_lane_id)
         if lane is None:
             self.velocity = 0.0
@@ -226,7 +232,10 @@ class SimulatedRobot:
         self.velocity = 0.0
         # Rest at the destination node (end of the final lane).
         self.distance_along_lane = self.lane_graph.length(self.current_lane_id)
-        self.mode = SimRobotMode.IDLE
+        # Do not override ERROR mode — a robot that entered an error state
+        # during task execution must remain in ERROR until explicitly cleared.
+        if self.mode != SimRobotMode.ERROR:
+            self.mode = SimRobotMode.IDLE
 
     def _pose(self) -> tuple[float, float, float]:
         """Return current (x, y, theta) by interpolating along the lane."""
