@@ -321,6 +321,21 @@ class MqttGateway(InboundGateway, OutboundGateway):
         payload.setdefault("robotId", robot_id)
         payload.setdefault("manufacturer", brand)
 
+        # Version Router (灰犀牛 #7): normalise v4.x messages to v5.0 format
+        # before the coordinator sees them.  Pass-through for already-latest.
+        version = payload.get("version", "4.1")
+        if version != "5.0":
+            from core.survival.version_router import VersionedMessage, VersionRouter as _VR
+            try:
+                normalised = _VR().normalise(VersionedMessage(version=version, body=payload))
+                payload = normalised.body
+            except ValueError:
+                logger.warning(
+                    "Unsupported message version %s from %s/%s, dropping",
+                    version, brand, serial_number,
+                )
+                return
+
         if self._callback is not None:
             self._callback(InboundMessage(brand=brand, raw=payload, received_at=now))
 

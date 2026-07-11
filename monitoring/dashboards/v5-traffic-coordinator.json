@@ -1,0 +1,393 @@
+{
+  "title": "v5 Traffic Coordinator",
+  "version": 0,
+  "uid": "v5-traffic-coordinator",
+  "description": "v5 Traffic Coordinator — robot health, throughput, deadlocks, WORM disk",
+  "tags": ["vda5050", "traffic-coordinator", "v5", "robots"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Robot Health",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "tc_robot_online",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "tc_robot_mode",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "tc_robot_battery_percent",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "tc_robot_speed",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "instance": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "job": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true
+            },
+            "indexByName": {
+              "robot_id": 0,
+              "Value": 1,
+              "Value 1": 2,
+              "Value 2": 3,
+              "Value 3": 4
+            },
+            "renameByName": {
+              "robot_id": "Robot ID",
+              "Value": "Online",
+              "Value 1": "Mode",
+              "Value 2": "Battery %",
+              "Value 3": "Speed (m/s)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green" }
+            ]
+          },
+          "custom": {
+            "displayMode": "color-text",
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Battery %" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "min", "value": 0 },
+              { "id": "max", "value": 100 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    { "color": "red" },
+                    { "value": 25, "color": "yellow" },
+                    { "value": 50, "color": "green" }
+                  ]
+                }
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Online" },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    { "color": "red" },
+                    { "value": 1, "color": "green" }
+                  ]
+                }
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "TC Throughput",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(tc_tasks_allocated_total[5m])",
+          "legendFormat": "allocated/s"
+        },
+        {
+          "expr": "rate(tc_tasks_completed_total[5m])",
+          "legendFormat": "completed/s"
+        },
+        {
+          "expr": "tc_tasks_queue_depth",
+          "legendFormat": "queue depth"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "showPoints": "never" },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "queue depth" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.axisSide", "value": "right" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "End-to-End RTT",
+      "type": "gauge",
+      "gridPos": { "x": 0, "y": 8, "w": 4, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "tc_mqtt_rtt_ms",
+          "legendFormat": "RTT"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "max": 500,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green" },
+              { "value": 50, "color": "yellow" },
+              { "value": 150, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Robot Speed + Battery Table",
+      "type": "table",
+      "gridPos": { "x": 4, "y": 8, "w": 4, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "tc_robot_speed",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "tc_robot_battery_percent",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "rate(tc_robot_battery_delta_total[5m])",
+          "legendFormat": "{{robot_id}}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true, "Time 1": true, "Time 2": true,
+              "__name__": true, "__name__ 1": true, "__name__ 2": true,
+              "instance": true, "instance 1": true, "instance 2": true,
+              "job": true, "job 1": true, "job 2": true
+            },
+            "indexByName": {
+              "robot_id": 0,
+              "Value": 1,
+              "Value 1": 2,
+              "Value 2": 3
+            },
+            "renameByName": {
+              "robot_id": "Robot ID",
+              "Value": "Speed (m/s)",
+              "Value 1": "Battery %",
+              "Value 2": "Battery Trend"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Battery %" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "min", "value": 0 },
+              { "id": "max", "value": 100 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    { "color": "red" },
+                    { "value": 25, "color": "yellow" },
+                    { "value": 50, "color": "green" }
+                  ]
+                }
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Battery Trend" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    { "color": "red" },
+                    { "value": 0, "color": "green" }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Deadlock / Conflict Events",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 8, "w": 4, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "increase(tc_deadlocks_total[5m])",
+          "legendFormat": "deadlocks"
+        },
+        {
+          "expr": "increase(tc_collision_holds_total[5m])",
+          "legendFormat": "collision holds"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green" },
+              { "value": 1, "color": "yellow" },
+              { "value": 5, "color": "red" }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        }
+      }
+    },
+    {
+      "title": "WORM Write Status",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 14, "w": 4, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(tc_worm_records_total[5m])",
+          "legendFormat": "WORM writes/s"
+        },
+        {
+          "expr": "tc_worm_disk_free_percent",
+          "legendFormat": "disk free %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green" },
+              { "value": 20, "color": "yellow" },
+              { "value": 10, "color": "red" }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "disk free %" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    { "color": "green" },
+                    { "value": 30, "color": "yellow" },
+                    { "value": 20, "color": "red" }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

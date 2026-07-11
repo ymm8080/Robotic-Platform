@@ -1,0 +1,85 @@
+# =============================================================================
+# Prometheus Alert Rules — Traffic Coordinator v5.x
+# Severity: P0=emergency, P1=critical, P2=critical, P3=warning
+# =============================================================================
+groups:
+  - name: v5-traffic-coordinator
+    interval: 15s
+    rules:
+
+      # ── P3: Robot Battery Low ──────────────────────────────────────────────
+      - alert: tc_robot_battery_low
+        expr: tc_robot_battery_percent < 25
+        for: 5m
+        labels:
+          severity: warning
+          priority: P3
+        annotations:
+          summary: "Robot battery low"
+          description: "Robot {{ $labels.robot_id }} battery at {{ $value }}% for >5m — schedule recharge"
+
+      # ── P3: Adapter Parse Errors ───────────────────────────────────────────
+      - alert: tc_adapter_parse_errors
+        expr: rate(tc_adapter_parse_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          priority: P3
+        annotations:
+          summary: "Adapter parse errors elevated"
+          description: "Traffic-coordinator adapter parse error rate {{ $value }}/s for >5m — check upstream message format"
+
+      # ── P2: Robot Offline ──────────────────────────────────────────────────
+      - alert: tc_robot_offline
+        expr: time() - tc_robot_last_heartbeat_seconds > 10
+        for: 0s
+        labels:
+          severity: critical
+          priority: P2
+        annotations:
+          summary: "Robot offline"
+          description: "Robot {{ $labels.robot_id }} heartbeat missing for >10s — check connectivity and battery"
+
+      # ── P2: Deadlock Detected ──────────────────────────────────────────────
+      - alert: tc_deadlock_detected
+        expr: tc_deadlocks_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          priority: P2
+        annotations:
+          summary: "Deadlock detected"
+          description: "Traffic-coordinator has {{ $value }} unresolved deadlocks for >1m — requires intervention"
+
+      # ── P2: WORM Disk Low ──────────────────────────────────────────────────
+      - alert: tc_worm_disk_low
+        expr: tc_worm_disk_free_percent < 20
+        for: 5m
+        labels:
+          severity: critical
+          priority: P2
+        annotations:
+          summary: "WORM disk space low"
+          description: "WORM storage free at {{ $value }}% — archive or expand volume"
+
+      # ── P1: Coordinator Down ───────────────────────────────────────────────
+      - alert: tc_coordinator_down
+        expr: up{job="traffic-coordinator"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          priority: P1
+        annotations:
+          summary: "Traffic Coordinator down"
+          description: "Traffic-coordinator metrics scrape failed for >30s — dispatch may be impaired"
+
+      # ── P0: Multiple Collisions ────────────────────────────────────────────
+      - alert: tc_multiple_collisions
+        expr: increase(tc_collision_holds_total[1m]) > 5
+        for: 0s
+        labels:
+          severity: critical
+          priority: P0
+        annotations:
+          summary: "Multiple collision holds detected"
+          description: "Traffic-coordinator recorded >5 collision holds in 1m ({{ $value }}) — emergency investigation required"

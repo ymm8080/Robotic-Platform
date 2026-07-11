@@ -17,6 +17,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV TC_HTTP_PORT=8000
 ENV MODE=PRODUCTION
 
+# Ensure WORM audit data directory exists before container start (铁律 #10)
+RUN mkdir -p /data/worm
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -101,6 +101,15 @@ class WormBlackbox:
             if r.timestamp >= since and (robot_id is None or r.robot_id == robot_id)
         ]
 
+    def replay_recent(self, duration_seconds: float, robot_id: str | None = None) -> list[WormRecord]:
+        """Convenience: replay from wall-clock time minus ``duration_seconds``.
+
+        Used by the ``GET /playback`` HTTP endpoint for operator incident review.
+        """
+        import time as _time
+        since = _time.time() - duration_seconds
+        return self.replay(robot_id=robot_id, since=since)
+
     # ── rotation (灰犀牛 #5: 24h/文件) ─────────────────────────
     def needs_rotation(self, now: float) -> bool:
         if self._sink is None:

@@ -4,7 +4,7 @@ import { usePlatformState } from '../hooks/usePlatformState'
 
 interface LockResult {
   zoneId: string
-  action: 'lock' | 'unlock'
+  action: 'lock' | 'unlock' | 'estop'
   ok: boolean
   message: string
 }
@@ -17,6 +17,30 @@ export function ZoneLockdownPanel() {
 
   const lockedZones = state?.locked_zones ?? []
   const lockedSet = new Set(lockedZones)
+
+  /** All known zones from locked_zones + robot lane_ids + intersection keys */
+  const knownZones: string[] = (() => {
+    const zones = new Set<string>()
+    lockedZones.forEach(z => zones.add(z))
+    // Add zones from intersection keys
+    if (state?.intersections) {
+      Object.keys(state.intersections).forEach(k => zones.add(k))
+    }
+    // Extract from metrics
+    if (state?.metrics) {
+      Object.keys(state.metrics)
+        .filter(k => k.startsWith('intersection_'))
+        .map(k => k.replace('intersection_', ''))
+        .forEach(n => zones.add(n))
+    }
+    // Add zones from robot lanes
+    if (state?.robots) {
+      Object.values(state.robots).forEach(r => {
+        if (r.lane_id) zones.add(r.lane_id)
+      })
+    }
+    return Array.from(zones).sort()
+  })()
 
   const sendZoneAction = useCallback(async (zoneId: string, action: 'lock' | 'unlock') => {
     setSending(zoneId)
@@ -33,11 +57,41 @@ export function ZoneLockdownPanel() {
         message: ok
           ? `Zone "${zoneId}" ${action}ed successfully`
           : `Failed: ${body?.error || `HTTP ${res.status}`}`,
-      }, ...prev.slice(0, 19)]) // keep last 20 results
+      }, ...prev.slice(0, 19)])
     } catch (err) {
       setResults(prev => [{
         zoneId, action, ok: false,
         message: `Network error: ${(err as Error).message}`,
+      }, ...prev.slice(0, 19)])
+    } finally {
+      setSending(null)
+    }
+  }, [])
+
+  /** Send estop for one or more zones via POST /v1/v5/estop */
+  const sendEstop = useCallback(async (zoneIds: string[]) => {
+    const label = zoneIds.length === 1 ? zoneIds[0] : `estop-${zoneIds.length}zones`
+    setSending(label)
+    try {
+      const res = await fetch(`${CONFIG.apiBase}/v1/v5/estop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zones: zoneIds }),
+        cache: 'no-store',
+      })
+      const body = await res.json().catch(() => ({}))
+      const ok = res.ok || body?.status === 'ok'
+      const zoneStr = zoneIds.length === 1 ? zoneIds[0] : `${zoneIds.length} zones`
+      setResults(prev => [{
+        zoneId: zoneStr, action: 'estop', ok,
+        message: ok
+          ? `Estop sent for ${zoneStr}`
+          : `Estop failed: ${body?.error || `HTTP ${res.status}`}`,
+      }, ...prev.slice(0, 19)])
+    } catch (err) {
+      setResults(prev => [{
+        zoneId: label, action: 'estop', ok: false,
+        message: `Estop network error: ${(err as Error).message}`,
       }, ...prev.slice(0, 19)])
     } finally {
       setSending(null)
@@ -57,21 +111,6 @@ export function ZoneLockdownPanel() {
     sendZoneAction(zone, 'unlock')
     setCustomZone('')
   }
-
-  // Known zones from platform state
-  const knownZones: string[] = (() => {
-    const zones = new Set<string>()
-    lockedZones.forEach(z => zones.add(z))
-    // Also look in robot active lanes/position metadata
-    if (state?.robots) {
-      Object.values(state.robots).forEach(r => {
-        if (r.mode !== 'IDLE') {
-          // Add heuristic zones — robots typically report last node
-        }
-      })
-    }
-    return Array.from(zones).sort()
-  })()
 
   return (
     <div>
@@ -101,10 +140,10 @@ export function ZoneLockdownPanel() {
         </div>
       )}
 
-      {/* Known locked zones */}
+      {/* Known zones list */}
       <div style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-          Locked Zones ({knownZones.length})
+          Zones ({knownZones.length})
         </h3>
         {knownZones.length === 0 ? (
           <div style={{
@@ -135,23 +174,52 @@ export function ZoneLockdownPanel() {
                       {isLocked ? 'LOCKED' : 'UNLOCKED'}
                     </span>
                   </div>
-                  <button
-                    onClick={() => sendZoneAction(zone, isLocked ? 'unlock' : 'lock')}
-                    disabled={sending === zone}
-                    style={{
-                      padding: '4px 12px', fontSize: 12, fontWeight: 600,
-                      background: sending === zone ? '#9ca3af' : (isLocked ? '#15803d' : '#dc2626'),
-                      color: '#fff', border: 'none', borderRadius: 4,
-                      cursor: sending === zone ? 'not-allowed' : 'pointer',
-                    }}>
-                    {sending === zone ? '…' : (isLocked ? 'Unlock' : 'Lock')}
-                  </button>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      onClick={() => sendZoneAction(zone, isLocked ? 'unlock' : 'lock')}
+                      disabled={sending === zone}
+                      style={{
+                        padding: '4px 12px', fontSize: 12, fontWeight: 600,
+                        background: sending === zone ? '#9ca3af' : (isLocked ? '#15803d' : '#dc2626'),
+                        color: '#fff', border: 'none', borderRadius: 4,
+                        cursor: sending === zone ? 'not-allowed' : 'pointer',
+                      }}>
+                      {sending === zone ? '…' : (isLocked ? 'Unlock' : 'Lock')}
+                    </button>
+                    <button
+                      onClick={() => sendEstop([zone])}
+                      disabled={sending !== null}
+                      style={{
+                        padding: '4px 8px', fontSize: 12, fontWeight: 700,
+                        background: '#991b1b', color: '#fff',
+                        border: 'none', borderRadius: 4,
+                        cursor: sending !== null ? 'not-allowed' : 'pointer',
+                      }}>
+                      E-Stop
+                    </button>
+                  </div>
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      {/* Estop all zones */}
+      {knownZones.length > 1 && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={() => sendEstop(knownZones)}
+            disabled={sending !== null}
+            style={{
+              width: '100%', padding: '10px 14px', fontSize: 13, fontWeight: 700,
+              background: '#991b1b', color: '#fff', border: 'none', borderRadius: 6,
+              cursor: sending !== null ? 'not-allowed' : 'pointer',
+            }}>
+            Emergency Stop All Zones
+          </button>
+        </div>
+      )}
 
       {/* Custom zone control */}
       <div style={{

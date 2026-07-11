@@ -201,7 +201,40 @@ export interface V5RobotState {
   sensor_health?: number  // 0.0–1.0
   battery_percent?: number
   velocity?: number
+  lane_id?: string        // current lane the robot is on
   errors?: string[]
+}
+
+/** Traffic intersection state from the v5 coordinator */
+export interface V5IntersectionState {
+  intersection_id: string
+  state: 'RED' | 'YELLOW' | 'GREEN'
+  robots_waiting: number
+  timer: number
+  lanes: Record<string, {
+    state: 'RED' | 'YELLOW' | 'GREEN'
+    robot_id?: string
+  }>
+}
+
+/** A node in the lane graph */
+export interface V5LaneNode {
+  id: string
+  x: number
+  y: number
+}
+
+/** An edge (lane segment) in the lane graph */
+export interface V5LaneEdge {
+  id: string
+  from: string
+  to: string
+}
+
+/** Lane graph for the warehouse map */
+export interface V5LaneGraph {
+  nodes: V5LaneNode[]
+  edges: V5LaneEdge[]
 }
 
 export interface V5PlatformState {
@@ -211,6 +244,26 @@ export interface V5PlatformState {
   active_assignments: number
   pending_commands: number
   metrics: Record<string, number>
+  /** Optional intersection traffic-light states */
+  intersections?: Record<string, V5IntersectionState>
+  /** Optional lane graph for map rendering */
+  lane_graph?: V5LaneGraph
+}
+
+/** Single WORM (Write-Once-Read-Many) playback event */
+export interface WORMPlaybackEvent {
+  id: string
+  timestamp: string
+  category: string
+  robot_id: string
+  payload: Record<string, unknown>
+}
+
+/** Response from /v1/v5/playback */
+export interface WORMPlaybackResponse {
+  events: WORMPlaybackEvent[]
+  count: number
+  duration: number
 }
 
 export interface V5CoordinatorHealth {

@@ -427,8 +427,11 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         now = time.monotonic()
 
-        # All POST endpoints require authentication — including /estop,
-        # /robot/{id}/recover, /lane/{id}/block, /order, /ingest/*, etc.
+        # ── AUTHENTICATION (covers ALL POST endpoints below) ───────
+        # Every POST handler below (including /estop, /robot/{id}/recover,
+        # /robot/{id}/progress, /lane/{id}/block, /lane/{id}/unblock,
+        # /order, /order/{id}/cancel, /ingest/*) is protected by this check.
+        # No endpoint-specific auth is needed because this gate runs first.
         if not _check_auth(self):
             self._json(401, {"error": "unauthorized"})
             return

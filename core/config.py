@@ -78,12 +78,37 @@ class CoreConfig:
     worm: WormConfig = field(default_factory=WormConfig)
     charger: ChargerConfig = field(default_factory=ChargerConfig)
     # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
-    # Default 0.0 (disabled) for test compatibility; production sets via
-    # TC_REGISTRATION_STAGGER_SECONDS env var in traffic_coordinator_main.py
-    registration_stagger_seconds: float = 0.0
+    # Default 5.0 for production safety; 0.0 disables for tests.
+    registration_stagger_seconds: float = 5.0
     # 演示模式硬编码 (灰犀牛 #18): PRODUCTION / DEMO, 启动自检
     mode: str = "PRODUCTION"
+    # Whether authentication is mandatory (PRODUCTION=true, DEMO=false).
+    require_auth: bool = True
     # N-1 版本兼容承诺 (灰犀牛 #7)
     supported_versions: tuple[str, ...] = ("5.0", "4.1", "4.0")
     # Maximum retries before a task is failed and dropped.
     max_task_retries: int = 3
+
+    @classmethod
+    def for_demo(cls) -> "CoreConfig":
+        """Create a DEMO-mode config with relaxed safety parameters.
+
+        DEMO mode is intended for sales demonstrations and local development.
+        Safety guards are relaxed (shorter safe distance floor, faster
+        registration stagger, no auth requirement, no mandatory WORM disk).
+        """
+        safety = SafetyConfig(
+            hard_floor=0.5,
+            unsafe_speed_floor=0.1,
+            sensor_degrade_multiplier=1.0,
+        )
+        charger = ChargerConfig(force_lock_threshold=0.0)
+        worm = WormConfig(sink_dir="./data/worm")
+        return cls(
+            safety=safety,
+            charger=charger,
+            worm=worm,
+            registration_stagger_seconds=1.0,
+            mode="DEMO",
+            require_auth=False,
+        )

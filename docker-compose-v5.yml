@@ -34,7 +34,7 @@ services:
       - TC_HTTP_PORT=8000
       - TC_API_KEY_FILE=/run/secrets/tc_api_key
     volumes:
-      - v5-worm-data:/data
+      - worm-data:/data/worm
       - ./core:/app/core:ro
     depends_on:
       redis:
@@ -122,7 +122,7 @@ services:
 # v5.0 专用持久化卷
 # =============================================================================
 volumes:
-  v5-worm-data:
+  worm-data:
     driver: local
 
 # =============================================================================

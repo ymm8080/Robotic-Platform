@@ -211,3 +211,76 @@ def test_version_router_rejects_unsupported():
         assert False, "should have raised"
     except ValueError:
         pass
+
+
+# ── cold-start stagger (陷阱 #3) ─────────────────────────────────
+def test_cold_start_stagger_registration():
+    """3 robots ingested within 1s → only 1 registered immediately, 2 queued."""
+    from core.config import CoreConfig
+    from core.coordinator import RobotPlatformCoordinator
+    from core.adapter.fleet_adapter import FleetAdapter
+
+    cfg = CoreConfig(registration_stagger_seconds=5.0)
+    tc = RobotPlatformCoordinator(config=cfg)
+    adapter = FleetAdapter("test_brand")
+    tc.register_adapter(adapter)
+
+    now = 0.0
+    tc.ingest_uplink(
+        "test_brand",
+        {"robotId": "R1", "batteryLevel": 90, "agvPosition": {"x": 0, "y": 0, "theta": 0}},
+        now,
+    )
+    tc.ingest_uplink(
+        "test_brand",
+        {"robotId": "R2", "batteryLevel": 85, "agvPosition": {"x": 1, "y": 0, "theta": 0}},
+        now + 0.1,
+    )
+    tc.ingest_uplink(
+        "test_brand",
+        {"robotId": "R3", "batteryLevel": 80, "agvPosition": {"x": 2, "y": 0, "theta": 0}},
+        now + 0.2,
+    )
+
+    # R1 registered immediately (first robot, no stagger gate)
+    assert "R1" in tc._robot_states
+    # R2, R3 queued (within 5s stagger window)
+    assert "R2" not in tc._robot_states
+    assert "R3" not in tc._robot_states
+    assert len(tc._pending_registrations) == 2
+
+    # Tick at t=5: R2 dequeued
+    tc.tick(5.0)
+    assert "R2" in tc._robot_states
+    assert len(tc._pending_registrations) == 1
+
+    # Tick at t=10: R3 dequeued
+    tc.tick(10.0)
+    assert "R3" in tc._robot_states
+    assert len(tc._pending_registrations) == 0
+
+
+def test_cold_start_stagger_disabled_when_zero():
+    """When stagger is 0, all robots register immediately (backward compat)."""
+    from core.config import CoreConfig
+    from core.coordinator import RobotPlatformCoordinator
+    from core.adapter.fleet_adapter import FleetAdapter
+
+    cfg = CoreConfig(registration_stagger_seconds=0.0)
+    tc = RobotPlatformCoordinator(config=cfg)
+    adapter = FleetAdapter("test_brand")
+    tc.register_adapter(adapter)
+
+    tc.ingest_uplink(
+        "test_brand",
+        {"robotId": "R1", "batteryLevel": 90, "agvPosition": {"x": 0, "y": 0, "theta": 0}},
+        0.0,
+    )
+    tc.ingest_uplink(
+        "test_brand",
+        {"robotId": "R2", "batteryLevel": 85, "agvPosition": {"x": 1, "y": 0, "theta": 0}},
+        0.1,
+    )
+    assert "R1" in tc._robot_states
+    assert "R2" in tc._robot_states
+    assert len(tc._pending_registrations) == 0

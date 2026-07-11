@@ -60,3 +60,12 @@ scrape_configs:
     params:
       filters: ['{"status":["running"]}']
     # cAdvisor would be better — use this as fallback
+
+  # ── Traffic Coordinator v5.x (task allocation, deadlocks, robot health) ──
+  - job_name: "traffic-coordinator"
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["traffic-coordinator:8000"]
+        labels:
+          service: "traffic-coordinator"
+          component: "dispatch"

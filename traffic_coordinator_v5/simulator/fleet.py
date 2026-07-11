@@ -197,6 +197,100 @@ class FleetSimulator:
         if on_instant_actions is not None:
             self._route_instant_actions = on_instant_actions
 
+    @classmethod
+    def for_scenario(
+        cls,
+        name: str,
+        brand: str = "generic",
+        mqtt_client: MqttVDAClient | None = None,
+        publish_interval: float = 0.5,
+    ) -> "FleetSimulator":
+        """Factory: create a FleetSimulator pre-configured for a named test scenario.
+
+        Builds an in-memory lane graph, creates the simulator, and adds robots
+        at scenario-appropriate positions with correct battery levels.
+
+        Supported scenarios:
+          - ``"intersection"``  — 3 robots converging on a 3-way intersection
+          - ``"charger"``       — 2 robots, 1 charger bay, one at 15 % battery
+          - ``"fault"``         — 1 robot with scheduled fault injection
+          - ``"deadlock"``      — 2 robots facing each other on a single lane
+          - ``"safe_distance"`` — 2 robots following each other on a linear path
+        """
+        from core.platform.fixed_lane_map import FixedLaneMap, Lane
+
+        fmap = FixedLaneMap()
+
+        if name == "intersection":
+            lanes_def = [
+                ("L_A_X", "A", "X", 10.0),
+                ("L_B_X", "B", "X", 10.0),
+                ("L_C_X", "C", "X", 10.0),
+                ("L_X_D", "X", "D", 10.0),
+            ]
+        elif name == "charger":
+            lanes_def = [
+                ("L_A_B", "A", "B", 10.0),
+                ("L_B_A", "B", "A", 10.0),
+            ]
+        elif name == "fault":
+            lanes_def = [
+                ("L_A_B", "A", "B", 10.0),
+                ("L_B_C", "B", "C", 10.0),
+            ]
+        elif name == "deadlock":
+            lanes_def = [
+                ("L_A_B", "A", "B", 10.0),
+                ("L_B_A", "B", "A", 10.0),
+            ]
+        elif name == "safe_distance":
+            lanes_def = [
+                ("L_A_B", "A", "B", 10.0),
+                ("L_B_C", "B", "C", 10.0),
+            ]
+        else:
+            raise ValueError(
+                f"Unknown scenario {name!r}; "
+                f"choices: intersection, charger, fault, deadlock, safe_distance"
+            )
+
+        for lid, frm, to, length in lanes_def:
+            lane = Lane(
+                lane_id=lid,
+                from_node=frm,
+                to_node=to,
+                length=length,
+                max_speed=1.0,
+                charger=(name == "charger" and lid == "L_B_A"),
+            )
+            fmap.add_lane(lane)
+
+        lane_graph = LaneGraph(fmap)
+        sim = cls(
+            lane_graph=lane_graph,
+            brand=brand,
+            mqtt_client=mqtt_client,
+            publish_interval=publish_interval,
+        )
+
+        if name == "intersection":
+            sim.add_robot("R-001", start_lane="L_A_X", battery=100.0)
+            sim.add_robot("R-002", start_lane="L_B_X", battery=100.0)
+            sim.add_robot("R-003", start_lane="L_C_X", battery=100.0)
+        elif name == "charger":
+            sim.add_robot("R-001", start_lane="L_A_B", battery=15.0)
+            sim.add_robot("R-002", start_lane="L_A_B", battery=80.0)
+        elif name == "fault":
+            sim.add_robot("R-001", start_lane="L_A_B", battery=100.0)
+        elif name == "deadlock":
+            sim.add_robot("R-001", start_lane="L_A_B", battery=100.0)
+            sim.add_robot("R-002", start_lane="L_B_A", battery=100.0)
+        elif name == "safe_distance":
+            sim.add_robot("R-001", start_lane="L_A_B", battery=100.0)
+            sim.add_robot("R-002", start_lane="L_A_B", battery=100.0)
+
+        return sim
+
     @property
     def robot_ids(self) -> list[str]:
         return list(self._robots.keys())

@@ -92,6 +92,22 @@ class RobotPlatformCoordinator:
         metrics: CoreMetrics | None = None,
     ) -> None:
         self.cfg = config or CoreConfig()
+
+        # PRODUCTION mode: verify WORM disk is writable (fail-fast on startup).
+        # DEMO mode: fall back to in-memory if disk unavailable (灰犀牛 #18).
+        if self.cfg.mode == "PRODUCTION":
+            worm_sink_parent = Path(self.cfg.worm.sink_dir)
+            try:
+                worm_sink_parent.mkdir(parents=True, exist_ok=True)
+                _test = worm_sink_parent / ".write_test"
+                _test.touch()
+                _test.unlink()
+            except OSError as exc:
+                raise RuntimeError(
+                    f"PRODUCTION mode requires writable WORM sink at "
+                    f"{worm_sink_parent}: {exc}"
+                ) from exc
+
         self.fmap = fmap or FixedLaneMap()
         self.traffic = traffic or TrafficLightController()
         self.reputation = reputation or ReputationEngine(self.cfg.governance)
@@ -134,7 +150,7 @@ class RobotPlatformCoordinator:
 
         # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
         self._registration_stagger_seconds = self.cfg.registration_stagger_seconds
-        self._last_registration_time: float = 0.0
+        self._last_registration_time: float | None = None
         self._pending_registrations: deque[tuple[FleetAdapter, FleetState, list[str], float]] = deque()
 
     MAX_TASK_RETRIES = 3
@@ -149,23 +165,14 @@ class RobotPlatformCoordinator:
     def adapter_for(self, robot_id: str) -> FleetAdapter | None:
         return self._robot_adapter.get(robot_id)
 
-    # ── uplink ingestion ─────────────────────────────────────────
-    def ingest_uplink(self, brand: str, raw: dict, now: float) -> list[str]:
-        """Ingest one vendor-native state update and return platform events."""
-        self.metrics.inc("uplinks")
-        adapter = self._adapters.get(brand)
-        if adapter is None:
-            self._worm_event(now, "ERROR", raw.get("robotId", "?"), {"reason": "unknown_brand", "brand": brand})
-            return [f"ERR_UNKNOWN_BRAND:{brand}"]
+    # ── shared state processing ────────────────────────────────────
+    def _process_robot_state(self, state: FleetState, events: list[str], now: float) -> None:
+        """Register parsed robot state in platform data structures.
 
-        state, events = adapter.ingest_native_state(raw, now)
-        if any("ERR_ADAPTER_PARSE" in e for e in events):
-            self.metrics.inc("adapter_parse_errors")
-        self._robot_adapter[state.robot_id] = adapter
-
-        # failover observes liveness and stamps platform-maintained flags
-        events.extend(self.failover.observe(state, now))
-        state = self.failover.stamp(state)
+        Extracted from ``ingest_uplink`` so that both immediate registration
+        and deferred (cold-start staggered) registration share the same
+        post-parse pipeline.
+        """
         self._robot_states[state.robot_id] = state
         # Maintain idle-robots index for O(1) candidate filtering in dispatch
         if state.mode is RobotMode.IDLE and not state.degraded:
@@ -173,7 +180,6 @@ class RobotPlatformCoordinator:
         else:
             self._idle_robots.discard(state.robot_id)
         # Only call _auto_report_progress if the robot has an active assignment
-        # (avoids unnecessary method call overhead for idle robots).
         if state.robot_id in self._active_assignments:
             self._auto_report_progress(state.robot_id, now)
 
@@ -190,6 +196,38 @@ class RobotPlatformCoordinator:
         for ev in events:
             if ev.startswith("ERR_") or "BOOT_TAKEOVER" in ev or "SHADOW_MISMATCH" in ev:
                 self._worm_event(now, "ERROR", state.robot_id, {"event": ev})
+
+    # ── uplink ingestion ─────────────────────────────────────────
+    def ingest_uplink(self, brand: str, raw: dict, now: float) -> list[str]:
+        """Ingest one vendor-native state update and return platform events."""
+        self.metrics.inc("uplinks")
+        adapter = self._adapters.get(brand)
+        if adapter is None:
+            self._worm_event(now, "ERROR", raw.get("robotId", "?"), {"reason": "unknown_brand", "brand": brand})
+            return [f"ERR_UNKNOWN_BRAND:{brand}"]
+
+        state, events = adapter.ingest_native_state(raw, now)
+        if any("ERR_ADAPTER_PARSE" in e for e in events):
+            self.metrics.inc("adapter_parse_errors")
+
+        # Cold-start stagger (陷阱 #3): queue new robots if within stagger window.
+        # Re-registrations (e.g. post-fault reconnection) bypass the stagger gate
+        # so critical robots are not artificially delayed.
+        if state.robot_id not in self._robot_states and self._registration_stagger_seconds > 0:
+            if self._last_registration_time is not None and (
+                now - self._last_registration_time
+                < self._registration_stagger_seconds
+            ):
+                self._pending_registrations.append((adapter, state, events, now))
+                return events
+            self._last_registration_time = now
+
+        self._robot_adapter[state.robot_id] = adapter
+
+        # failover observes liveness and stamps platform-maintained flags
+        events.extend(self.failover.observe(state, now))
+        state = self.failover.stamp(state)
+        self._process_robot_state(state, events, now)
         return events
 
     # ── order intake ─────────────────────────────────────────────
@@ -218,7 +256,7 @@ class RobotPlatformCoordinator:
         # so failover.observe sees the correct first-seen time.
         if self._pending_registrations:
             if (
-                self._last_registration_time == 0.0
+                self._last_registration_time is None
                 or now - self._last_registration_time >= self._registration_stagger_seconds
             ):
                 adapter, state, events, reg_ts = self._pending_registrations.popleft()
