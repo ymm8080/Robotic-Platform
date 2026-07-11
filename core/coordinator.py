@@ -848,6 +848,10 @@ class RobotPlatformCoordinator:
         if reached_lane == assignment.path[-1]:
             del self._active_assignments[robot_id]
             adapter.expect(robot_id, RobotMode.IDLE)
+            # Add robot to idle set immediately so it can be considered for
+            # task assignment in the next tick without waiting for a state update.
+            if not self.failover.is_offline(robot_id):
+                self._idle_robots.add(robot_id)
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
             self.reputation.record_good(robot_id, now, reason="task_completed")
