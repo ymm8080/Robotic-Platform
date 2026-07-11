@@ -95,7 +95,12 @@ class SimulatedRobot:
             self.mode = SimRobotMode.TASKING
 
     def inject_error(self, error_type: str) -> None:
-        """Inject an error and stop the robot."""
+        """Inject an error and stop the robot.
+
+        The robot's ``distance_along_lane`` is left unchanged so that
+        ``_pose()`` reports the actual position where the robot stopped,
+        rather than a potentially misleading end-of-lane position.
+        """
         self.errors.append(error_type)
         self.mode = SimRobotMode.ERROR
         self.velocity = 0.0

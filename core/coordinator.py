@@ -263,10 +263,8 @@ class RobotPlatformCoordinator:
         # before _active_assignments is updated (which happens after successful dispatch).
         assigned_robots: set[str] = set()
 
-        # Pre-compute the set of eligible robots once per tick instead of
-        # rebuilding the candidates list for every task.  ``assigned_robots``
-        # is subtracted inside the loop so that robots dispatched earlier in
-        # this tick are not considered for subsequent tasks.
+        # Pre-compute eligible robots once per tick to avoid redundant filtering.
+        # ``assigned_robots`` prevents double-assignment within the same tick.
         base_candidates = [
             r for r in self._robot_states.values()
             if r.robot_id not in self._active_assignments
@@ -725,6 +723,10 @@ class RobotPlatformCoordinator:
         been received. This lets protocol-level simulators (and real VDA5050
         robots reporting only state) complete tasks without a separate progress
         channel.
+
+        This method is idempotent: ``report_progress`` internally calls
+        ``adapter.advance_waypoint`` which returns ``False`` if the lane
+        has already been advanced, preventing duplicate progress reports.
         """
         assignment = self._active_assignments.get(robot_id)
         if assignment is None:

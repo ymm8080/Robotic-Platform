@@ -88,8 +88,10 @@ TC_API_KEY = _load_api_key()
 
 if not TC_API_KEY:
     if MODE == "PRODUCTION":
-        print("[security] ERROR: TC_API_KEY not set in PRODUCTION mode — all authenticated endpoints will return 401. "
-              "Set TC_API_KEY or TC_API_KEY_FILE.")
+        print("[security] FATAL: TC_API_KEY not set in PRODUCTION mode. "
+              "Set TC_API_KEY or TC_API_KEY_FILE, or run in DEMO mode.")
+        import sys
+        sys.exit(1)
     else:
         print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints are unauthenticated (DEMO mode).")
 
