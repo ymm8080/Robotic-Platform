@@ -19,6 +19,11 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from clients.traffic_coordinator_client import TrafficCoordinatorClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,11 @@ WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 class SapCoordinatorBridge:
     """Background task: SAP tasks → Coordinator orders → SAP confirm."""
 
-    def __init__(self, tc_client, backend_provider) -> None:
+    def __init__(
+        self,
+        tc_client: TrafficCoordinatorClient | None,
+        backend_provider: Callable[[str], object | None],
+    ) -> None:
         """Args:
             tc_client: TrafficCoordinatorClient instance (or None if unavailable).
             backend_provider: callable(warehouse) → backend or None.
