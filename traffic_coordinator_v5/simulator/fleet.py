@@ -171,8 +171,10 @@ class FleetSimulator:
         on_instant_actions: Callable[[str, dict], None] | None = None,
     ) -> None:
         """Override command routing (useful for tests)."""
-        self._route_order = on_order or self._route_order  # type: ignore[assignment]
-        self._route_instant_actions = on_instant_actions or self._route_instant_actions  # type: ignore[assignment]
+        if on_order is not None:
+            self._route_order = on_order
+        if on_instant_actions is not None:
+            self._route_instant_actions = on_instant_actions
 
     @property
     def robot_ids(self) -> list[str]:
