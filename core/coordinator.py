@@ -587,23 +587,23 @@ class RobotPlatformCoordinator:
                 continue
             path, idx = adapter.current_path(robot_id)
             # look ahead from next expected node for the next intersection lane
+            found_intersection = False
             for lane_id in path[idx:]:
                 lane = self.fmap.lane(lane_id)
                 if lane is not None and lane.intersection_id:
-                    if self.traffic.may_enter(lane.intersection_id, lane.direction):
-                        # Robot can proceed — clear stale waiting state so
-                        # the light doesn't falsely report demand and so
-                        # deadlock detection doesn't fire on phantom waits.
-                        self.traffic.clear_waiting(lane.intersection_id, lane.direction)
-                    else:
-                        self.traffic.report_waiting_robot(
-                            lane.intersection_id,
-                            robot_id,
-                            direction=lane.direction,
-                            priority=0,
-                            now=now,
-                        )
+                    found_intersection = True
+                    self.traffic.report_waiting_robot(
+                        lane.intersection_id,
+                        robot_id,
+                        direction=lane.direction,
+                        priority=0,
+                        now=now,
+                    )
                     break
+            if not found_intersection:
+                # Robot has passed all intersection lanes — purge its
+                # stale waiting_robots entries so false deadlocks don't fire.
+                self.traffic.clear_waiting_robot(robot_id)
 
     def _reap_offline_assignments(self, now: float) -> None:
         """Requeue tasks assigned to robots that went degraded/offline."""

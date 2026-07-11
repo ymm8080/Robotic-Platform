@@ -120,6 +120,21 @@ class TrafficLightController:
         it.vehicle_waiting[direction] = False
         it.waiting_robots.pop(direction, None)
 
+    def clear_vehicle_waiting(self, intersection_id: str, direction: int) -> None:
+        """Clear only the vehicle_waiting flag, preserving waiting_robots for deadlock detection."""
+        it = self._intersections.get(intersection_id)
+        if it is None:
+            return
+        it.vehicle_waiting[direction] = False
+
+    def clear_waiting_robot(self, robot_id: str) -> None:
+        """Remove a specific robot from all waiting_robots entries (robot has passed through)."""
+        for it in self._intersections.values():
+            for direction, wr in list(it.waiting_robots.items()):
+                if wr.robot_id == robot_id:
+                    it.waiting_robots.pop(direction, None)
+                    it.vehicle_waiting[direction] = False
+
     # ── entry gate (v4.0 YELLOW 语义) ──────────────────────────
     def may_enter(self, intersection_id: str, direction: int) -> bool:
         """新车辆是否允许进入路口. YELLOW: 已进入的可通过, 新车禁止进入."""

@@ -1,349 +1,204 @@
 #!/usr/bin/env bash
 # ============================================================================
-# auto-implement-and-pr.sh — v5.1 (DAG-driven, program-logic deps)
-# Claude Code instruction document: reads a pre-built plan, AUTO-DETECTS
-# dependencies from PROGRAM DEVELOPMENT LOGIC (creates→consumes matching)
-# AND enforces HARD file-overlap constraint (no same-file parallel edits),
-# dispatches subagents wave-by-wave, then PR.
+# auto-implement-and-pr.sh — v6.0 (native dispatch)
 #
-# USAGE:  cat auto-implement-and-pr.sh | claude
-#    OR   open this file in Claude Code and say "run auto-implement-and-pr"
+# Leverages Claude Code's native Agent/Task/<task-notification> lifecycle.
+# Orchestrator only does: (1) parse plan, (2) pre-compute DAG, (3) fire
+# ready phases each turn. Everything else is native.
+#
+# USAGE: cat auto-implement-and-pr.sh | claude
 # ============================================================================
 
-# ======================= Configuration =======================
 IMPL_PLAN_DIR="d:/ewm robot/reference/design all/implementation plan"
 PROJECT_ROOT="D:/EWM ROBOT/ROBOTIC PLATFORM CODES"
 TODAY_DATE=$(date +%Y%m%d 2>/dev/null || echo 'TODAY')
 PLAN_FILE=$(ls -t "${IMPL_PLAN_DIR}"/*${TODAY_DATE}*.* 2>/dev/null | head -1)
-if [ -z "${PLAN_FILE}" ]; then
-  echo "ERROR: No plan file found in ${IMPL_PLAN_DIR} containing today's date (${TODAY_DATE})."
-  echo "Please run auto-plan-implement-and-pr.sh first, or create a plan file manually."
-  exit 1
-fi
+[ -z "${PLAN_FILE}" ] && echo "ERROR: No plan found for ${TODAY_DATE}" && exit 1
 BRANCH_NAME="feat/auto-impl-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo 'snapshot')"
-# ============================================================
 
-echo "=============================================="
-echo " auto-implement-and-pr.sh v5.1 (DAG-driven)"
-echo " Plan : ${PLAN_FILE}"
-echo " Root : ${PROJECT_ROOT}"
-echo "=============================================="
-echo ""
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  CRITICAL RULE — READ THIS FIRST                           ║
-# ╚══════════════════════════════════════════════════════════════╝
-#
-# YOU (Claude Code) are the ORCHESTRATOR, not the implementer.
-# You MUST use the Agent tool to spawn subagents for EVERY phase.
-# You MUST NOT implement any code yourself.
-# You MUST NOT edit files directly.
-#
-# v5.1 DESIGN — Three rules for dispatch sequencing:
-#
-#   RULE 1 — PRIORITY (P0/P1), declared by the plan author:
-#     = How CRITICAL this phase is. Like a severity label.
-#     P0 = critical. Failure → no PR. Dispatch FIRST when multiple ready.
-#     P1 = normal.   Failure → PR with notes. Dispatch AFTER P0 if tied.
-#     Has ZERO relationship with dependencies.
-#
-#   RULE 2 — LOGICAL dependency, auto-detected from creates→consumes:
-#     = Does Phase B USE (call, import, reference) something Phase A CREATES?
-#     Detected by matching each phase's CREATES against every other's CONSUMES.
-#     Example: P1-4 creates GET /playback, P1-6 calls GET /playback → P1-6 depends on P1-4.
-#
-#   RULE 3 — MECHANICAL constraint (HARD): same file = cannot run in parallel.
-#     = If two phases touch the SAME FILE, they MUST be sequenced.
-#     Even if they edit different lines/functions, simultaneous edits cause git conflicts.
-#     Order: P0 before P1, then by phase ID.
-#     Example: P0-1 and P0-2 both touch core/config.py → cannot be in same wave.
-#
-#   RULE 2 and RULE 3 both result in sequencing. They are independent reasons.
-#   A phase may be blocked by BOTH a logical dep AND a file conflict.
-
-echo "=== CLAUDE CODE ORCHESTRATION INSTRUCTIONS ==="
+echo "=== auto-implement-and-pr v6.0 ==="
+echo "Plan: ${PLAN_FILE}"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════
-# STEP -1 — CREATE BRANCH BEFORE ANY CODE CHANGES
+# PHASE 0: SETUP (one-time, before any agent)
 # ═══════════════════════════════════════════════════════════════
-echo "STEP -1 — Create feature branch BEFORE development starts"
+
+echo "PHASE 0 — SETUP"
 echo ""
-echo "   ACTION: Run these git commands BEFORE dispatching any agent:"
-echo "     1. cd ${PROJECT_ROOT}"
-echo "     2. git status                    # review starting state"
-echo "     3. git checkout -b ${BRANCH_NAME}  # create and switch"
-echo "     4. git branch --show-current      # confirm"
-echo ""
-echo "   WHY: All subagent changes land on this branch from the start."
-echo "   If branch already exists, use 'git checkout ${BRANCH_NAME}' instead."
-echo "   If there are uncommitted changes, stash them first: git stash"
-echo ""
-echo "   *** Do NOT proceed to Step 0 until branch is confirmed. ***"
+echo "0.1 Create branch:"
+echo "    cd ${PROJECT_ROOT} && git checkout -b ${BRANCH_NAME}"
 echo ""
 
-# ═══════════════════════════════════════════════════════════════
-# STEP 0 — READ PLAN → EXTRACT PHASES + PRIORITIES + CREATES/CONSUMES + FILES
-# ═══════════════════════════════════════════════════════════════
-echo "STEP 0 — Read plan and extract phases"
+echo "0.2 Read plan and pre-compute DAG:"
 echo ""
-echo "   Plan file: ${PLAN_FILE}"
+echo "    For each phase in ${PLAN_FILE}, extract:"
+echo "      id, priority(P0|P1), title, creates[], consumes[], files[], verify"
 echo ""
-echo "   For EVERY phase in the plan, extract:"
-echo "     - Phase ID (e.g. 'P0-1', 'P1-4')"
-echo "     - Title"
-echo "     - Priority: P0 (critical) or P1 (normal)"
-echo "       This is ONLY a criticality label. NOT a dependency."
-echo "     - CREATES: what new code artifacts this phase produces"
-echo "       (new functions, classes, endpoints, config keys, modules)"
-echo "     - CONSUMES: what existing or new code artifacts this phase uses"
-echo "       (imports, function calls, API calls, config reads)"
-echo "     - Files: the list of file paths under **Files:**"
-echo "     - Changes: what to implement"
-echo "     - Verify: the verification command"
+echo "    Build constraint maps:"
+echo ""
+echo "      // Logical: match creates -> consumes"
+echo "      creates_map[key] = [producer_phase_ids]"
+echo "      consumes_map[key] = [consumer_phase_ids]"
+echo "      logical_deps[consumer] += producer  (for each match)"
+echo ""
+echo "      // Mechanical: same file -> cannot run simultaneously"
+echo "      file_map[path] = [phase_ids]"
+echo "      file_conflicts[phase] = [other phases touching same files]"
 echo ""
 
-# ═══════════════════════════════════════════════════════════════
-# STEP 0.5 — AUTO-DETECT DEPENDENCIES (TWO LAYERS)
-# ═══════════════════════════════════════════════════════════════
-echo "STEP 0.5 — Auto-detect all sequencing constraints"
+echo "0.3 Create native Task items for ALL phases:"
 echo ""
-echo "   Two independent checks. Both produce sequencing constraints."
+echo "    for each phase:"
+echo "      TaskCreate("
+echo "        subject: \"[P0|P1] <id>: <title>\""
+echo "        metadata: {"
+echo "          id, priority, files, logical_deps, verify"
+echo "        }"
+echo "      )"
 echo ""
-
-echo "   ============================================================"
-echo "   LAYER 1 — LOGICAL dependencies (creates -> consumes)"
-echo "   ============================================================"
-echo ""
-echo "   Build two lookup tables from the plan:"
-echo "     creates_map[artifact_key] = [phase_ids that CREATE it]"
-echo "     consumes_map[artifact_key] = [phase_ids that CONSUME it]"
-echo ""
-echo "   Artifact key format:"
-echo "     function:  \"module.py::function_name()\""
-echo "     class:     \"module.py::ClassName\""
-echo "     endpoint:  \"GET /api/path\"  or  \"POST /api/path\""
-echo "     config:    \"ClassName.field_name\""
-echo "     file:      \"path/to/file.py\" (only for NEW files)"
-echo "     cli:       \"cli.py::--flag-name\""
-echo ""
-echo "   Match: For each artifact in creates_map:"
-echo "     producers = creates_map[key]"
-echo "     consumers = consumes_map[key]"
-echo "     For each (producer, consumer) where producer != consumer:"
-echo "       consumer DEPENDS ON producer  (logical dependency)"
-echo ""
-echo "   Example:"
-echo "     P1-4 creates \"GET /playback\", P1-6 consumes \"GET /playback\""
-echo "     -> P1-6 logically depends on P1-4"
-echo ""
-
-echo "   ============================================================"
-echo "   LAYER 2 — MECHANICAL constraints (same file = CANNOT parallel)"
-echo "   ============================================================"
-echo ""
-echo "   *** IRON RULE: Two agents MUST NOT edit the SAME FILE simultaneously. ***"
-echo "   Even if they touch different lines/functions, parallel edits on the"
-echo "   same file WILL cause git conflicts or overwrite each other's changes."
-echo ""
-echo "   Build a file->phases map from the plan:"
-echo "     file_map[path] = [phase_ids that list this file]"
-echo ""
-echo "   For each file touched by >1 phase:"
-echo "     These phases CONFLICT mechanically."
-echo "     They must be SEQUENCED (one after another)."
-echo "     Order: P0 before P1, then by phase ID."
-echo ""
-echo "   Example:"
-echo "     config.py:      [P0-1, P0-2, P1-5]  -> P0-1 before P0-2 before P1-5"
-echo "     coordinator.py: [P0-1, P0-2]         -> P0-1 before P0-2"
-echo "     gateway.py:     [P1-5]               -> no conflict (only 1 phase)"
-echo "     App.tsx:        [P1-6]               -> no conflict"
-echo ""
-echo "   This is a MECHANICAL constraint (git safety), completely separate"
-echo "   from LOGICAL dependencies (creates->consumes). Both cause sequencing."
-echo ""
-
-echo "   ============================================================"
-echo "   COMBINED DAG — merge both layers"
-echo "   ============================================================"
-echo ""
-echo "   For each phase, its FULL dependency list ="
-echo "     (logical deps from Layer 1) UNION (mechanical deps from Layer 2)"
-echo ""
-echo "   Print the combined DAG:"
-echo ""
-echo "     Phase     | Prio | Logical Deps    | File Conflicts      | FULL Deps"
-echo "     ----------|------|-----------------|---------------------|----------"
-echo "     P0-1: ... | P0   | (none)          | (none)              | (none)"
-echo "     P0-2: ... | P0   | (none)          | P0-1(config.py)     | P0-1"
-echo "     P0-3: ... | P0   | (none)          | (none)              | (none)"
-echo "     P1-4: ... | P1   | (none)          | (none)              | (none)"
-echo "     P1-5: ... | P1   | (none)          | P0-2(config.py)     | P0-2"
-echo "     P1-6: ... | P1   | P1-4(/playback) | (none)              | P1-4"
-echo "     P1-7: ... | P1   | (none)          | (none)              | (none)"
-echo "     P1-8: ... | P1   | (none)          | (none)              | (none)"
+echo "    All phases start as 'pending'. TaskList is our dashboard."
 echo ""
 
 # ═══════════════════════════════════════════════════════════════
-# DAG DISPATCH — WAVE BY WAVE
+# PHASE 1: INITIAL DISPATCH
 # ═══════════════════════════════════════════════════════════════
-echo "DAG DISPATCH — Wave-by-wave across conversational turns"
+
+echo "PHASE 1 — INITIAL DISPATCH (Turn 0)"
 echo ""
-echo "   MECHANISM: You do NOT have a while-loop. Dispatch in WAVES."
-echo "   Each wave = one conversational response with parallel Agent calls."
-echo "   Track DAG state in a mental table. Update after each wave."
+echo "READY CHECK (reused every turn):"
+echo "  def ready(phase):"
+echo "    // Condition A: all logical deps completed"
+echo "    if any(dep.status != 'completed' for dep in phase.logical_deps):"
+echo "      return false"
+echo "    // Condition B: no file overlap with any RUNNING phase"
+echo "    running = [p for p in all_phases if p.status == 'in_progress']"
+echo "    if any(overlap(phase.files, r.files) for r in running):"
+echo "      return false"
+echo "    return true"
 echo ""
 
-echo "   -----------------------------------------------------------"
-echo "   WAVE 1 — Dispatch all phases with EMPTY full-deps list"
-echo "   -----------------------------------------------------------"
-echo ""
-echo "   1. Find ALL phases where FULL Deps = (none)."
-echo "      These are independent — they can all run immediately."
-echo ""
-echo "   2. *** ALSO check: do any of these phases share a file? ***"
-echo "      If Wave 1 candidates share a file, only dispatch the"
-echo "      highest-priority one. The rest must wait for next wave."
-echo ""
-echo "   3. If multiple ready (no shared files), dispatch in priority"
-echo "      order (P0 first). All in ONE message (parallel Agent calls)."
-echo ""
-echo "   4. Wait for ALL to report back. Update DAG table."
+echo "    Find all phases where ready() == true."
+echo "    Among those, resolve mutual file conflicts:"
+echo "      while ready_set has phases sharing files:"
+echo "        keep highest priority (P0 > P1), then lowest ID"
+echo "        defer the rest to next turn"
 echo ""
 
-echo "   -----------------------------------------------------------"
-echo "   WAVE 2, 3, ... — Resolve and dispatch newly unblocked"
-echo "   -----------------------------------------------------------"
+echo "    Dispatch kept phases with Agent(run_in_background=true):"
 echo ""
-echo "   5. Re-evaluate: which pending phases have ALL deps satisfied?"
-echo "      AND do not share files with any other ready phase?"
-echo "      -> Those are READY. Dispatch in parallel."
-echo "      -> Phases with a FAILED dependency -> SKIPPED (cascade)."
+echo "      for phase in to_dispatch:"
+echo "        task_id = Agent("
+echo "          subagent_type: \"general-purpose\""
+echo "          description: \"<id> [<P0|P1>]: <title>\""
+echo "          run_in_background: true"
+echo "          prompt: STANDARD_PROMPT(phase)"
+echo "        )"
+echo "        TaskUpdate(phase.task_id, status='in_progress',"
+echo "          metadata: {agent_task_id: task_id})"
 echo ""
-echo "   6. Repeat until no phases remain pending or in_progress."
+echo "    END TURN. Do nothing else."
 echo ""
-
-echo "   -----------------------------------------------------------"
-echo "   FAILURE — uniform rule, priority only affects PR decision"
-echo "   -----------------------------------------------------------"
-echo ""
-echo "   When ANY phase fails (regardless of P0 or P1):"
-echo "     -> Mark it 'failed'. Its dependents cascade to 'skipped'."
-echo "     -> Phases that do NOT depend on it CONTINUE normally."
-echo ""
-echo "   Priority (P0/P1) only differs at PR time:"
-echo "     -> Any P0 failed -> NO PR (critical path broken)."
-echo "     -> Only P1 failed -> CREATE PR with failures noted."
-echo ""
-
-echo "   -----------------------------------------------------------"
-echo "   CONCRETE EXAMPLE (from today's 8-phase plan)"
-echo "   -----------------------------------------------------------"
-echo ""
-echo "   File overlap analysis:"
-echo "     config.py:      P0-1, P0-2, P1-5, P0-3  -> 4 phases share it!"
-echo "     coordinator.py: P0-1, P0-2               -> 2 phases share it"
-echo "     gateway.py:     P1-5                      -> 1 phase, no conflict"
-echo "     main.py:        P0-2, P1-4, P1-5          -> 3 phases share it!"
-echo "     worm_blackbox:  P0-2, P1-4                -> 2 phases share it"
-echo "     test_survival:  P0-1, P0-2                -> 2 phases share it"
-echo "     test_vda5050:   P1-4, P1-5                -> 2 phases share it"
-echo "     docker-compose: P0-3                      -> 1 phase, no conflict"
-echo "     Dockerfile:     P0-3                      -> 1 phase, no conflict"
-echo "     dashboard/*:    P1-6                      -> 1 phase, no conflict"
-echo "     monitoring/*:   P1-7                      -> 1 phase, no conflict"
-echo "     simulator/*:    P1-8                      -> 1 phase, no conflict"
-echo ""
-echo "   Creates->Consumes analysis:"
-echo "     P1-6 consumes GET /playback -> P1-4 creates GET /playback"
-echo "     -> P1-6 logically depends on P1-4"
-echo ""
-echo "   Combined DAG (both layers):"
-echo "     P0-1: file-conflict with P0-2,P1-5,P0-3 on config.py + P0-2 on coordinator.py + P0-2 on test_survival"
-echo "           -> P0-2,P1-5,P0-3 must wait (but P0-1 is P0, goes first on config.py)"
-echo "     P0-2: waits for P0-1 (config.py, coordinator.py, test_survival)"
-echo "     P0-3: waits for P0-1 (config.py); waits for P0-2 (config.py)"
-echo "           Also: P0-3 touches config.py, P0-1 and P0-2 do too"
-echo "     P1-4: waits for P0-2 (main.py, worm_blackbox); waits for P1-5 (main.py share? no, P1-5 touches main.py too)"
-echo "           Actually P1-4 and P1-5 both touch main.py and test_vda5050"
-echo "     P1-5: waits for P0-2 (main.py); waits for P0-1,P0-2 (config.py)"
-echo "     P1-6: waits for P1-4 (logical dep: /playback endpoint)"
-echo "     P1-7: no conflicts, no logical deps -> Wave 1 candidate"
-echo "     P1-8: no conflicts, no logical deps -> Wave 1 candidate"
-echo ""
-echo "   Wave dispatch:"
-echo "     Wave 1: P0-1 + P1-7 + P1-8  (P0-1 goes first on config.py; P0-2, P0-3, P1-5 blocked by file conflict on config.py; P1-4 blocked by file conflict on main.py with P0-2)"
-echo "     Wave 2: P0-2 + P1-4 + P1-6(?)  (P0-2 unblocked after P0-1; P1-4: does P1-4 share files with P0-2? Yes, main.py + worm_blackbox. P1-4 waits. P1-6: logical dep on P1-4, still blocked)"
-echo "             Actually: P0-2 conflicts with P1-4 on main.py -> only P0-2 runs"
-echo "     Wave 3: P0-3 + P1-4 + P1-5  (P0-3 waits for P0-2 on config.py; P1-4 waits for P0-2 on main.py; P1-5 waits for P0-2 on config.py+main.py. But P0-3, P1-4, P1-5 all share? Check: P0-3 vs P1-4: no shared files. P0-3 vs P1-5: config.py! So P0-3 and P1-5 can't both run. P1-4 vs P1-5: main.py + test_vda5050! Can't both run.)"
-echo "             -> Only P0-3 runs (highest priority on config.py). P1-4 and P1-5 also blocked by each other."
-echo "     Wave 4: P1-4 + P1-5? No, still share main.py + test_vda5050. P1-4 (lower ID) runs first."
-echo "     Wave 5: P1-5"
-echo "     Wave 6: P1-6 (logical dep on P1-4 satisfied)"
-echo ""
-echo "   -> 8 phases complete in 6 waves."
-echo "   -> Key bottleneck: config.py (4 phases) and main.py (3 phases)."
-echo ""
-
-echo "   -----------------------------------------------------------"
-echo "   AGENT PROMPT (identical for every phase, every wave)"
-echo "   -----------------------------------------------------------"
-echo ""
-echo "     subagent_type: \"general-purpose\""
-echo "     description: \"<Phase ID> [<P0|P1>]: <title>\""
-echo "     prompt: |"
-echo "       Implement one phase from the plan at: ${PLAN_FILE}"
-echo "       Project root: ${PROJECT_ROOT}"
-echo "       Your phase: <Phase ID> [Priority: <P0|P1>] - <Title>"
-echo ""
-echo "       1. Read YOUR phase section from the plan."
-echo "       2. Read EVERY file listed BEFORE editing."
-echo "       3. Make ALL changes described. Match existing code style."
-echo "       4. Run the verification command. Fix until green."
-echo "       5. Report: SUCCESS + output, or FAILURE + errors."
-echo "          List every file you modified."
+echo "    ┌─────────────────────────────────────────────────────┐"
+echo "    │ NATIVE TRIGGER: when ANY dispatched agent finishes, │"
+echo "    │ Claude Code delivers <task-notification> and        │"
+echo "    │ automatically starts the next turn.                 │"
+echo "    │ No polling. No cron. No while loop.                 │"
+echo "    └─────────────────────────────────────────────────────┘"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════
-# GIT + PR
+# PHASE 2: AUTO-CONTINUE LOOP (turns 1..N)
 # ═══════════════════════════════════════════════════════════════
+
+echo "PHASE 2 — AUTO-CONTINUE (Turn 1, 2, 3, ...)"
 echo ""
+echo "    This phase runs automatically each time Claude Code wakes up"
+echo "    from a <task-notification>. You re-enter this logic every turn."
+echo ""
+echo "    2.1 CHECK COMPLETION:"
+echo "        for each phase where status == 'in_progress':"
+echo "          result = TaskOutput(phase.agent_task_id, block=false)"
+echo "          if result.done:"
+echo "            if result.success:"
+echo "              TaskUpdate(phase.task_id, status='completed')"
+echo "            else:"
+echo "              TaskUpdate(phase.task_id, status='failed')"
+echo "              // cascade skip logical dependents"
+echo "              for dep in get_dependents(phase):"
+echo "                TaskUpdate(dep.task_id, status='skipped')"
+echo ""
+
+echo "    2.2 CHECK DONE:"
+echo "        count = TaskList filter (status=pending OR status=in_progress)"
+echo "        if count == 0:"
+echo "          -> GOTO PHASE 3 (PR)"
+echo ""
+
+echo "    2.3 DISPATCH NEWLY READY:"
+echo "        Compute ready() for all 'pending' phases."
+echo "        Resolve mutual file conflicts (same as Phase 1)."
+echo "        if any are ready:"
+echo "          dispatch them with Agent(run_in_background=true)"
+echo "          TaskUpdate -> 'in_progress'"
+echo ""
+
+echo "    2.4 END TURN:"
+echo "        if (any dispatched):"
+echo "          -> END TURN (wait for next <task-notification>)"
+echo "        elif (any in_progress):"
+echo "          -> Report: '<N> running, waiting...' END TURN"
+echo "          -> Optional safety net: ScheduleWakeup(delaySeconds=120)"
+echo "        else:"
+echo "          -> GOTO PHASE 3 (all done)"
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# PHASE 3: PR
+# ═══════════════════════════════════════════════════════════════
+
+echo "PHASE 3 — GIT + PR"
+echo ""
+echo "    cd ${PROJECT_ROOT}"
+echo "    git status && git add ."
+echo "    git commit -m \"feat: auto-implemented ($(date +%Y%m%d))"
+echo ""
+echo "    <per-phase: [PASS|FAIL|SKIP] <id> [<P0|P1>]: <title>>\""
+echo ""
+echo "    git push -u origin ${BRANCH_NAME}"
+echo ""
+echo "    if any(p.status == 'failed' AND p.priority == 'P0'):"
+echo "      -> STOP. No PR. Critical path broken."
+echo "    else:"
+echo "      -> gh pr create --title \"...\" --body \"..."
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# APPENDIX: STANDARD AGENT PROMPT
+# ═══════════════════════════════════════════════════════════════
+
 echo "==========================================================="
-echo "  GIT + PR WORKFLOW"
+echo "  STANDARD AGENT PROMPT (for every phase)"
 echo "==========================================================="
 echo ""
-echo "After all waves complete (all phases resolved)."
+echo "  subagent_type: \"general-purpose\""
+echo "  description: \"<id> [<P0|P1>]: <title>\""
+echo "  run_in_background: true"
 echo ""
-echo "  1. cd ${PROJECT_ROOT}"
-echo "  2. git status"
-echo "  3. git add .           # (branch created in STEP -1)"
-echo "  4. git commit -m \"feat: auto-implemented ($(date +%Y%m%d))"
+echo "  prompt:"
+echo "    Implement one phase from the plan at: ${PLAN_FILE}"
+echo "    Project root: ${PROJECT_ROOT}"
+echo "    Your phase: <id> [<P0|P1>]: <title>"
 echo ""
-echo "     <per-phase: [PASS|FAIL|SKIP] <id> [<P0|P1>]: <title>>\""
-echo ""
-echo "  5. git push -u origin ${BRANCH_NAME}"
-echo ""
-echo "  6. PR DECISION (based on priority, NOT dependency):"
-echo "     -> Any P0 phase failed? -> STOP. Do NOT create PR."
-echo "     -> Only P1 failed (or all pass)? -> Create PR:"
-echo ""
-echo "     gh pr create \\"
-echo "       --title \"feat: auto-implemented ($(date +%Y%m%d))\" \\"
-echo "       --body \"Generated with Claude Code auto-implement-and-pr.sh v5.1"
-echo ""
-echo "  Plan: ${PLAN_FILE}"
-echo "  Branch: ${BRANCH_NAME}"
-echo "  Waves: <N> waves"
-echo "  Constraints: logical (creates->consumes) + mechanical (file overlap)"
-echo ""
-echo "  Results:"
-echo "  <per-phase: [PASS|FAIL|SKIP] <id> [<P0|P1>]: <title>>"
-echo ""
-echo "  Summary: <N> succeeded, <M> failed, <K> skipped\""
-echo "  7. Output the PR URL"
+echo "    Steps:"
+echo "    1. Read your phase section from the plan"
+echo "    2. Read EVERY file listed in **Files:** BEFORE editing"
+echo "    3. Make ALL changes described in **Changes:**"
+echo "       Match existing code style, comments, naming conventions"
+echo "    4. Run: <verify command>"
+echo "       If it fails, fix and re-run until green"
+echo "    5. Report exactly: SUCCESS | FAILURE"
+echo "       List every file you modified with absolute paths"
 echo ""
 
-echo "=============================================="
-echo " auto-implement-and-pr.sh v5.1 — END"
-echo "=============================================="
+echo "=== auto-implement-and-pr v6.0 END ==="

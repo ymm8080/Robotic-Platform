@@ -33,7 +33,9 @@ import re
 import secrets
 import threading
 import time
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse
 
 try:
@@ -60,7 +62,7 @@ _logger = logging.getLogger(__name__)
 WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
 _config_worm = WormConfig()
 if WORM_SINK_PATH:
-    sink_path = pathlib.Path(WORM_SINK_PATH)
+    sink_path = Path(WORM_SINK_PATH)
     sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
     sink_dir.mkdir(parents=True, exist_ok=True)
     _config_worm = WormConfig(sink_dir=str(sink_dir))
@@ -89,8 +91,6 @@ SNAPSHOT_KEY = "tc:snapshot:v5"
 
 def _load_api_key() -> str:
     """Load Traffic Coordinator API key from Docker secret or env var."""
-    from pathlib import Path
-
     key_path = Path(TC_API_KEY_FILE)
     if key_path.is_file():
         return key_path.read_text().strip()
