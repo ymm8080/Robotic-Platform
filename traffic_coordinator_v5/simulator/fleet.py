@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from core.platform.fixed_lane_map import FixedLaneMap, Lane
+from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
 from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
