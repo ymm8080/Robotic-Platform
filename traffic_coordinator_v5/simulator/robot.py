@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import logging
-import math
+import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
-from core.messages import RobotMode
 from traffic_coordinator_v5.simulator.map import LaneGraph
-
-logger = logging.getLogger(__name__)
 
 
 class SimRobotMode(str, Enum):
@@ -31,7 +27,6 @@ class RobotConfig:
     battery_drain_per_metre: float = 0.5  # % per metre while TASKING
     battery_charge_per_second: float = 5.0  # % per second while CHARGING
     charger_threshold: float = 20.0     # % — coordinator force-lock boundary
-    charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)
 
 
 @dataclass
@@ -99,7 +94,12 @@ class SimulatedRobot:
             self.mode = SimRobotMode.TASKING
 
     def inject_error(self, error_type: str) -> None:
-        """Inject an error and stop the robot."""
+        """Inject an error and stop the robot.
+
+        The robot's ``distance_along_lane`` is left unchanged so that
+        ``_pose()`` reports the actual position where the robot stopped,
+        rather than a potentially misleading end-of-lane position.
+        """
         self.errors.append(error_type)
         self.mode = SimRobotMode.ERROR
         self.velocity = 0.0
@@ -115,16 +115,6 @@ class SimulatedRobot:
         self._path = []
         self._path_index = 0
         self.mode = SimRobotMode.IDLE
-
-    def force_stop_charging(self) -> None:
-        """Force-interrupt charging and return to IDLE.
-
-        Called by the coordinator (via instant action) when a robot is
-        needed for a task but is currently charging.
-        """
-        if self.mode == SimRobotMode.CHARGING:
-            self.mode = SimRobotMode.IDLE
-            logger.info("Robot %s force-stopped charging at %.1f%%", self.robot_id, self.battery_percent)
 
     def hold(self, reason: str = "HOLD") -> None:
         """Pause motion (e.g. red traffic light / coordinator HOLD)."""
@@ -159,11 +149,8 @@ class SimulatedRobot:
                 100.0,
                 self.battery_percent + self.config.battery_charge_per_second * dt,
             )
-            # Exit CHARGING when battery reaches charge_complete_threshold
-            # (default 80%) or full charge (99.9%), whichever comes first.
-            # This prevents robots from being stuck charging to 100% when
-            # the coordinator needs them for tasks.
-            if self.battery_percent >= 99.9 or self.battery_percent >= self.config.charge_complete_threshold:
+            # Remain CHARGING until battery is full; then go IDLE.
+            if self.battery_percent >= 99.9:
                 self.mode = SimRobotMode.IDLE
             return reached
 
@@ -183,6 +170,12 @@ class SimulatedRobot:
             return reached
 
         # TASKING with a path: move along current lane.
+        # If battery is critically low during TASKING, transition to ERROR
+        # to prevent the robot from dying mid-mission.
+        if self.battery_percent <= 0.0:
+            self.inject_error("ERR_BATTERY_DEPLETED")
+            return reached
+
         lane = self.lane_graph.lane(self.current_lane_id)
         if lane is None:
             self.velocity = 0.0
@@ -193,18 +186,19 @@ class SimulatedRobot:
         step_distance = self.velocity * dt
         distance_moved = 0.0
 
-        # Safety: prevent infinite loop on degenerate (zero-length) lanes.
-        # Use a generous fixed limit that scales with path size but has a high floor.
-        _guard = max(len(self._path) * 2 + 10, 1000)
+        # Safety: prevent infinite loop on degenerate lanes.  The guard is
+        # based on the theoretical maximum number of lanes the robot could
+        # traverse in this tick (step_distance / min_lane_length) plus a
+        # small margin for floating-point edge cases.
+        min_lane_len = min(
+            (self.lane_graph.length(lid) for lid in self._path
+             if self.lane_graph.length(lid) > 0.001),
+            default=0.1,
+        )
+        _guard = int(step_distance / min_lane_len) + len(self._path) + 1
         while step_distance > 0.0001 and self._path_index < len(self._path):
             _guard -= 1
             if _guard <= 0:
-                logger.warning(
-                    "Robot %s hit guard limit in tick; "
-                    "path_index=%d/%d, step_distance=%.6f",
-                    self.robot_id,
-                    self._path_index, len(self._path), step_distance,
-                )
                 break
             lane_id = self._path[self._path_index]
             lane = self.lane_graph.lane(lane_id)
@@ -245,15 +239,19 @@ class SimulatedRobot:
         return reached
 
     def _finish_path(self) -> None:
-        """Transition out of TASKING when the path is complete."""
+        """Transition out of TASKING when the path is complete.
+
+        ``current_lane_id`` is the last lane in the path that the robot
+        traversed.  We set ``distance_along_lane`` to its full length so
+        that ``_pose()`` reports the robot at the destination node.
+        """
         self._path = []
         self._path_index = 0
         self.velocity = 0.0
-        # Place robot at end of final lane so _pose() interpolates to
-        # the destination node's position.
+        # Position the robot at the end of the final lane it traversed.
         self.distance_along_lane = self.lane_graph.length(self.current_lane_id)
-        # Do not override ERROR state — the robot must stay in ERROR
-        # until explicit recovery (clear_errors / manual_recover).
+        # Do not override ERROR mode — a robot that entered an error state
+        # during task execution must remain in ERROR until explicitly cleared.
         if self.mode != SimRobotMode.ERROR:
             self.mode = SimRobotMode.IDLE
 
@@ -323,6 +321,4 @@ class SimulatedRobot:
 
     @staticmethod
     def _iso_now() -> str:
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-        return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+        return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())

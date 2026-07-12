@@ -25,26 +25,16 @@ MQTT topics:
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
-import logging
 import os
+import pathlib
 import re
-import secrets
+import sys
 import threading
 import time
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler
-from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-
-try:
-    from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
-    from prometheus_client.core import CounterMetricFamily
-
-    _PROMETHEUS_AVAILABLE = True
-except ImportError:
-    _PROMETHEUS_AVAILABLE = False
+from urllib.parse import urlparse
 
 from core.config import CoreConfig, WormConfig
 from core.coordinator import RobotPlatformCoordinator
@@ -56,24 +46,20 @@ from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
 
-_logger = logging.getLogger(__name__)
-
-# ── WORM blackbox sink path ────────────────────────────────────
-WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
-_config_worm = WormConfig()
-if WORM_SINK_PATH:
-    sink_path = Path(WORM_SINK_PATH)
-    sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
-    sink_dir.mkdir(parents=True, exist_ok=True)
-    _config_worm = WormConfig(sink_dir=str(sink_dir))
-# Cold-start staggered registration: default 5s in production, 0 disables.
-_reg_stagger = float(os.environ.get("TC_REGISTRATION_STAGGER_SECONDS", "5.0"))
-CONFIG = replace(
-    CoreConfig(), worm=_config_worm, registration_stagger_seconds=_reg_stagger
-)
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
+WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
+
+# Build config, honouring an optional WORM sink path and ensuring the sink
+# directory exists before the WORM blackbox tries to write there.
+_config_worm = WormConfig()
+if WORM_SINK_PATH:
+    sink_path = pathlib.Path(WORM_SINK_PATH)
+    sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
+    sink_dir.mkdir(parents=True, exist_ok=True)
+    _config_worm = WormConfig(sink_dir=str(sink_dir))
+CONFIG = replace(CoreConfig(), worm=_config_worm)
 
 # MQTT config (from env; defaults match docker-compose Mosquitto service)
 MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST", "localhost")
@@ -85,16 +71,14 @@ MQTT_ENABLED = os.environ.get("MQTT_ENABLED", "1") != "0"
 TICK_INTERVAL = float(os.environ.get("TC_TICK_INTERVAL", "0.5"))
 
 # Snapshot interval (seconds) — persist coordinator state for crash recovery.
-# Security note: snapshots are stored in-process via LocalStateStore (RAM).
-# For production multi-replica deployments, use RedisStateStore with TLS
-# transport and Redis ACL authentication. Ensure the Redis instance is on a
-# private network segment and not exposed to the public internet.
 SNAPSHOT_INTERVAL = float(os.environ.get("TC_SNAPSHOT_INTERVAL", "10.0"))
 SNAPSHOT_KEY = "tc:snapshot:v5"
 
 
 def _load_api_key() -> str:
     """Load Traffic Coordinator API key from Docker secret or env var."""
+    from pathlib import Path
+
     key_path = Path(TC_API_KEY_FILE)
     if key_path.is_file():
         return key_path.read_text().strip()
@@ -102,11 +86,23 @@ def _load_api_key() -> str:
 
 
 TC_API_KEY = _load_api_key()
+TC_ALLOW_UNAUTHENTICATED = os.environ.get("TC_ALLOW_UNAUTHENTICATED", "0") == "1"
+
 if not TC_API_KEY:
-    logging.getLogger("tc").warning(
-        "TC_API_KEY not set — API authentication disabled. "
-        "Set TC_API_KEY or TC_API_KEY_FILE for production."
-    )
+    if MODE == "PRODUCTION":
+        print("[security] FATAL: TC_API_KEY not set in PRODUCTION mode. "
+              "Set TC_API_KEY or TC_API_KEY_FILE, or run in DEMO mode.",
+              file=sys.stderr)
+        sys.exit(1)
+    else:
+        if TC_ALLOW_UNAUTHENTICATED:
+            print("[security] WARNING: TC_API_KEY not set and TC_ALLOW_UNAUTHENTICATED=1 "
+                  "— all HTTP endpoints are unauthenticated. DO NOT USE IN PRODUCTION!",
+                  file=sys.stderr)
+        else:
+            print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints return 401. "
+                  "Set TC_API_KEY, or set TC_ALLOW_UNAUTHENTICATED=1 for local development.",
+                  file=sys.stderr)
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -114,8 +110,12 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
 def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
     if not TC_API_KEY:
-        return True
+        # Without an API key, deny all requests unless explicitly allowed
+        # via TC_ALLOW_UNAUTHENTICATED=1 (e.g. for local development).
+        return TC_ALLOW_UNAUTHENTICATED
     provided = handler.headers.get("X-API-Key", "")
+    import secrets
+
     return secrets.compare_digest(TC_API_KEY, provided)
 
 
@@ -126,46 +126,8 @@ def _check_mode() -> list[str]:
 
 
 # ── Global coordinator + gateway ──────────────────────────────────
-COORDINATOR = RobotPlatformCoordinator()
+COORDINATOR = RobotPlatformCoordinator(config=CONFIG)
 STATE_STORE = LocalStateStore()
-
-# Prometheus metrics registry (uses prometheus_client if available)
-if _PROMETHEUS_AVAILABLE:
-    class _CoreMetricsCollector:
-        """Custom Prometheus collector bridging CoreMetrics to prometheus_client."""
-
-        def collect(self):
-            snap = COORDINATOR.metrics.snapshot()
-            yield CounterMetricFamily(
-                "tc_uplinks_total", "Total robot state uplinks received", snap.uplinks
-            )
-            yield CounterMetricFamily(
-                "tc_orders_submitted_total", "Total orders submitted", snap.orders_submitted
-            )
-            yield CounterMetricFamily(
-                "tc_tasks_allocated_total", "Total tasks allocated to robots", snap.tasks_allocated
-            )
-            yield CounterMetricFamily(
-                "tc_tasks_completed_total", "Total tasks completed by robots", snap.tasks_completed
-            )
-            yield CounterMetricFamily(
-                "tc_tasks_requeued_total", "Total tasks requeued due to failures", snap.tasks_requeued
-            )
-            yield CounterMetricFamily(
-                "tc_collision_holds_total", "Total collision hold events", snap.collision_holds
-            )
-            yield CounterMetricFamily(
-                "tc_deadlocks_total", "Total deadlock detections", snap.deadlocks
-            )
-            yield CounterMetricFamily(
-                "tc_adapter_parse_errors_total", "Total adapter parse errors", snap.adapter_parse_errors
-            )
-            yield CounterMetricFamily(
-                "tc_worm_records_total", "Total WORM audit records written", snap.worm_records
-            )
-
-    _prom_registry = CollectorRegistry()
-    _prom_registry.register(_CoreMetricsCollector())
 
 # Create the MQTT gateway (no-op if paho-mqtt is not installed)
 MQTT_GATEWAY = MqttGateway(
@@ -178,16 +140,10 @@ MQTT_GATEWAY = MqttGateway(
 def _on_mqtt_inbound(msg: InboundMessage) -> None:
     """Called by MqttGateway for each VDA5050 state/connection message.
 
-    Routes the raw message through the appropriate brand adapter to produce
-    a unified FleetState, then feeds it to the coordinator.
+    Routes the raw message through the registered brand adapter so the
+    coordinator's unified FleetState is updated.
     """
-    brand = msg.brand
-    adapter = COORDINATOR._adapters.get(brand) if hasattr(COORDINATOR, "_adapters") else None
-    if adapter is not None:
-        adapter.ingest_native_state(msg.raw, msg.received_at)
-    else:
-        # Fallback: pass raw dict directly (generic adapter path)
-        COORDINATOR.ingest_uplink(brand, msg.raw, msg.received_at)
+    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
 
 
 def _publish_tick_result(result) -> None:
@@ -214,30 +170,17 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
-    _snap_executor = concurrent.futures.ThreadPoolExecutor(
-        max_workers=1, thread_name_prefix="snapshot",
-    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                snap = COORDINATOR.snapshot()
-                _snap_executor.submit(_save_snapshot, snap)
+                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                print(f"[snapshot] submit failed: {exc}")
+                print(f"[snapshot] save failed: {exc}")
         stop_event.wait(TICK_INTERVAL)
-    _snap_executor.shutdown(wait=True)
-
-
-def _save_snapshot(snapshot_data) -> None:
-    """Save snapshot in background thread to avoid blocking tick loop."""
-    try:
-        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
-    except Exception as exc:
-        print(f"[snapshot] save failed: {exc}")
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
@@ -276,11 +219,11 @@ _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
     try:
         COORDINATOR.restore(_saved)
-        _logger.info("Restored coordinator state from snapshot")
-    except Exception:
-        _logger.exception("Snapshot restore failed — starting fresh")
+        print("[snapshot] restored coordinator state from snapshot")
+    except Exception as exc:
+        print(f"[snapshot] restore failed: {exc}")
 else:
-    _logger.info("No prior snapshot found — starting fresh")
+    print("[snapshot] no prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()
@@ -358,12 +301,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"error": "unauthorized"})
                 return
             state = COORDINATOR.query_state()
+            # Include structured assignment details so downstream systems (e.g.
+            # the SAP bridge) can track active orders without fragile parsing.
+            assignments_detail = {
+                rid: {
+                    "task_id": a.task_id,
+                    "path": list(a.path),
+                    "max_speed": a.max_speed,
+                }
+                for rid, a in COORDINATOR._active_assignments.items()
+            }
             self._json(
                 200,
                 {
                     "locked_zones": state.locked_zones,
                     "pending_tasks": state.pending_tasks,
                     "active_assignments": state.active_assignments,
+                    "assignments": assignments_detail,
                     "pending_commands": state.pending_commands,
                     "metrics": state.metrics.__dict__,
                     "robots": {
@@ -376,78 +330,40 @@ class Handler(BaseHTTPRequestHandler):
             if not _check_auth(self):
                 self._json(401, {"error": "unauthorized"})
                 return
-            if _PROMETHEUS_AVAILABLE:
-                output = generate_latest(_prom_registry)
-                self.send_response(200)
-                self.send_header("Content-Type", CONTENT_TYPE_LATEST)
-                self.end_headers()
-                self.wfile.write(output)
-            else:
-                # Fallback: manual Prometheus text format
-                # (used only when prometheus_client is not installed)
-                snap = COORDINATOR.metrics.snapshot()
-                lines = [
-                    "# HELP tc_uplinks_total Total robot state uplinks received",
-                    "# TYPE tc_uplinks_total counter",
-                    f"tc_uplinks_total {snap.uplinks}",
-                    "# HELP tc_orders_submitted_total Total orders submitted",
-                    "# TYPE tc_orders_submitted_total counter",
-                    f"tc_orders_submitted_total {snap.orders_submitted}",
-                    "# HELP tc_tasks_allocated_total Total tasks allocated to robots",
-                    "# TYPE tc_tasks_allocated_total counter",
-                    f"tc_tasks_allocated_total {snap.tasks_allocated}",
-                    "# HELP tc_tasks_completed_total Total tasks completed by robots",
-                    "# TYPE tc_tasks_completed_total counter",
-                    f"tc_tasks_completed_total {snap.tasks_completed}",
-                    "# HELP tc_tasks_requeued_total Total tasks requeued due to failures",
-                    "# TYPE tc_tasks_requeued_total counter",
-                    f"tc_tasks_requeued_total {snap.tasks_requeued}",
-                    "# HELP tc_collision_holds_total Total collision hold events",
-                    "# TYPE tc_collision_holds_total counter",
-                    f"tc_collision_holds_total {snap.collision_holds}",
-                    "# HELP tc_deadlocks_total Total deadlock detections",
-                    "# TYPE tc_deadlocks_total counter",
-                    f"tc_deadlocks_total {snap.deadlocks}",
-                    "# HELP tc_adapter_parse_errors_total Total adapter parse errors",
-                    "# TYPE tc_adapter_parse_errors_total counter",
-                    f"tc_adapter_parse_errors_total {snap.adapter_parse_errors}",
-                    "# HELP tc_worm_records_total Total WORM audit records written",
-                    "# TYPE tc_worm_records_total counter",
-                    f"tc_worm_records_total {snap.worm_records}",
-                ]
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-                self.end_headers()
-                self.wfile.write("\n".join(lines).encode())
-        elif path == "/playback":
-            if not _check_auth(self):
-                self._json(401, {"error": "unauthorized"})
-                return
-            qs = parse_qs(parsed.query)
-            robot_id = qs.get("robot_id", [None])[0]
-            try:
-                duration = float(qs.get("duration", ["60"])[0])
-            except (ValueError, TypeError):
-                self._json(400, {"error": "invalid duration"})
-                return
-            records = COORDINATOR.worm.replay_recent(duration, robot_id=robot_id)
-            self._json(
-                200,
-                {
-                    "count": len(records),
-                    "duration": duration,
-                    "robot_id": robot_id,
-                    "records": [
-                        {
-                            "timestamp": r.timestamp,
-                            "category": r.category,
-                            "robot_id": r.robot_id,
-                            "payload": r.payload,
-                        }
-                        for r in records
-                    ],
-                },
-            )
+            snap = COORDINATOR.metrics.snapshot()
+            lines = [
+                "# HELP tc_uplinks_total Total robot state uplinks received",
+                "# TYPE tc_uplinks_total counter",
+                f"tc_uplinks_total {snap.uplinks}",
+                "# HELP tc_orders_submitted_total Total orders submitted",
+                "# TYPE tc_orders_submitted_total counter",
+                f"tc_orders_submitted_total {snap.orders_submitted}",
+                "# HELP tc_tasks_allocated_total Total tasks allocated to robots",
+                "# TYPE tc_tasks_allocated_total counter",
+                f"tc_tasks_allocated_total {snap.tasks_allocated}",
+                "# HELP tc_tasks_completed_total Total tasks completed by robots",
+                "# TYPE tc_tasks_completed_total counter",
+                f"tc_tasks_completed_total {snap.tasks_completed}",
+                "# HELP tc_tasks_requeued_total Total tasks requeued due to failures",
+                "# TYPE tc_tasks_requeued_total counter",
+                f"tc_tasks_requeued_total {snap.tasks_requeued}",
+                "# HELP tc_collision_holds_total Total collision hold events",
+                "# TYPE tc_collision_holds_total counter",
+                f"tc_collision_holds_total {snap.collision_holds}",
+                "# HELP tc_deadlocks_total Total deadlock detections",
+                "# TYPE tc_deadlocks_total counter",
+                f"tc_deadlocks_total {snap.deadlocks}",
+                "# HELP tc_adapter_parse_errors_total Total adapter parse errors",
+                "# TYPE tc_adapter_parse_errors_total counter",
+                f"tc_adapter_parse_errors_total {snap.adapter_parse_errors}",
+                "# HELP tc_worm_records_total Total WORM audit records written",
+                "# TYPE tc_worm_records_total counter",
+                f"tc_worm_records_total {snap.worm_records}",
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.end_headers()
+            self.wfile.write("\n".join(lines).encode())
         else:
             self._json(404, {"error": "not found"})
 
@@ -456,11 +372,9 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         now = time.monotonic()
 
-        # ── AUTHENTICATION (covers ALL POST endpoints below) ───────
-        # Every POST handler below (including /estop, /robot/{id}/recover,
-        # /robot/{id}/progress, /lane/{id}/block, /lane/{id}/unblock,
-        # /order, /order/{id}/cancel, /ingest/*) is protected by this check.
-        # No endpoint-specific auth is needed because this gate runs first.
+        # All POST endpoints (including /estop, /robot/{id}/recover,
+        # /lane/{id}/block, /lane/{id}/unblock) require authentication via
+        # the same X-API-Key mechanism used by GET /state and /metrics.
         if not _check_auth(self):
             self._json(401, {"error": "unauthorized"})
             return
@@ -475,14 +389,6 @@ class Handler(BaseHTTPRequestHandler):
             if not _SAFE_ID_RE.match(brand):
                 self._json(400, {"error": "invalid brand identifier"})
                 return
-            # Version Router: normalise v4.x messages to v5.0 field names
-            if "version" in body:
-                from core.survival.version_router import VersionedMessage
-                version = body.pop("version")
-                msg = VersionedMessage(version=version, body=body)
-                msg = COORDINATOR.version_router.normalise(msg)
-                body = msg.body
-                body["version"] = msg.version
             events = COORDINATOR.ingest_uplink(brand, body, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)
@@ -535,11 +441,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/estop":
-            zone_id = body.get("zone_id", "")
-            if zone_id and not _SAFE_ID_RE.match(zone_id):
-                self._json(400, {"error": "invalid zone_id"})
-                return
-            COORDINATOR.emergency_stop(zone_id or None, now)
+            zone_id = body.get("zone_id")
+            COORDINATOR.emergency_stop(zone_id, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)
             self._json(200, {"estop": True, "zone": zone_id})

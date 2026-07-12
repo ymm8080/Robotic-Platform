@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import math
+import threading
 from collections import deque
 from pathlib import Path
 from typing import Any
 
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from traffic_coordinator_v5.maps.loader import load_facility_map
+
+# Module-level cache: (frozenset of lane_ids) → positions dict.
+# This prevents recomputing BFS positions when multiple LaneGraph instances
+# are created from the same underlying FixedLaneMap (e.g. in tests or when
+# the simulator and coordinator both load the same facility map).
+# A max size prevents unbounded memory growth in dynamic map-loading scenarios.
+_BFS_POSITIONS_CACHE: dict[frozenset[str], dict[str, tuple[float, float]]] = {}
+_BFS_POSITIONS_CACHE_MAX = 32
+_BFS_POSITIONS_CACHE_LOCK = threading.Lock()
 
 
 class LaneGraph:
@@ -26,7 +36,18 @@ class LaneGraph:
         self._fmap = fmap
         self._positions = node_positions or {}
         if not self._positions and fmap.all_lanes():
-            self._positions = self._compute_bfs_positions()
+            # Cache key: frozenset of lane IDs — deterministic for a given map.
+            cache_key = frozenset(l.lane_id for l in fmap.all_lanes())
+            with _BFS_POSITIONS_CACHE_LOCK:
+                cached = _BFS_POSITIONS_CACHE.get(cache_key)
+                if cached is not None:
+                    self._positions = dict(cached)  # defensive copy
+                else:
+                    self._positions = self._compute_bfs_positions()
+                    # Enforce max cache size to prevent unbounded growth.
+                    if len(_BFS_POSITIONS_CACHE) >= _BFS_POSITIONS_CACHE_MAX:
+                        _BFS_POSITIONS_CACHE.pop(next(iter(_BFS_POSITIONS_CACHE)))
+                    _BFS_POSITIONS_CACHE[cache_key] = dict(self._positions)
 
     @classmethod
     def from_yaml(cls, path: str | Path | None = None) -> "LaneGraph":
