@@ -7,7 +7,6 @@ These tests drive ``FleetSimulator.tick_once`` and
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -20,7 +19,7 @@ from core.scheduling.traffic_light_controller import LightPhase
 from traffic_coordinator_v5.bootstrap import _create_generic_adapter
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
-from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot, SimRobotMode
+from traffic_coordinator_v5.simulator.robot import RobotConfig, SimRobotMode, SimulatedRobot
 
 
 class CoordinatorHarness:

@@ -23,9 +23,8 @@ import json
 import logging
 import os
 import re
-import time
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import paho.mqtt.client as mqtt
 

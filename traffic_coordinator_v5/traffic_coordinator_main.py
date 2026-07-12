@@ -28,7 +28,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import secrets
 import sys
@@ -36,6 +35,7 @@ import threading
 import time
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config import CoreConfig, WormConfig
