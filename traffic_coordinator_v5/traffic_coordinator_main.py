@@ -236,11 +236,11 @@ _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
     try:
         COORDINATOR.restore(_saved)
-        print("[snapshot] restored coordinator state from snapshot")
+        _logger.info("[snapshot] restored coordinator state from snapshot")
     except Exception as exc:
-        print(f"[snapshot] restore failed: {exc}")
+        _logger.warning("[snapshot] restore failed: %s", exc)
 else:
-    print("[snapshot] no prior snapshot found — starting fresh")
+    _logger.info("[snapshot] no prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()
