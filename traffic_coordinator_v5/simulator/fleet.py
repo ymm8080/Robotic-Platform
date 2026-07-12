@@ -1,4 +1,4 @@
-"""FleetSimulator — own the lane graph, robots, and MQTT client."""
+﻿"""FleetSimulator — own the lane graph, robots, and MQTT client."""
 
 from __future__ import annotations
 
@@ -79,14 +79,8 @@ class FleetSimulator:
         if self._mqtt is not None:
             try:
                 self._mqtt.connect()
-<<<<<<< HEAD
-            except Exception as exc:
-                logger.error("Failed to connect MQTT: %s", exc)
-                return
-=======
             except Exception:
                 logger.exception("FleetSimulator: MQTT connection failed — running without MQTT")
->>>>>>> origin/development
         self._running = True
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="fleet-sim-loop")
