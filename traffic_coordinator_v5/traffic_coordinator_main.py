@@ -51,15 +51,15 @@ _logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 
-# Configure root logger so _logger.info() calls produce output.
-# logging.basicConfig() is idempotent by design: it only takes effect on the
-# first call (when no handlers exist on the root logger). Subsequent calls are
-# silent no-ops, so no guard is needed.
+# Configure root logger. force=True ensures our config takes effect even if
+# another module already called basicConfig — this is the application entry
+# point, so we own the logging configuration.
 _LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" else "INFO")
 logging.basicConfig(
     level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S.%f%z",
+    force=True,
 )
 
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
