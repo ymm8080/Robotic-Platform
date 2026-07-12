@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from services.idoc_listener import IdocListener, _extract_edi_dc40, _extract_segments, _segment_to_warehouse_task
 
 # Redis URL for tests: honour REDIS_URL_TEST first (local dev override),

@@ -1,6 +1,5 @@
 """Tests for OrderService with PostgreSQL persistence."""
 import pytest
-
 from models.order import OrderStatus, OrderType, WarehouseOrder
 
 

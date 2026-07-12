@@ -1,6 +1,5 @@
 """Tests for robot brand strategies."""
 import pytest
-
 from strategies.base import BaseStrategy, BatteryInfo, RobotState
 from strategies.kuka import KukaStrategy
 from strategies.mir import MirStrategy

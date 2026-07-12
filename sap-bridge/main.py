@@ -13,12 +13,11 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
+
 # Shared Redis connection (avoid per-request from_url)
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-
-from dispatch_queue import DeadLetterHandler, PriorityQueue, QueueWorker
 from metrics import (
     MetricsMiddleware,
     deadletter_unresolved,
@@ -32,6 +31,7 @@ from metrics import (
     sap_connected,
 )
 from mqtt_publisher import get_publisher
+from pydantic import BaseModel, Field
 from rate_limiter import RateLimitMiddleware
 from redis_client import redis_from_url
 from strategies import get_registry

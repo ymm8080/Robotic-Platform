@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from models.warehouse_task import WarehouseTask
 
 

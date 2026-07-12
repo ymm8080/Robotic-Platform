@@ -4,7 +4,6 @@ import time
 from unittest.mock import patch
 
 import pytest
-
 from dispatch_queue.deadletter import DeadLetterHandler
 from dispatch_queue.priority_queue import PriorityQueue
 
