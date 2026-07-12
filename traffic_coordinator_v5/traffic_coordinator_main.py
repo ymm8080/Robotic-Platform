@@ -26,6 +26,7 @@ MQTT topics:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 import re
@@ -45,6 +46,8 @@ from core.orders import Order
 from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
+
+_logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
@@ -179,7 +182,7 @@ def _background_tick(stop_event: threading.Event) -> None:
                 STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                print(f"[snapshot] save failed: {exc}")
+                _logger.warning("[snapshot] save failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
 
 
@@ -219,11 +222,11 @@ _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
     try:
         COORDINATOR.restore(_saved)
-        print("[snapshot] restored coordinator state from snapshot")
+        _logger.info("[snapshot] restored coordinator state from snapshot")
     except Exception as exc:
-        print(f"[snapshot] restore failed: {exc}")
+        _logger.warning("[snapshot] restore failed: %s", exc)
 else:
-    print("[snapshot] no prior snapshot found — starting fresh")
+    _logger.info("[snapshot] no prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()

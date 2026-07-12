@@ -19,6 +19,7 @@ objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
@@ -42,6 +43,8 @@ from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -162,7 +165,10 @@ class RobotPlatformCoordinator:
         events.extend(self.failover.observe(state, now))
         state = self.failover.stamp(state)
         self._robot_states[state.robot_id] = state
-        self._auto_report_progress(state.robot_id, now)
+        # Only run auto-progress inference when the robot has an active
+        # assignment; avoids needless work on every uplink for idle robots.
+        if state.robot_id in self._active_assignments:
+            self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
         self.obstacles.update(
@@ -758,6 +764,11 @@ class RobotPlatformCoordinator:
         for offset, lane_id in enumerate(path[idx:]):
             lane = self.fmap.lane(lane_id)
             if lane is not None and lane.to_node == last_node:
+                logger.debug(
+                    "auto_report_progress: robot %s reached end of lane %s "
+                    "(path offset %d, last_node=%s)",
+                    robot_id, lane_id, offset, last_node,
+                )
                 if self.report_progress(robot_id, lane_id, now):
                     break
 
