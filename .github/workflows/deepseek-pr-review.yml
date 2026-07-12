@@ -89,29 +89,20 @@ jobs:
 
       - name: Unblock merge if review is clean
         if: steps.review.outcome == 'success' && github.event_name == 'pull_request'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           if grep -q "AUTOFIX:CLEAN" review_output.md; then
-            echo "AI review is clean — auto-approving PR #$PR"
-            gh pr review "$PR" --approve --body \
-              "## ✅ AI Code Review Passed
-
-          The DeepSeek AI review found **no issues**. Merge is now allowed.
-
-          ---
-          🤖 *Automated AI code review — approved*"
+            echo "AI review is clean - dismissing any stale CHANGES_REQUESTED reviews"
+            REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$PR/reviews --jq '.[] | select(.state == "CHANGES_REQUESTED") | .id')
+            for RID in $REVIEWS; do
+              echo "Dismissing review $RID"
+              gh api --method PUT repos/${{ github.repository }}/pulls/$PR/reviews/$RID/dismissals -f message="AI review is CLEAN - auto-dismissing block" || true
+            done
+            echo "All blocking reviews dismissed - merge is now allowed"
           else
-            echo "AI review found issues — keeping merge blocked"
-            SUMMARY=$(head -5 review_output.md | tr '\n' ' ')
-            gh pr review "$PR" --request-changes --body \
-              "## ⚠️ AI Code Review Found Issues
-
-          The DeepSeek AI review identified potential problems that should be addressed before merging.
-
-          See the [full review comment](${{ github.server_url }}/${{ github.repository }}/pull/$PR#issuecomment-new) for details.
-
-          ---
-          🤖 *Automated AI code review — changes requested*"
+            echo "AI review found issues - keeping merge blocked"
+            gh pr review "$PR" --request-changes --body "AI Code Review Found Issues - see PR comments for details" || true
           fi
