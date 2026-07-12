@@ -828,6 +828,7 @@ class TestBoundedRetry:
             mock_httpx.request.return_value = limited
             with pytest.raises(RobcoError):
                 client.get_new_robot_who("WH01", "R1")
+            # 1 initial request + _MAX_HTTP_RETRIES retry attempts = total requests
             from clients.zewm_robco_client import _MAX_HTTP_RETRIES
             assert mock_httpx.request.call_count == 1 + _MAX_HTTP_RETRIES
 
@@ -913,7 +914,6 @@ class TestAuthPy:
         )
         token = manager.get_token()
         assert token == "cached_token_bytes"
-        assert isinstance(token, str)
 
     def test_get_token_returns_str_unchanged(self):
         """OAuth2TokenManager.get_token returns str when Redis has decode_responses."""

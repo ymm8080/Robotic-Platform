@@ -459,6 +459,9 @@ class ZewmRobcoClient:
         Raises:
             RobcoError subclass on SAP error.
         """
+        if not self._enabled:
+            raise RuntimeError("ZewmRobcoClient is disabled — enable before making requests")
+
         self._throttle()
 
         with self._get_client() as client:
@@ -947,11 +950,17 @@ class ZewmRobcoClient:
     def validate_config(config: dict[str, Any]) -> list[str]:
         """Validate client configuration and return a list of errors.
 
+        Only blocking errors (missing required fields) are returned.
+        Informational warnings about default values (base_url, SAP client)
+        are logged at ``logger.info`` level and are NOT included in the
+        return list.
+
         Args:
             config: Configuration dictionary (same structure as ``__init__``).
 
         Returns:
             List of error messages.  Empty list means config is valid.
+            Note: default-value advisories are logged, not returned.
         """
         errors: list[str] = []
         auth_mode = config.get("auth_mode", "basic")
