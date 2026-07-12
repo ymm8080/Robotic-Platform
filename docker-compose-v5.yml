@@ -33,8 +33,9 @@ services:
       - WORM_SINK_PATH=/data/worm.jsonl
       - TC_HTTP_PORT=8000
       - TC_API_KEY_FILE=/run/secrets/tc_api_key
+      - MQTT_BROKER_HOST=mqtt
     volumes:
-      - worm-data:/data/worm
+      - v5-worm-data:/data
       - ./core:/app/core:ro
     depends_on:
       redis:
@@ -122,7 +123,7 @@ services:
 # v5.0 专用持久化卷
 # =============================================================================
 volumes:
-  worm-data:
+  v5-worm-data:
     driver: local
 
 # =============================================================================
