@@ -148,6 +148,11 @@ class RobotPlatformCoordinator:
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
         self._last_reported_lane: dict[str, str] = {}  # robot_id -> last reported lane_id (idempotency)
         self._idle_robots: set[str] = set()  # robot_ids currently IDLE and not degraded
+        # Recently completed / failed task IDs with timestamps, so downstream
+        # consumers (e.g. SAP bridge) can distinguish success from failure
+        # instead of guessing from the absence in the active list.
+        self._recently_completed: deque[tuple[str, float]] = deque(maxlen=200)
+        self._recently_failed: deque[tuple[str, float]] = deque(maxlen=200)
 
         # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
         self._registration_stagger_seconds = self.cfg.registration_stagger_seconds
@@ -442,6 +447,7 @@ class RobotPlatformCoordinator:
 
     def _fail_task(self, task: Task, now: float, reason: str) -> None:
         """Mark the task and its order as failed."""
+        self._recently_failed.append((task.task_id, now))
         order_id = self._task_order.get(task.task_id)
         if order_id is not None:
             plan = self._order_plans.get(order_id)
@@ -841,7 +847,7 @@ class RobotPlatformCoordinator:
         lane = self.fmap.lane(lane_id)
         if lane is None:
             return
-        if lane.to_node == last_node:
+        while lane is not None and lane.to_node == last_node:
             # Idempotency: skip if this lane was already reported for this
             # robot (prevents duplicate progress reports when the same robot
             # state is processed multiple times within a single tick).
@@ -849,11 +855,19 @@ class RobotPlatformCoordinator:
                 return
             self._last_reported_lane[robot_id] = lane_id
             # Robot reached the end of the current expected lane.
-            # Only process one lane per tick — if the robot traversed
-            # multiple nodes since the last tick, subsequent ticks will
-            # catch up.
-            self.report_progress(robot_id, lane_id, now)
-        elif lane.from_node != last_node:
+            # Process ALL traversed lanes in one call — the robot may
+            # have skipped multiple nodes since the last state update
+            # (large tick interval or fast movement).
+            completed = self.report_progress(robot_id, lane_id, now)
+            if completed:
+                return
+            # Check next lane in path (robot may have traversed multiple nodes)
+            path, idx = adapter.current_path(robot_id)
+            if idx >= len(path):
+                return
+            lane_id = path[idx]
+            lane = self.fmap.lane(lane_id)
+        if lane is not None and lane.from_node != last_node:
             # Robot is mid-lane (not at either endpoint) — no progress
             # to report yet. This is normal during normal operation.
             pass
@@ -881,6 +895,7 @@ class RobotPlatformCoordinator:
             return False
         if reached_lane == assignment.path[-1]:
             del self._active_assignments[robot_id]
+            self._recently_completed.append((assignment.task_id, now))
             adapter.expect(robot_id, RobotMode.IDLE)
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
@@ -994,6 +1009,8 @@ class RobotPlatformCoordinator:
             "robot_brands": {
                 rid: adapter.brand for rid, adapter in self._robot_adapter.items()
             },
+            "recently_completed": [tid for tid, _ in self._recently_completed],
+            "recently_failed": [tid for tid, _ in self._recently_failed],
         }
 
     def restore(self, data: dict) -> None:
@@ -1135,6 +1152,14 @@ class RobotPlatformCoordinator:
         }
         self._task_retries = dict(data.get("task_retries", {}))
         self._robot_lane = dict(data.get("robot_lane", {}))
+
+        # Restore recently completed / failed task tracking
+        self._recently_completed.clear()
+        for tid in data.get("recently_completed", []):
+            self._recently_completed.append((tid, 0.0))
+        self._recently_failed.clear()
+        for tid in data.get("recently_failed", []):
+            self._recently_failed.append((tid, 0.0))
 
     # ── helpers ──────────────────────────────────────────────────
     def _worm_event(self, now: float, category: str, robot_id: str, payload: dict) -> None:
