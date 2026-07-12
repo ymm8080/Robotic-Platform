@@ -58,15 +58,15 @@ DEFAULT_REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 DEFAULT_ODATA_SERVICE = "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
 
-MAX_REQUESTS_PER_MINUTE = 60
+MAX_REQUESTS_PER_MINUTE = 80
 TOKEN_BUCKET_INTERVAL = 60.0 / MAX_REQUESTS_PER_MINUTE
 CSRF_REFRESH_INTERVAL = 1500  # 25 minutes
 CSRF_REDIS_KEY = "sap:zewm_robco:csrf_token"
 CSRF_REDIS_COOKIE_KEY = "sap:zewm_robco:csrf_cookies"
 CSRF_REDIS_REFRESH_KEY = "sap:zewm_robco:csrf_last_refresh"
-CONFIRM_RETRY_MAX = 3
+CONFIRM_RETRY_MAX = 5
 CONFIRM_RETRY_BACKOFF_BASE = 1.0
-CONFIRM_RETRY_BACKOFF_CAP = 10.0
+CONFIRM_RETRY_BACKOFF_CAP = 30.0
 
 
 def _read_password(password_file: str) -> str:
