@@ -4,6 +4,7 @@ Reads diff from pr_diff.txt, calls DeepSeek API, writes review_output.md.
 """
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -46,7 +47,13 @@ payload = json.dumps({
                 "3) performance concerns 4) code style. Be specific - reference "
                 "actual line content. If the code looks good, say so briefly.\n"
                 "6. Distinguish between 'must fix' (bugs, security) and 'suggestion' "
-                "(style, minor perf). Only report 'must fix' issues as bugs."
+                "(style, minor perf). Only report 'must fix' issues as bugs.\n"
+                "7. If there are NO must-fix bugs, do NOT include a '必须修复' section. "
+                "Only include '必须修复的问题' section when there are REAL bugs that "
+                "would cause runtime errors, security vulnerabilities, or data loss. "
+                "Style improvements and design suggestions should go in '建议改进' only.\n"
+                "8. If the code has no must-fix issues, start the review with "
+                "'<!--AUTOFIX:CLEAN-->' marker on the first line."
             ),
         },
         {
