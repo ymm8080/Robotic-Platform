@@ -57,6 +57,7 @@ def mock_redis():
         instance.get.side_effect = lambda key: {
             "sap:zewm_robco:csrf_token": "mock-csrf-token",
             "sap:zewm_robco:csrf_cookies": "sap-usercontext=mock",
+            "sap:oauth2:token:https://sap-s4hana:44300/sap/bc/sec/oauth2/token": "mock-oauth2-token",
         }.get(key)
         yield instance
 
