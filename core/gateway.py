@@ -260,7 +260,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
         else:
             logger.error("MqttGateway connection failed, rc=%s", reason_code)
 
-    def _on_disconnect(self, client, userdata, reason_code, properties=None) -> None:
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if self._running:
             logger.warning("MqttGateway disconnected (rc=%s), will retry on next tick", reason_code)
 

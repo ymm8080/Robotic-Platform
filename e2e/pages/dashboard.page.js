@@ -45,7 +45,7 @@ class DashboardPage extends BasePage {
    */
   async gotoTab(key) {
     await this.tabs[key].click();
-    await this.page.waitForLoadState('networkidle');
+    await this.tabs[key].waitFor({ state: 'visible' });
   }
 
   async clickLogout() {

@@ -72,7 +72,10 @@ class FleetSimulator:
     def start(self) -> None:
         """Start the MQTT client and optional real-time tick thread."""
         if self._mqtt is not None:
-            self._mqtt.connect()
+            try:
+                self._mqtt.connect()
+            except Exception:
+                logger.exception("FleetSimulator: MQTT connection failed — running without MQTT")
         self._running = True
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="fleet-sim-loop")
