@@ -14,11 +14,13 @@ Config (config.yaml per-warehouse):
     auth_mode: oauth2
     oauth2:
       token_url: "https://sap-s4hana:44300/sap/bc/sec/oauth2/token"
-      client_id: "${SAP_OAUTH_CLIENT_ID:-}"
-      client_secret_file: "${SAP_OAUTH_CLIENT_SECRET_FILE:-/run/secrets/sap_oauth_client_secret}"
+      client_id: "<from env SAP_OAUTH_CLIENT_ID>"
+      client_secret_file: "/run/secrets/sap_oauth_client_secret"
       scope: ""  # optional; S/4HANA usually does not require scope
 
 Credentials follow iron rule #5 — Docker Secrets only.
+The Redis client passed to OAuth2TokenManager should use
+``decode_responses=True`` so that ``get_token`` returns ``str``.
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ _DEFAULT_TOKEN_TTL_S = 3600
 def read_client_secret(secret_file: str) -> str:
     """Read OAuth2 client secret from Docker secret file."""
     try:
-        with open(secret_file) as f:
+        with open(secret_file, encoding="utf-8") as f:
             secret = f.read().strip()
             if not secret:
                 raise ValueError(f"OAuth2 client secret file is empty: {secret_file}")
@@ -76,9 +78,16 @@ class OAuth2TokenManager:
         self._cache_key = f"{_TOKEN_KEY_PREFIX}:{token_url}"
 
     def get_token(self) -> str | None:
-        """Return cached token if still valid, None otherwise."""
+        """Return cached token if still valid, None otherwise.
+
+        The Redis client should be configured with ``decode_responses=True``
+        so that ``GET`` returns ``str``.  If it returns ``bytes``, we decode
+        here as a safety net.
+        """
         token = self._redis.get(self._cache_key)
         if token:
+            if isinstance(token, bytes):
+                token = token.decode("utf-8")
             logger.debug("OAuth2 token served from cache")
             return token
         return None
