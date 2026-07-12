@@ -503,7 +503,11 @@ class TestConfigValidation:
     def test_empty_config_returns_errors(self):
         """An empty config dict produces multiple validation errors."""
         errs = ZewmRobcoClient.validate_config({})
+        # Empty config must produce multiple errors covering auth, URL, and client
         assert len(errs) > 1
+        assert any("user" in e.lower() for e in errs)
+        assert any("password" in e.lower() for e in errs)
+        assert any("base_url" in e.lower() for e in errs)
 
     def test_missing_basic_auth_user(self):
         """Missing user for basic auth -> error."""
