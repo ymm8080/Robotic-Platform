@@ -59,7 +59,7 @@ _LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" el
 logging.basicConfig(
     level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S%z",
+    datefmt="%Y-%m-%dT%H:%M:%S.%f%z",
 )
 
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
@@ -194,7 +194,7 @@ def _background_tick(stop_event: threading.Event) -> None:
                 STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                _logger.error("[snapshot] save failed: %s", exc)
+                _logger.exception("[snapshot] save failed")
         stop_event.wait(TICK_INTERVAL)
 
 
@@ -236,7 +236,7 @@ if _saved is not None:
         COORDINATOR.restore(_saved)
         _logger.info("[snapshot] restored coordinator state from snapshot")
     except Exception as exc:
-        _logger.error("[snapshot] restore failed: %s", exc)
+        _logger.exception("[snapshot] restore failed")
 else:
     _logger.info("[snapshot] no prior snapshot found — starting fresh")
 
