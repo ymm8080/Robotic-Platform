@@ -46,14 +46,14 @@ def read_client_secret(secret_file: str) -> str:
         with open(secret_file) as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.error("OAuth2 client secret file not found at configured path")
+        logger.error(f"OAuth2 client secret file not found: {secret_file}")
         raise
 
 
 class OAuth2TokenManager:
     """Manages OAuth2 bearer tokens for SAP S/4HANA with Redis caching.
 
-    Uses client_credentials grant (RFC 6749 §4.4) — no user interaction.
+    Uses client_credentials grant (RFC 6749 § 4.4) — no user interaction.
     Thread-safe: Redis GET/SET are atomic for single keys.
     """
 
@@ -77,7 +77,7 @@ class OAuth2TokenManager:
         token = self._redis.get(self._cache_key)
         if token:
             logger.debug("OAuth2 token served from cache")
-            return token
+            return token.decode() if isinstance(token, bytes) else token
         return None
 
     def fetch_new(self, client: httpx.Client) -> str:
@@ -105,12 +105,19 @@ class OAuth2TokenManager:
                 f"OAuth2 token endpoint returned {resp.status_code}"
             )
 
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError:
+            logger.error(
+                f"OAuth2 token response is not valid JSON: {resp.text[:200]}"
+            )
+            raise RuntimeError("OAuth2 token endpoint returned non-JSON response")
+
         access_token = body.get("access_token")
         if not access_token:
             raise RuntimeError("OAuth2 token response missing access_token")
 
-        expires_in = int(body.get("expires_in", _DEFAULT_TOKEN_TTL_S))
+        expires_in = int(body.get("expires_in") or _DEFAULT_TOKEN_TTL_S)
         # Cache with safety margin to avoid using an expired token
         cache_ttl = max(expires_in - _TOKEN_SAFETY_MARGIN_S, 60)
 
@@ -132,14 +139,22 @@ class OAuth2TokenManager:
         token = self.get_token()
         if token:
             return token
-        return self.fetch_new(client)
+        try:
+            return self.fetch_new(client)
+        except RuntimeError:
+            logger.error("Failed to fetch new OAuth2 token")
+            raise
 
     def invalidate(self) -> None:
         """Force token invalidation (e.g., after a 401 response)."""
-        self._redis.delete(self._cache_key)
-        logger.info("OAuth2 token invalidated — will refresh on next request")
+        try:
+            self._redis.delete(self._cache_key)
+            logger.info("OAuth2 token invalidated — will refresh on next request")
+        except Exception:
+            logger.warning("Failed to invalidate OAuth2 token in Redis")
 
     def close(self) -> None:
         """Close Redis connection."""
-        with contextlib.suppress(Exception):
-            self._redis.close()
+        if self._redis:
+            with contextlib.suppress(Exception):
+                self._redis.close()
