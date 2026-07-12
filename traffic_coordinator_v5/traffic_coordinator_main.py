@@ -59,6 +59,7 @@ _LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" el
 logging.basicConfig(
     level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
 )
 
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))

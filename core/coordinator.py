@@ -168,7 +168,7 @@ class RobotPlatformCoordinator:
         # Only run auto-progress inference when the robot has an active
         # assignment; avoids needless work on every uplink for idle robots.
         # ``_active_assignments`` is a dict[str, TaskAssignment], so ``in``
-        # checks the keys (robot IDs) — O(1) lookup.
+        # checks the keys (robot IDs) — O(1) average-case lookup.
         if state.robot_id in self._active_assignments:
             self._auto_report_progress(state.robot_id, now)
 
