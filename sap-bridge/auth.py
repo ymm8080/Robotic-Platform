@@ -28,7 +28,6 @@ import logging
 import time
 
 import httpx
-
 import redis as rd
 
 logger = logging.getLogger(__name__)

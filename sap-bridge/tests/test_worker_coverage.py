@@ -4,6 +4,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from models.order import OrderStatus, WarehouseOrder
 
 MOCK_REDIS = MagicMock()

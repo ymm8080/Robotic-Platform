@@ -80,6 +80,7 @@ def _pg_available() -> bool:
 def _truncate_tables():
     """Truncate all data tables using raw psycopg2 (bypasses ConnectionWrapper)."""
     import psycopg2
+
     from db import DB_URL
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()

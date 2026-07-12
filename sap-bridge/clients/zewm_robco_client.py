@@ -30,10 +30,10 @@ import time
 from typing import Any
 
 import httpx
+import redis as rd
+
 from auth import OAuth2TokenManager, read_client_secret
 from redis_client import redis_from_url
-
-import redis as rd
 
 from .zewm_robco_exceptions import (
     RobcoInternalError,

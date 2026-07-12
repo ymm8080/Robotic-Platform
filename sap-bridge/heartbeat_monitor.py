@@ -9,6 +9,7 @@ import re
 from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
+
 from redis_client import redis_from_url
 
 logger = logging.getLogger(__name__)
