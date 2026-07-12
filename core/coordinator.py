@@ -336,7 +336,7 @@ class RobotPlatformCoordinator:
                         "Failed to release lifts for robot %s after dispatch failure",
                         robot.robot_id,
                     )
-                if self._requeue_task(task, now, f"dispatch_error:{exc}"
+                if self._requeue_task(task, now, f"dispatch_error:{exc}"):
                     remaining.append(task)
                 self._worm_event(
                     now, "ERROR", robot.robot_id,

@@ -81,8 +81,6 @@ SNAPSHOT_KEY = "tc:snapshot:v5"
 
 def _load_api_key() -> str:
     """Load Traffic Coordinator API key from Docker secret or env var."""
-    from pathlib import Path
-
     key_path = Path(TC_API_KEY_FILE)
     if key_path.is_file():
         return key_path.read_text().strip()
