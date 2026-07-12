@@ -214,8 +214,8 @@ class FleetSimulator:
         - ``"deadlock"``: 2 robots facing each other on a corridor
         - ``"safe_distance"``: 2 following robots exercising SPEED_CAP
         """
-        if self._robots:
-            raise RuntimeError("load_scenario() called on a non-empty fleet; create a new FleetSimulator instead")
+        if self._robots or self.lane_graph.all_lanes():
+            raise RuntimeError("load_scenario() called on a non-empty fleet or non-empty map; create a new FleetSimulator instead")
         robot_ids: list[str] = []
         lane_map = self.lane_graph.fmap
         if name == "intersection":
