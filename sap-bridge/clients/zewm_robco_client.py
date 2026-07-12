@@ -135,9 +135,11 @@ class _ZewmCsrfManager:
         return token, cookies
 
     def close(self) -> None:
-        """Close Redis connection."""
-        with contextlib.suppress(Exception):
-            self._redis.close()
+        """Close Redis connection.
+
+        No-op: Redis connection is owned by the caller.
+        """
+        logger.debug("_ZewmCsrfManager.close() is a no-op")
 
 
 # ── Client ─────────────────────────────────────────────────────────────
@@ -422,7 +424,8 @@ class ZewmRobcoClient:
             error_code = raw_code.split("/")[0]
             detail = err.get("message", {}).get("value", "")
             raise_for_error_code(error_code, detail)
-        except (ValueError, KeyError, AttributeError):
+        except (ValueError, KeyError, AttributeError) as exc:
+            logger.debug("Failed to parse SAP error response: %s", exc)
             raise RobcoInternalError(
                 f"HTTP {resp.status_code}: {resp.text[:200]}",
             )

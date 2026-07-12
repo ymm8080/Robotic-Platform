@@ -125,6 +125,8 @@ class OAuth2TokenManager:
         self._redis.set("sap:oauth2:last_refresh", str(time.time()))
 
         token_type = body.get("token_type", "Bearer")
+        if token_type.lower() != "bearer":
+            logger.warning("Unexpected OAuth2 token_type: %s", token_type)
         logger.info(
             f"Fetched new OAuth2 token (expires_in={expires_in}s, "
             f"cached_ttl={cache_ttl}s, type={token_type})"
