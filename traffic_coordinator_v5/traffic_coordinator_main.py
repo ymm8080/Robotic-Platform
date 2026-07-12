@@ -52,14 +52,14 @@ _logger = logging.getLogger(__name__)
 MODE = os.environ.get("MODE", "PRODUCTION")
 
 # Configure root logger so _logger.info() calls produce output.
-# Guard ensures idempotency: basicConfig is a no-op if handlers already exist,
-# but we check explicitly to avoid overriding level set by another module.
+# logging.basicConfig() is idempotent by design: it only takes effect on the
+# first call (when no handlers exist on the root logger). Subsequent calls are
+# silent no-ops, so no guard is needed.
 _LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" else "INFO")
-if not logging.getLogger().hasHandlers():
-    logging.basicConfig(
-        level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")

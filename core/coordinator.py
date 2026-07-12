@@ -768,6 +768,7 @@ class RobotPlatformCoordinator:
             if lane is not None and lane.to_node == last_node:
                 # Debug level: waypoint advancement is high-frequency (every
                 # uplink); info/warning would flood production logs.
+                # Enable with TC_LOG_LEVEL=DEBUG.
                 logger.debug(
                     "auto_report_progress: robot %s reached end of lane %s "
                     "(path offset %d, last_node=%s)",
