@@ -25,7 +25,9 @@ MQTT topics:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import logging
 import os
 import pathlib
 import re
@@ -45,6 +47,8 @@ from core.orders import Order
 from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
+
+$_logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
@@ -187,7 +191,7 @@ def _background_tick(stop_event: threading.Event) -> None:
     _snap_executor.shutdown(wait=True)
 
 
-def _save_snapshot(snapshot_data) -> None:
+def _save_snapshot(snapshot_data: dict) -> None:
     """Save snapshot in background thread to avoid blocking tick loop."""
     try:
         STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)

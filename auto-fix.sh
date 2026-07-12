@@ -20,10 +20,11 @@
 #   Terminal 3: bash auto-fix.sh 28   ← independent loop
 # ============================================================================
 
-PROJECT_ROOT="D:/EWM ROBOT/ROBOTIC PLATFORM CODES"
+# Derive project root from script location
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 MAX_LOOP=18
 WARNING_AT=10
-SLEEP_BETWEEN_LOOPS=45   # seconds to wait for CI/review after push
+SLEEP_BETWEEN_LOOPS=60   # seconds to wait for CI/review after push
 
 PR_NUMBER="${1:-}"
 
