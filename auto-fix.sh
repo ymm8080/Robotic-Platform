@@ -20,7 +20,8 @@
 #   Terminal 3: bash auto-fix.sh 28   ← independent loop
 # ============================================================================
 
-PROJECT_ROOT="D:/EWM ROBOT/ROBOTIC PLATFORM CODES"
+# Configurable via env var; on Linux set PROJECT_ROOT before running.
+PROJECT_ROOT="${PROJECT_ROOT:-D:/EWM ROBOT/ROBOTIC PLATFORM CODES}"
 MAX_LOOP=18
 WARNING_AT=10
 SLEEP_BETWEEN_LOOPS=45   # seconds to wait for CI/review after push
