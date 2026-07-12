@@ -26,18 +26,16 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import re
 import time
 from typing import Any
 
 import httpx
 import redis as rd
 
+from auth import OAuth2TokenManager, read_client_secret
 from redis_client import redis_from_url
 
-from auth import OAuth2TokenManager, read_client_secret
 from .zewm_robco_exceptions import (
-    RobcoError,
     RobcoInternalError,
     raise_for_error_code,
 )
@@ -68,11 +66,13 @@ CONFIRM_RETRY_MAX = 5
 CONFIRM_RETRY_BACKOFF_BASE = 1.0
 CONFIRM_RETRY_BACKOFF_CAP = 30.0
 
+# Max HTTP retries for 401/403/429 in a single _request() call
+_MAX_HTTP_RETRIES = 3
 
 def _read_password(password_file: str) -> str:
     """Read password from a Docker secret file."""
     try:
-        with open(password_file) as f:
+        with open(password_file, encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
         logger.error("Password file not found at configured path: %s", password_file)

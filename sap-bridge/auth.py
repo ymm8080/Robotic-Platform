@@ -23,7 +23,6 @@ Credentials follow iron rule #5 — Docker Secrets only.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 
@@ -127,12 +126,19 @@ class OAuth2TokenManager:
     def get_valid_token(self, client: httpx.Client) -> str:
         """Return a valid token — from cache or fetch new.
 
-        This is the main entry point for callers.
+        Uses a lock to prevent multiple threads from fetching tokens
+        simultaneously (cache stampede protection).
         """
         token = self.get_token()
         if token:
             return token
-        return self.fetch_new(client)
+        with self._lock:
+            # Double-check after acquiring lock — another thread may have
+            # already refreshed the token while we were waiting.
+            token = self.get_token()
+            if token:
+                return token
+            return self.fetch_new(client)
 
     def invalidate(self) -> None:
         """Force token invalidation (e.g., after a 401 response)."""
@@ -140,6 +146,8 @@ class OAuth2TokenManager:
         logger.info("OAuth2 token invalidated — will refresh on next request")
 
     def close(self) -> None:
-        """Close Redis connection."""
-        with contextlib.suppress(Exception):
-            self._redis.close()
+        """Close Redis connection.
+
+        No-op: Redis connection is owned by the caller.
+        """
+        logger.debug("OAuth2TokenManager.close() is a no-op")
