@@ -211,6 +211,16 @@ class FleetSimulator:
         if on_instant_actions is not None:
             self._route_instant_actions = on_instant_actions
 
+    def reset(self) -> None:
+        """Clear all robots and lanes, returning the simulator to an empty state.
+
+        Useful for re-loading a different scenario without creating a new
+        ``FleetSimulator`` instance.
+        """
+        self._robots.clear()
+        self._last_publish.clear()
+        self.lane_graph.fmap._lanes.clear()
+
     def load_scenario(self, name: str) -> list[str]:
         """Load a named scenario configuration and return created robot IDs.
 
@@ -228,7 +238,10 @@ class FleetSimulator:
         - ``"safe_distance"``: 2 following robots exercising SPEED_CAP
         """
         if self._robots or len(self.lane_graph.all_lanes()) > 0:
-            raise RuntimeError("load_scenario() called on a non-empty fleet or non-empty map; create a new FleetSimulator instead")
+            raise RuntimeError(
+                "load_scenario() called on a non-empty fleet or non-empty map; "
+                "call reset() first or create a new FleetSimulator instead"
+            )
         robot_ids: list[str] = []
         lane_map = self.lane_graph.fmap
         if name == "intersection":

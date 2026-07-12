@@ -27,16 +27,30 @@
   "uid": "v5-traffic-coordinator",
   "schemaVersion": 39,
   "version": 2,
-  "tags": ["v5", "traffic-coordinator", "ewm-robot"],
-  "time": { "from": "now-1h", "to": "now" },
+  "tags": [
+    "v5",
+    "traffic-coordinator",
+    "ewm-robot"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "refresh": "5s",
   "panels": [
     {
-      "id": 1,
       "title": "Active Assignments",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -44,9 +58,17 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green" },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 10 }
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
             ]
           }
         },
@@ -54,7 +76,9 @@
       },
       "options": {
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -74,20 +98,35 @@
       ]
     },
     {
-      "id": 2,
       "title": "Deadlock Events",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green" },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green"
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         },
@@ -95,7 +134,9 @@
       },
       "options": {
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -115,11 +156,18 @@
       ]
     },
     {
-      "id": 3,
       "title": "Robot States",
       "type": "bargauge",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -127,36 +175,79 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue" },
-              { "color": "green", "value": 1 },
-              { "color": "yellow", "value": 2 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "blue"
+              },
+              {
+                "color": "green",
+                "value": 1
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "ERROR" },
+            "matcher": {
+              "id": "byName",
+              "options": "ERROR"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "red" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "DEGRADED" },
+            "matcher": {
+              "id": "byName",
+              "options": "DEGRADED"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "orange" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "IDLE" },
+            "matcher": {
+              "id": "byName",
+              "options": "IDLE"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "green" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "CHARGING" },
+            "matcher": {
+              "id": "byName",
+              "options": "CHARGING"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "purple" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple"
+                }
+              }
             ]
           }
         ]
@@ -165,7 +256,9 @@
         "displayMode": "gradient",
         "orientation": "horizontal",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -181,11 +274,18 @@
       ]
     },
     {
-      "id": 4,
       "title": "Intersection Queue",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -193,9 +293,17 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green" },
-              { "color": "yellow", "value": 3 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           },
           "custom": {
@@ -227,11 +335,18 @@
       ]
     },
     {
-      "id": 5,
       "title": "Safe Distance Holds",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "cps",
@@ -239,9 +354,17 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green" },
-              { "color": "yellow", "value": 2 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           },
           "custom": {
@@ -273,20 +396,36 @@
       ]
     },
     {
-      "id": 6,
       "title": "Battery / Charger State",
       "type": "table",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 20 },
-              { "color": "red", "value": 10 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
             ]
           },
           "custom": {
@@ -296,26 +435,53 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Value #A" },
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
             "properties": [
-              { "id": "displayName", "value": "Battery %" },
-              { "id": "unit", "value": "percent" },
-              { "id": "custom.displayMode", "value": "color-background" }
+              {
+                "id": "displayName",
+                "value": "Battery %"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Value #B" },
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
             "properties": [
-              { "id": "displayName", "value": "Charger Bay" },
-              { "id": "custom.displayMode", "value": "color-text" },
+              {
+                "id": "displayName",
+                "value": "Charger Bay"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-text"
+              },
               {
                 "id": "mappings",
                 "value": [
                   {
                     "type": "value",
                     "options": {
-                      "0": { "text": "Free", "color": "green" },
-                      "1": { "text": "Occupied", "color": "red" }
+                      "0": {
+                        "text": "Free",
+                        "color": "green"
+                      },
+                      "1": {
+                        "text": "Occupied",
+                        "color": "red"
+                      }
                     }
                   }
                 ]
@@ -326,7 +492,9 @@
       },
       "options": {
         "sortBy": [],
-        "footer": { "show": false },
+        "footer": {
+          "show": false
+        },
         "frameIndex": 0,
         "showTypeIcons": false
       },

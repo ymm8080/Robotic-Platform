@@ -18,8 +18,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from clients.zewm_robco_client import ZewmRobcoClient
 from clients.zewm_robco_exceptions import (
     NoErrorQueueError,
     NoOrderFoundError,
@@ -42,6 +40,8 @@ from clients.zewm_robco_exceptions import (
     raise_for_error_code,
 )
 from clients.zewm_robco_types import ExceptionCode, map_robot_error_to_exccode
+
+from clients.zewm_robco_client import ZewmRobcoClient
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
