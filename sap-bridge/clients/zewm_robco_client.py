@@ -137,9 +137,8 @@ class _ZewmCsrfManager:
         return token, cookies
 
     def close(self) -> None:
-        """Close Redis connection."""
-        with contextlib.suppress(Exception):
-            self._redis.close()
+        """No-op — Redis connection is owned by the caller."""
+        pass
 
 
 # ── Client ─────────────────────────────────────────────────────────────
