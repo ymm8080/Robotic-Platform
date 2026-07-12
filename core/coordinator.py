@@ -19,7 +19,6 @@ objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 """
 from __future__ import annotations
 
-import logging
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
@@ -43,8 +42,6 @@ from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -92,22 +89,6 @@ class RobotPlatformCoordinator:
         metrics: CoreMetrics | None = None,
     ) -> None:
         self.cfg = config or CoreConfig()
-
-        # PRODUCTION mode: verify WORM disk is writable (fail-fast on startup).
-        # DEMO mode: fall back to in-memory if disk unavailable (灰犀牛 #18).
-        if self.cfg.mode == "PRODUCTION":
-            worm_sink_parent = Path(self.cfg.worm.sink_dir)
-            try:
-                worm_sink_parent.mkdir(parents=True, exist_ok=True)
-                _test = worm_sink_parent / ".write_test"
-                _test.touch()
-                _test.unlink()
-            except OSError as exc:
-                raise RuntimeError(
-                    f"PRODUCTION mode requires writable WORM sink at "
-                    f"{worm_sink_parent}: {exc}"
-                ) from exc
-
         self.fmap = fmap or FixedLaneMap()
         self.traffic = traffic or TrafficLightController()
         self.reputation = reputation or ReputationEngine(self.cfg.governance)
@@ -121,7 +102,6 @@ class RobotPlatformCoordinator:
         self.worm = worm or WormBlackbox(
             self.cfg.worm,
             sink_path=Path(self.cfg.worm.sink_dir) / "worm.jsonl",
-            mode=self.cfg.mode,
         )
         self.version_router = version_router or VersionRouter(self.cfg)
         self.sequencer = sequencer or OrderSequencer(self.fmap)
@@ -146,18 +126,11 @@ class RobotPlatformCoordinator:
         self._task_retries: dict[str, int] = {}
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
-        self._last_reported_lane: dict[str, str] = {}  # robot_id -> last reported lane_id (idempotency)
-        self._idle_robots: set[str] = set()  # robot_ids currently IDLE and not degraded
         # Recently completed / failed task IDs with timestamps, so downstream
         # consumers (e.g. SAP bridge) can distinguish success from failure
         # instead of guessing from the absence in the active list.
         self._recently_completed: deque[tuple[str, float]] = deque(maxlen=200)
         self._recently_failed: deque[tuple[str, float]] = deque(maxlen=200)
-
-        # 冷启动错峰注册 (陷阱 #3): 机器人注册间隔≥5s
-        self._registration_stagger_seconds = self.cfg.registration_stagger_seconds
-        self._last_registration_time: float | None = None
-        self._pending_registrations: deque[tuple[FleetAdapter, FleetState, list[str], float]] = deque()
 
     MAX_TASK_RETRIES = 3
 
@@ -171,23 +144,25 @@ class RobotPlatformCoordinator:
     def adapter_for(self, robot_id: str) -> FleetAdapter | None:
         return self._robot_adapter.get(robot_id)
 
-    # ── shared state processing ────────────────────────────────────
-    def _process_robot_state(self, state: FleetState, events: list[str], now: float) -> None:
-        """Register parsed robot state in platform data structures.
+    # ── uplink ingestion ─────────────────────────────────────────
+    def ingest_uplink(self, brand: str, raw: dict, now: float) -> list[str]:
+        """Ingest one vendor-native state update and return platform events."""
+        self.metrics.inc("uplinks")
+        adapter = self._adapters.get(brand)
+        if adapter is None:
+            self._worm_event(now, "ERROR", raw.get("robotId", "?"), {"reason": "unknown_brand", "brand": brand})
+            return [f"ERR_UNKNOWN_BRAND:{brand}"]
 
-        Extracted from ``ingest_uplink`` so that both immediate registration
-        and deferred (cold-start staggered) registration share the same
-        post-parse pipeline.
-        """
+        state, events = adapter.ingest_native_state(raw, now)
+        if any("ERR_ADAPTER_PARSE" in e for e in events):
+            self.metrics.inc("adapter_parse_errors")
+        self._robot_adapter[state.robot_id] = adapter
+
+        # failover observes liveness and stamps platform-maintained flags
+        events.extend(self.failover.observe(state, now))
+        state = self.failover.stamp(state)
         self._robot_states[state.robot_id] = state
-        # Maintain idle-robots index for O(1) candidate filtering in dispatch
-        if state.mode is RobotMode.IDLE and not state.degraded:
-            self._idle_robots.add(state.robot_id)
-        else:
-            self._idle_robots.discard(state.robot_id)
-        # Only call _auto_report_progress if the robot has an active assignment
-        if state.robot_id in self._active_assignments:
-            self._auto_report_progress(state.robot_id, now)
+        self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
         self.obstacles.update(
@@ -202,38 +177,6 @@ class RobotPlatformCoordinator:
         for ev in events:
             if ev.startswith("ERR_") or "BOOT_TAKEOVER" in ev or "SHADOW_MISMATCH" in ev:
                 self._worm_event(now, "ERROR", state.robot_id, {"event": ev})
-
-    # ── uplink ingestion ─────────────────────────────────────────
-    def ingest_uplink(self, brand: str, raw: dict, now: float) -> list[str]:
-        """Ingest one vendor-native state update and return platform events."""
-        self.metrics.inc("uplinks")
-        adapter = self._adapters.get(brand)
-        if adapter is None:
-            self._worm_event(now, "ERROR", raw.get("robotId", "?"), {"reason": "unknown_brand", "brand": brand})
-            return [f"ERR_UNKNOWN_BRAND:{brand}"]
-
-        state, events = adapter.ingest_native_state(raw, now)
-        if any("ERR_ADAPTER_PARSE" in e for e in events):
-            self.metrics.inc("adapter_parse_errors")
-
-        # Cold-start stagger (陷阱 #3): queue new robots if within stagger window.
-        # Re-registrations (e.g. post-fault reconnection) bypass the stagger gate
-        # so critical robots are not artificially delayed.
-        if state.robot_id not in self._robot_states and self._registration_stagger_seconds > 0:
-            if self._last_registration_time is not None and (
-                now - self._last_registration_time
-                < self._registration_stagger_seconds
-            ):
-                self._pending_registrations.append((adapter, state, events, now))
-                return events
-            self._last_registration_time = now
-
-        self._robot_adapter[state.robot_id] = adapter
-
-        # failover observes liveness and stamps platform-maintained flags
-        events.extend(self.failover.observe(state, now))
-        state = self.failover.stamp(state)
-        self._process_robot_state(state, events, now)
         return events
 
     # ── order intake ─────────────────────────────────────────────
@@ -253,22 +196,6 @@ class RobotPlatformCoordinator:
     def tick(self, now: float) -> TickResult:
         """Advance one platform tick: safety, traffic, allocation, resources."""
         result = TickResult()
-
-        # 0. process cold-start pending registrations (staggered)
-        #
-        # Only register one robot per _registration_stagger_seconds interval
-        # to achieve the cold-start staggered registration purpose.
-        # Use the original enqueue timestamp (reg_ts) for state processing
-        # so failover.observe sees the correct first-seen time.
-        if self._pending_registrations:
-            if (
-                self._last_registration_time is None
-                or now - self._last_registration_time >= self._registration_stagger_seconds
-            ):
-                adapter, state, events, reg_ts = self._pending_registrations.popleft()
-                self._robot_adapter[state.robot_id] = adapter
-                self._process_robot_state(state, events, reg_ts)
-                self._last_registration_time = now
 
         # 1. liveness + failover
         transitions = self.failover.tick(now)
@@ -339,27 +266,26 @@ class RobotPlatformCoordinator:
 
         # Track robots assigned during *this* tick to prevent double-assignment
         # before _active_assignments is updated (which happens after successful dispatch).
-        # This is intentionally a local variable: it is scoped to one tick so that
-        # a robot that failed dispatch in tick N can be reconsidered in tick N+1.
         assigned_robots: set[str] = set()
+
+        # Pre-compute eligible robots once per tick (static snapshot).
+        # ``assigned_robots`` is a dynamic set that prevents double-assignment
+        # within the same tick as tasks are dispatched.
+        base_candidates = [
+            r for r in self._robot_states.values()
+            if r.robot_id not in self._active_assignments
+            and not r.degraded
+            and not self.failover.is_offline(r.robot_id)
+            and self.failover.accepts_new_tasks(r.robot_id, now)
+            and self._breaker_closed(r.robot_id)
+            and self._intersection_clear(r.robot_id)
+        ]
+
         for task in tasks:
             if self._is_expired_or_exhausted(task, now):
                 continue
 
-            # Use _idle_robots index to avoid full O(n) scan each tick.
-            # _idle_robots is maintained in _process_robot_state: only robots
-            # that are IDLE and not degraded are in the set.  The remaining
-            # time-dependent checks (failover, breaker, intersection) are
-            # still evaluated per-candidate.
-            candidate_ids = self._idle_robots - assigned_robots - self._active_assignments.keys()
-            candidates = [
-                self._robot_states[rid] for rid in candidate_ids
-                if rid in self._robot_states
-                and not self.failover.is_offline(rid)
-                and self.failover.accepts_new_tasks(rid, now)
-                and self._breaker_closed(rid)
-                and self._intersection_clear(rid)
-            ]
+            candidates = [r for r in base_candidates if r.robot_id not in assigned_robots]
             result = self.allocator.allocate(task, candidates)
             if not result.assigned:
                 if self._requeue_task(task, now, result.reason):
@@ -390,24 +316,23 @@ class RobotPlatformCoordinator:
                     remaining.append(task)
                 continue
 
+            # Attempt dispatch; only mark the robot as assigned if dispatch
+            # succeeds so that a transient failure (e.g. network error) does
+            # not prevent the robot from receiving a different task in the
+            # same tick.
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
             except Exception as exc:
-                logger.error(
-                    "dispatch failed for robot %s task %s: %s",
-                    robot.robot_id, task.task_id, exc,
-                )
-                # Mark the robot as attempted even on failure so the requeued
-                # task is not immediately re-assigned to the same robot in this
-                # tick. The robot's state is uncertain after a dispatch failure.
-                assigned_robots.add(robot.robot_id)
-                # Release any lifts that were reserved for this failed assignment.
-                self._release_lifts_for_assignment(robot, assignment)
-                if self._requeue_task(task, now, "dispatch_exception"):
+                if self._requeue_task(task, now, f"dispatch_error:{exc}"):
                     remaining.append(task)
+                self._worm_event(
+                    now, "ERROR", robot.robot_id,
+                    {"task_id": task.task_id, "dispatch_error": str(exc)},
+                )
                 continue
-            self._active_assignments[robot.robot_id] = assignment
+
             assigned_robots.add(robot.robot_id)
+            self._active_assignments[robot.robot_id] = assignment
             self._update_occupancy(robot.robot_id, assignment.path[0])
             assigned.append((robot.robot_id, assignment))
             self.metrics.inc("tasks_allocated")
@@ -424,7 +349,7 @@ class RobotPlatformCoordinator:
     def _is_expired_or_exhausted(self, task: Task, now: float) -> bool:
         """Drop tasks past deadline or exceeding retry limit."""
         retries = self._task_retries.get(task.task_id, 0)
-        if retries >= self.cfg.max_task_retries:
+        if retries >= self.MAX_TASK_RETRIES:
             self._fail_task(task, now, "max_retries")
             return True
         if task.deadline > 0 and now > task.deadline:
@@ -436,7 +361,7 @@ class RobotPlatformCoordinator:
         """Increment retry count; return True if the task may be requeued."""
         retries = self._task_retries.get(task.task_id, 0) + 1
         self._task_retries[task.task_id] = retries
-        if retries >= self.cfg.max_task_retries:
+        if retries >= self.MAX_TASK_RETRIES:
             self._fail_task(task, now, reason)
             return False
         self._worm_event(
@@ -492,17 +417,6 @@ class RobotPlatformCoordinator:
             if not self.lift.request(lane.lift_id, robot.robot_id, lane.floor, now):
                 return False
         return True
-
-    def _release_lifts_for_assignment(
-        self, robot: FleetState, assignment: TaskAssignment
-    ) -> None:
-        """Release any lifts reserved for an assignment that failed to dispatch."""
-        for lane_id in assignment.path:
-            lane = self.fmap.lane(lane_id)
-            if lane is None or lane.lift_id is None:
-                continue
-            if self.lift.current_user(lane.lift_id) == robot.robot_id:
-                self.lift.release(lane.lift_id, robot.robot_id)
 
     def _breaker_closed(self, robot_id: str) -> bool:
         adapter = self.adapter_for(robot_id)
@@ -587,9 +501,6 @@ class RobotPlatformCoordinator:
             if lane is None or lane.intersection_id is None:
                 continue
             if self.traffic.may_enter(lane.intersection_id, lane.direction):
-                # Light is green for this robot — clear any stale HOLD
-                # retries so the adapter doesn't keep re-sending them.
-                adapter.clear_pending_holds(robot_id)
                 continue
             cmd = adapter.request_hold(robot_id, f"red_intersection:{lane.intersection_id}", now)
             result.commands.append(cmd)
@@ -643,11 +554,9 @@ class RobotPlatformCoordinator:
                 continue
             path, idx = adapter.current_path(robot_id)
             # look ahead from next expected node for the next intersection lane
-            found_intersection = False
             for lane_id in path[idx:]:
                 lane = self.fmap.lane(lane_id)
                 if lane is not None and lane.intersection_id:
-                    found_intersection = True
                     self.traffic.report_waiting_robot(
                         lane.intersection_id,
                         robot_id,
@@ -656,10 +565,6 @@ class RobotPlatformCoordinator:
                         now=now,
                     )
                     break
-            if not found_intersection:
-                # Robot has passed all intersection lanes — purge its
-                # stale waiting_robots entries so false deadlocks don't fire.
-                self.traffic.clear_waiting_robot(robot_id)
 
     def _reap_offline_assignments(self, now: float) -> None:
         """Requeue tasks assigned to robots that went degraded/offline."""
@@ -819,13 +724,18 @@ class RobotPlatformCoordinator:
     def _auto_report_progress(self, robot_id: str, now: float) -> None:
         """Infer waypoint progress from MQTT/VDA5050 pose alone.
 
-        Called from ``ingest_uplink`` (NOT from ``tick``) when a robot state
-        update is received.  When a robot's ``pose.last_node_id`` matches the
-        end node of the next expected lane in its active assignment, advance
-        the waypoint contract and occupancy just as if an explicit HTTP
-        ``/robot/{id}/progress`` had been received. This lets protocol-level
-        simulators (and real VDA5050 robots reporting only state) complete
-        tasks without a separate progress channel.
+        When a robot's ``pose.last_node_id`` matches the end node of the next
+        expected lane in its active assignment, advance the waypoint contract
+        and occupancy just as if an explicit HTTP ``/robot/{id}/progress`` had
+        been received. This lets protocol-level simulators (and real VDA5050
+        robots reporting only state) complete tasks without a separate progress
+        channel.
+
+        This method is idempotent: ``report_progress`` internally calls
+        ``adapter.advance_waypoint`` which returns ``False`` if the lane
+        has already been advanced.  When that happens, the search continues
+        to the next matching lane in case the robot traversed multiple lanes
+        since the last update.
         """
         assignment = self._active_assignments.get(robot_id)
         if assignment is None:
@@ -841,36 +751,15 @@ class RobotPlatformCoordinator:
             return
 
         path, idx = adapter.current_path(robot_id)
-        if idx >= len(path):
-            return
-        lane_id = path[idx]
-        lane = self.fmap.lane(lane_id)
-        if lane is None:
-            return
-        while lane is not None and lane.to_node == last_node:
-            # Idempotency: skip if this lane was already reported for this
-            # robot (prevents duplicate progress reports when the same robot
-            # state is processed multiple times within a single tick).
-            if self._last_reported_lane.get(robot_id) == lane_id:
-                return
-            self._last_reported_lane[robot_id] = lane_id
-            # Robot reached the end of the current expected lane.
-            # Process ALL traversed lanes in one call — the robot may
-            # have skipped multiple nodes since the last state update
-            # (large tick interval or fast movement).
-            completed = self.report_progress(robot_id, lane_id, now)
-            if completed:
-                return
-            # Check next lane in path (robot may have traversed multiple nodes)
-            path, idx = adapter.current_path(robot_id)
-            if idx >= len(path):
-                return
-            lane_id = path[idx]
+        # ``idx`` points to the lane the robot is currently traversing.
+        # Search through remaining lanes for the first whose ``to_node``
+        # matches ``last_node``.  If ``report_progress`` returns False
+        # (lane already advanced), continue searching for the next match.
+        for offset, lane_id in enumerate(path[idx:]):
             lane = self.fmap.lane(lane_id)
-        if lane is not None and lane.from_node != last_node:
-            # Robot is mid-lane (not at either endpoint) — no progress
-            # to report yet. This is normal during normal operation.
-            pass
+            if lane is not None and lane.to_node == last_node:
+                if self.report_progress(robot_id, lane_id, now):
+                    break
 
     def report_progress(self, robot_id: str, reached_lane: str, now: float) -> bool:
         """Report a reached waypoint; returns True if the active assignment is complete."""
