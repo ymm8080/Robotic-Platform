@@ -71,9 +71,20 @@ try:
     resp = urllib.request.urlopen(req, timeout=120)
     result = json.loads(resp.read().decode("utf-8"))
     review = result["choices"][0]["message"]["content"]
+
+    # Append structured marker for auto-fix.sh to parse
+    issue_keywords = [
+        "must fix", "必须修复", "bug", "安全问题",
+        "逻辑错误", "性能问题", "critical", "严重",
+        "错误", "缺陷", "漏洞", "risk", "danger",
+    ]
+    has_issues = any(kw in review.lower() for kw in [k.lower() for k in issue_keywords])
+    marker = "<!--AUTOFIX:HAS_ISSUES-->" if has_issues else "<!--AUTOFIX:CLEAN-->"
+
     with open("review_output.md", "w", encoding="utf-8") as f:
         f.write(review)
-    print("Review generated successfully")
+        f.write(f"\n\n{marker}\n")
+    print(f"Review generated successfully (marker: {marker})")
 except urllib.error.HTTPError as e:
     print(f"HTTP Error: {e.code} {e.reason}")
     body = e.read().decode("utf-8")
