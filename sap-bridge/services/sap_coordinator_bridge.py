@@ -32,8 +32,13 @@ POLL_INTERVAL = float(os.getenv("SAP_TC_POLL_INTERVAL", "5"))
 WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # When "0", tasks that disappear from the coordinator active list are NOT
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
-# confirmation.  Set to "1" (default) for automatic confirmation.
-AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "1") == "1"
+# confirmation.  Set to "1" for automatic confirmation (risky).
+AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
+
+# Maximum confirmed task IDs to retain in memory.
+MAX_CONFIRMED_RETENTION = 500
+# How often (in polls) to run cleanup.
+CLEANUP_INTERVAL = 60
 
 
 @dataclass
@@ -168,11 +173,12 @@ class SapCoordinatorBridge:
                 logger.warning("SAP-TC bridge: submit failed for task %s: %s", tid, result.error)
 
     async def _poll_coordinator_state(self) -> None:
-        """Check Coordinator state for completed assignments → confirm to SAP.
+        """Check Coordinator state for completed/failed assignments → confirm to SAP.
 
-        The coordinator exposes only active assignments, not a completed list.
-        To reduce false-positive confirmations, we require an order to be
-        inactive for at least 2 consecutive polls before confirming to SAP.
+        The coordinator snapshot exposes ``recently_completed`` and
+        ``recently_failed`` task ID lists, allowing the bridge to
+        distinguish success from failure instead of guessing from the
+        absence in the active list.
         """
         self._poll_count += 1
         result = await self._tc.state_async()
@@ -185,7 +191,10 @@ class SapCoordinatorBridge:
         state = CoordinatorState.from_api(result.data)
         active_order_ids = state.active_order_ids
 
-        GRACE_POLLS = 2
+        # Coordinator snapshot exposes explicit success/failure lists.
+        completed_task_ids = set(result.data.get("recently_completed", []))
+        failed_task_ids = set(result.data.get("recently_failed", []))
+
         for tid in list(self._submitted):
             if tid in self._confirmed:
                 continue
@@ -193,7 +202,33 @@ class SapCoordinatorBridge:
             if order_id in active_order_ids:
                 self._inactive_since.pop(tid, None)
                 continue  # still active
-            # Not active — track when we first saw it inactive
+
+            # Check explicit completion confirmation
+            if tid in completed_task_ids:
+                backend = self._get_backend(WAREHOUSE)
+                if backend is None:
+                    continue
+                ok = await asyncio.to_thread(backend.confirm_task, WAREHOUSE, tid, None)
+                if ok:
+                    self._confirmed.add(tid)
+                    self._inactive_since.pop(tid, None)
+                    logger.info("SAP-TC bridge: confirmed SAP task %s (completed)", tid)
+                else:
+                    logger.warning("SAP-TC bridge: SAP confirm failed for task %s", tid)
+                continue
+
+            # Check explicit failure
+            if tid in failed_task_ids:
+                logger.warning(
+                    "SAP-TC bridge: task %s marked FAILED by coordinator — "
+                    "skipping SAP confirm, requires manual review", tid,
+                )
+                self._confirmed.add(tid)  # Remove from pending
+                self._inactive_since.pop(tid, None)
+                continue
+
+            # Not in any explicit list — use grace-period fallback
+            GRACE_POLLS = 2
             if tid not in self._inactive_since:
                 self._inactive_since[tid] = self._poll_count
                 logger.info(
@@ -202,12 +237,9 @@ class SapCoordinatorBridge:
                     order_id, GRACE_POLLS,
                 )
                 continue
-            # Check grace period
             if self._poll_count - self._inactive_since[tid] < GRACE_POLLS:
                 continue
-            # Grace period elapsed.
-            # NOTE: coordinator doesn't expose failure/cancel status, so we
-            # cannot distinguish completed from failed here.
+            # Grace period elapsed, still no explicit status.
             if not AUTO_CONFIRM:
                 logger.warning(
                     "SAP-TC bridge: task %s inactive for %d polls but AUTO_CONFIRM=0 — "
@@ -216,7 +248,7 @@ class SapCoordinatorBridge:
                 continue
             logger.info(
                 "SAP-TC bridge: confirming SAP task %s "
-                "(cannot distinguish completed/failed)",
+                "(no explicit status, grace period elapsed)",
                 tid,
             )
             backend = self._get_backend(WAREHOUSE)
@@ -229,3 +261,14 @@ class SapCoordinatorBridge:
                 logger.info("SAP-TC bridge: confirmed SAP task %s", tid)
             else:
                 logger.warning("SAP-TC bridge: SAP confirm failed for task %s", tid)
+
+        # Prune confirmed entries to prevent unbounded memory growth.
+        if self._poll_count % CLEANUP_INTERVAL == 0 and len(self._confirmed) > MAX_CONFIRMED_RETENTION:
+            excess = len(self._confirmed) - MAX_CONFIRMED_RETENTION
+            to_remove = list(self._confirmed)[:excess]
+            for tid in to_remove:
+                self._confirmed.discard(tid)
+            logger.info(
+                "SAP-TC bridge: pruned %d stale confirmed entries (retention=%d)",
+                excess, MAX_CONFIRMED_RETENTION,
+            )

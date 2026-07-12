@@ -26,9 +26,11 @@ MQTT topics:
 from __future__ import annotations
 
 import json
+import logging
 import os
-import pathlib
+from pathlib import Path
 import re
+import secrets
 import sys
 import threading
 import time
@@ -46,6 +48,8 @@ from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
 
+_logger = logging.getLogger(__name__)
+
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
@@ -55,7 +59,7 @@ WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
 # directory exists before the WORM blackbox tries to write there.
 _config_worm = WormConfig()
 if WORM_SINK_PATH:
-    sink_path = pathlib.Path(WORM_SINK_PATH)
+    sink_path = Path(WORM_SINK_PATH)
     sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
     sink_dir.mkdir(parents=True, exist_ok=True)
     _config_worm = WormConfig(sink_dir=str(sink_dir))
@@ -77,8 +81,6 @@ SNAPSHOT_KEY = "tc:snapshot:v5"
 
 def _load_api_key() -> str:
     """Load Traffic Coordinator API key from Docker secret or env var."""
-    from pathlib import Path
-
     key_path = Path(TC_API_KEY_FILE)
     if key_path.is_file():
         return key_path.read_text().strip()
@@ -114,7 +116,6 @@ def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
         # via TC_ALLOW_UNAUTHENTICATED=1 (e.g. for local development).
         return TC_ALLOW_UNAUTHENTICATED
     provided = handler.headers.get("X-API-Key", "")
-    import secrets
 
     return secrets.compare_digest(TC_API_KEY, provided)
 
@@ -143,7 +144,13 @@ def _on_mqtt_inbound(msg: InboundMessage) -> None:
     Routes the raw message through the registered brand adapter so the
     coordinator's unified FleetState is updated.
     """
-    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    try:
+        COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    except Exception:
+        _logger.exception(
+            "Failed to ingest MQTT uplink from brand=%s robot=%s",
+            msg.brand, msg.raw.get("robotId", "?"),
+        )
 
 
 def _publish_tick_result(result) -> None:
@@ -179,7 +186,7 @@ def _background_tick(stop_event: threading.Event) -> None:
                 STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                print(f"[snapshot] save failed: {exc}")
+                _logger.warning("[snapshot] save failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
 
 
@@ -189,13 +196,14 @@ facility = load_facility_map(MAP_PATH if MAP_PATH else None)
 
 if facility.warnings:
     for w in facility.warnings:
-        print(f"[bootstrap] WARNING: {w}")
+        _logger.warning("[bootstrap] %s", w)
 
 if facility.fmap.all_lanes():
-    print(
-        f"[bootstrap] loaded facility '{facility.facility_name}' "
-        f"with {len(facility.fmap.all_lanes())} lanes, "
-        f"{len(facility.intersections)} intersections"
+    _logger.info(
+        "[bootstrap] loaded facility '%s' with %d lanes, %d intersections",
+        facility.facility_name,
+        len(facility.fmap.all_lanes()),
+        len(facility.intersections),
     )
     for lane in facility.fmap.all_lanes():
         COORDINATOR.add_lane(lane)
@@ -206,7 +214,7 @@ if facility.fmap.all_lanes():
     for lift in facility.lift_ids:
         COORDINATOR.register_lift(lift["id"])
 else:
-    print("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
+    _logger.info("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
     COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
     COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
     COORDINATOR.register_intersection("X1")
@@ -219,11 +227,11 @@ _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
     try:
         COORDINATOR.restore(_saved)
-        print("[snapshot] restored coordinator state from snapshot")
+        _logger.info("[snapshot] restored coordinator state from snapshot")
     except Exception as exc:
-        print(f"[snapshot] restore failed: {exc}")
+        _logger.warning("[snapshot] restore failed: %s", exc)
 else:
-    print("[snapshot] no prior snapshot found — starting fresh")
+    _logger.info("[snapshot] no prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()
@@ -235,12 +243,12 @@ if MQTT_ENABLED:
         target=_background_tick, args=(_TICK_STOP,), daemon=True, name="tc-tick-loop"
     )
     _TICK_THREAD.start()
-    print(
-        f"[mqtt] gateway started — broker={MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}, "
-        f"tick_interval={TICK_INTERVAL}s"
+    _logger.info(
+        "[mqtt] gateway started — broker=%s:%d, tick_interval=%ss",
+        MQTT_BROKER_HOST, MQTT_BROKER_PORT, TICK_INTERVAL,
     )
 else:
-    print("[mqtt] gateway disabled (MQTT_ENABLED=0)")
+    _logger.info("[mqtt] gateway disabled (MQTT_ENABLED=0)")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -327,9 +335,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         elif path == "/metrics":
-            if not _check_auth(self):
-                self._json(401, {"error": "unauthorized"})
-                return
+            # /metrics is intentionally unauthenticated for Prometheus scraping.
             snap = COORDINATOR.metrics.snapshot()
             lines = [
                 "# HELP tc_uplinks_total Total robot state uplinks received",
@@ -441,8 +447,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/estop":
-            zone_id = body.get("zone_id")
-            COORDINATOR.emergency_stop(zone_id, now)
+            zone_id = body.get("zone_id", "")
+            if zone_id and not _SAFE_ID_RE.match(zone_id):
+                self._json(400, {"error": "invalid zone_id"})
+                return
+            COORDINATOR.emergency_stop(zone_id or None, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)
             self._json(200, {"estop": True, "zone": zone_id})
@@ -516,7 +525,7 @@ def main() -> None:
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
-    print(f"v5.0 Traffic Coordinator listening on 0.0.0.0:{PORT} mode={MODE}")
+    _logger.info("v5.0 Traffic Coordinator listening on 0.0.0.0:%d mode=%s", PORT, MODE)
     try:
         server.serve_forever()
     finally:

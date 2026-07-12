@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import time
+import math
 import uuid
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -270,8 +271,6 @@ class SimulatedRobot:
         dx = x1 - x0
         dy = y1 - y0
         if abs(dx) > 0.0001 or abs(dy) > 0.0001:
-            import math
-
             theta = math.atan2(dy, dx)
         return (x, y, theta)
 
@@ -321,4 +320,6 @@ class SimulatedRobot:
 
     @staticmethod
     def _iso_now() -> str:
-        return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        """Return an ISO-8601 UTC timestamp with millisecond precision (VDA5050 format)."""
+        now = datetime.now(timezone.utc)
+        return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"

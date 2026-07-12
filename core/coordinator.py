@@ -19,6 +19,7 @@ objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
@@ -42,6 +43,8 @@ from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -126,6 +129,11 @@ class RobotPlatformCoordinator:
         self._task_retries: dict[str, int] = {}
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
+        # Recently completed / failed task IDs with timestamps, so downstream
+        # consumers (e.g. SAP bridge) can distinguish success from failure
+        # instead of guessing from the absence in the active list.
+        self._recently_completed: deque[tuple[str, float]] = deque(maxlen=200)
+        self._recently_failed: deque[tuple[str, float]] = deque(maxlen=200)
 
     MAX_TASK_RETRIES = 3
 
@@ -157,7 +165,10 @@ class RobotPlatformCoordinator:
         events.extend(self.failover.observe(state, now))
         state = self.failover.stamp(state)
         self._robot_states[state.robot_id] = state
-        self._auto_report_progress(state.robot_id, now)
+        # Only run auto-progress inference when the robot has an active
+        # assignment; avoids needless work on every uplink for idle robots.
+        if state.robot_id in self._active_assignments:
+            self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
         self.obstacles.update(
@@ -318,6 +329,13 @@ class RobotPlatformCoordinator:
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
             except Exception as exc:
+                try:
+                    self._release_lifts_for_assignment(robot, assignment)
+                except Exception:
+                    logger.exception(
+                        "Failed to release lifts for robot %s after dispatch failure",
+                        robot.robot_id,
+                    )
                 if self._requeue_task(task, now, f"dispatch_error:{exc}"):
                     remaining.append(task)
                 self._worm_event(
@@ -367,6 +385,7 @@ class RobotPlatformCoordinator:
 
     def _fail_task(self, task: Task, now: float, reason: str) -> None:
         """Mark the task and its order as failed."""
+        self._recently_failed.append((task.task_id, now))
         order_id = self._task_order.get(task.task_id)
         if order_id is not None:
             plan = self._order_plans.get(order_id)
@@ -411,6 +430,17 @@ class RobotPlatformCoordinator:
             if not self.lift.request(lane.lift_id, robot.robot_id, lane.floor, now):
                 return False
         return True
+
+    def _release_lifts_for_assignment(
+        self, robot: FleetState, assignment: TaskAssignment
+    ) -> None:
+        """Release any lifts reserved for an assignment that failed to dispatch."""
+        for lane_id in assignment.path:
+            lane = self.fmap.lane(lane_id)
+            if lane is None or lane.lift_id is None:
+                continue
+            if self.lift.current_user(lane.lift_id) == robot.robot_id:
+                self.lift.release(lane.lift_id, robot.robot_id)
 
     def _breaker_closed(self, robot_id: str) -> bool:
         adapter = self.adapter_for(robot_id)
@@ -752,6 +782,11 @@ class RobotPlatformCoordinator:
         for offset, lane_id in enumerate(path[idx:]):
             lane = self.fmap.lane(lane_id)
             if lane is not None and lane.to_node == last_node:
+                logger.debug(
+                    "auto_report_progress: robot %s reached end of lane %s "
+                    "(path offset %d, last_node=%s)",
+                    robot_id, lane_id, offset, last_node,
+                )
                 if self.report_progress(robot_id, lane_id, now):
                     break
 
@@ -778,6 +813,7 @@ class RobotPlatformCoordinator:
             return False
         if reached_lane == assignment.path[-1]:
             del self._active_assignments[robot_id]
+            self._recently_completed.append((assignment.task_id, now))
             adapter.expect(robot_id, RobotMode.IDLE)
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
@@ -891,6 +927,8 @@ class RobotPlatformCoordinator:
             "robot_brands": {
                 rid: adapter.brand for rid, adapter in self._robot_adapter.items()
             },
+            "recently_completed": [tid for tid, _ in self._recently_completed],
+            "recently_failed": [tid for tid, _ in self._recently_failed],
         }
 
     def restore(self, data: dict) -> None:
@@ -1032,6 +1070,14 @@ class RobotPlatformCoordinator:
         }
         self._task_retries = dict(data.get("task_retries", {}))
         self._robot_lane = dict(data.get("robot_lane", {}))
+
+        # Restore recently completed / failed task tracking
+        self._recently_completed.clear()
+        for tid in data.get("recently_completed", []):
+            self._recently_completed.append((tid, 0.0))
+        self._recently_failed.clear()
+        for tid in data.get("recently_failed", []):
+            self._recently_failed.append((tid, 0.0))
 
     # ── helpers ──────────────────────────────────────────────────
     def _worm_event(self, now: float, category: str, robot_id: str, payload: dict) -> None:

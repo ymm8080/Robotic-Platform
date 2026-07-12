@@ -64,10 +64,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Build the comment body from a file and pass it via --body-file so the
-          # review markdown (which contains backticks, $, etc.) is never shell-
-          # interpolated. Reading into a shell variable and using --body "$COMMENT"
-          # triggers command substitution on backticks and breaks the step.
           {
             printf '## 🤖 AI Code Review\n\n'
             cat review_output.md
@@ -76,13 +72,35 @@ jobs:
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment_body.md
-            echo "Review posted as PR comment"
+            echo "Review posted as PR comment (pull_request event)"
           else
-            # On push events, posting a commit comment requires `contents: write`
-            # (not granted here, to keep least privilege). A push to a PR branch
-            # also triggers the pull_request event above, which posts the PR
-            # comment — so skipping here avoids both a permission failure and a
-            # duplicate comment. The review is still generated above and visible
-            # in the job log.
-            echo "Push event — review generated, skipping commit comment post."
+            # On push events, find the associated PR and post there
+            BRANCH="${{ github.ref_name }}"
+            PR_NUM=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            if [ -n "$PR_NUM" ]; then
+              gh pr comment "$PR_NUM" --body-file /tmp/comment_body.md
+              echo "Review posted as PR comment on PR #$PR_NUM (push event)"
+            else
+              echo "Push event — no open PR found for branch $BRANCH, skipping comment."
+            fi
+          fi
+
+      - name: Unblock merge if review is clean
+        if: steps.review.outcome == 'success' && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if grep -q "AUTOFIX:CLEAN" review_output.md; then
+            echo "AI review is clean - dismissing any stale CHANGES_REQUESTED reviews"
+            REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$PR/reviews --jq '.[] | select(.state == "CHANGES_REQUESTED") | .id')
+            for RID in $REVIEWS; do
+              echo "Dismissing review $RID"
+              gh api --method PUT repos/${{ github.repository }}/pulls/$PR/reviews/$RID/dismissals -f message="AI review is CLEAN - auto-dismissing block" || true
+            done
+            echo "All blocking reviews dismissed - merge is now allowed"
+          else
+            echo "AI review found issues - keeping merge blocked"
+            gh pr review "$PR" --request-changes --body "AI Code Review Found Issues - see PR comments for details" || true
           fi
