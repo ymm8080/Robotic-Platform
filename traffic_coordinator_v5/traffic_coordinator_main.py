@@ -54,8 +54,8 @@ MODE = os.environ.get("MODE", "PRODUCTION")
 # Configure root logger so _logger.info() calls produce output.
 # Guard ensures idempotency: basicConfig is a no-op if handlers already exist,
 # but we check explicitly to avoid overriding level set by another module.
-_LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "INFO" if MODE != "PRODUCTION" else "WARNING")
-if not logging.getLogger().handlers:
+_LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" else "INFO")
+if not logging.getLogger().hasHandlers():
     logging.basicConfig(
         level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
