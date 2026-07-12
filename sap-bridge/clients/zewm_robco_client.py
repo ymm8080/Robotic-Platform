@@ -26,18 +26,16 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import re
 import time
 from typing import Any
 
 import httpx
 import redis as rd
 
+from auth import OAuth2TokenManager, read_client_secret
 from redis_client import redis_from_url
 
-from auth import OAuth2TokenManager, read_client_secret
 from .zewm_robco_exceptions import (
-    RobcoError,
     RobcoInternalError,
     raise_for_error_code,
 )

@@ -1,0 +1,10 @@
+fix: address remaining PR #28 AI code review issues
+
+- simulator/robot.py: _iso_now now uses real millisecond precision
+  instead of fixed .000Z (Issue 4.3)
+- coordinator.py: add module logger + debug log in _auto_report_progress
+  for production debugging (Issue 4.1)
+- coordinator.py: add call-site guard so _auto_report_progress only runs
+  when robot has an active assignment (Issue 3.1)
+- traffic_coordinator_main.py: remove orphaned import concurrent.futures,
+  replace snapshot print() with _logger calls (Issues 3.2, 4.4)
