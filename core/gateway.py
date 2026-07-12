@@ -466,8 +466,24 @@ class MqttGateway(InboundGateway, OutboundGateway):
         )
         self._publish(topic, payload)
 
+    def _load_mqtt_password(self) -> str:
+        """Load MQTT password from env var or Docker secret file."""
+        password = os.environ.get("MQTT_PASSWORD", "")
+        if password:
+            return password
+        password_file = os.environ.get("MQTT_PASSWORD_FILE", "")
+        if password_file:
+            try:
+                with open(password_file, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except OSError:
+                logger.error("Cannot read MQTT password file: %s", password_file)
+        return ""
+
     def _publish(self, topic: str, payload: dict) -> None:
+        """Publish message to MQTT topic with null-guard and error logging."""
         if self._client is None:
+            logger.warning("Cannot publish to %s: MQTT client not initialized", topic)
             return
         try:
             self._client.publish(topic, json.dumps(payload), qos=self._qos)
