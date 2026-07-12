@@ -6,7 +6,7 @@ import pytest
 
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from traffic_coordinator_v5.simulator.map import LaneGraph
-from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot, SimRobotMode
+from traffic_coordinator_v5.simulator.robot import RobotConfig, SimRobotMode, SimulatedRobot
 
 
 @pytest.fixture

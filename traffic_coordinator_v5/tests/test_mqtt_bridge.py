@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from traffic_coordinator_v5.mqtt_bridge import _on_message, _TOPIC_RE
+from traffic_coordinator_v5.mqtt_bridge import _TOPIC_RE, _on_message
 
 
 def test_topic_regex_matches_valid():

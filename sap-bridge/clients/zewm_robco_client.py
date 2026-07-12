@@ -936,11 +936,11 @@ class ZewmRobcoClient:
         """Release Redis and httpx connections.
 
         Safe to call multiple times.
+
+        Note: _csrf.close() is a no-op and _oauth2.close() would close
+        the shared Redis connection, so we close Redis once here.
         """
-        if self._csrf is not None:
-            with contextlib.suppress(Exception):
-                self._csrf.close()
-            self._csrf = None
+        self._csrf = None
         if self._oauth2 is not None:
             with contextlib.suppress(Exception):
                 self._oauth2.close()

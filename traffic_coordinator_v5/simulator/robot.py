@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import uuid
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 
 from traffic_coordinator_v5.simulator.map import LaneGraph
@@ -321,5 +321,5 @@ class SimulatedRobot:
     @staticmethod
     def _iso_now() -> str:
         """Return an ISO-8601 UTC timestamp with millisecond precision (VDA5050 format)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"

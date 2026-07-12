@@ -50,7 +50,7 @@ class LaneGraph:
                     _BFS_POSITIONS_CACHE[cache_key] = dict(self._positions)
 
     @classmethod
-    def from_yaml(cls, path: str | Path | None = None) -> "LaneGraph":
+    def from_yaml(cls, path: str | Path | None = None) -> LaneGraph:
         """Load a lane graph from a facility_map.yaml file."""
         facility = load_facility_map(path)
         positions: dict[str, tuple[float, float]] = {}
