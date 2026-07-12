@@ -973,7 +973,7 @@ class ZewmRobcoClient:
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
             errors.append(
-                "base_url may be default (%s) — check config" % DEFAULT_BASE_URL,
+                f"base_url may be default ({DEFAULT_BASE_URL}) — check config",
             )
 
         client_val = config.get("client", "")
