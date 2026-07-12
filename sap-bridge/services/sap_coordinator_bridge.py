@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = float(os.getenv("SAP_TC_POLL_INTERVAL", "5"))
+# Number of polls to wait before auto-confirming a task that disappeared
+# from the coordinator active list without an explicit completion/failure.
+GRACE_POLLS = int(os.getenv("SAP_TC_GRACE_POLLS", "2"))
 WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # When "0", tasks that disappear from the coordinator active list are NOT
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
@@ -214,7 +217,7 @@ class SapCoordinatorBridge:
 
             # Check explicit failure
             if tid in failed_task_ids:
-                logger.warning(
+                logger.error(
                     "SAP-TC bridge: task %s marked FAILED by coordinator — "
                     "skipping SAP confirm, requires manual review", tid,
                 )
@@ -223,7 +226,6 @@ class SapCoordinatorBridge:
                 continue
 
             # Not in any explicit list — use grace-period fallback
-            GRACE_POLLS = 2
             if tid not in self._inactive_since:
                 self._inactive_since[tid] = self._poll_count
                 logger.info(

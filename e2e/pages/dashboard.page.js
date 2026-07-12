@@ -59,7 +59,7 @@ class DashboardPage extends BasePage {
 
   async isAuthenticated() {
     try {
-      await this.title.waitFor({ state: 'visible', timeout: 5000 });
+      await this.title.waitFor({ state: 'visible', timeout: 2000 });
       return true;
     } catch {
       return false;

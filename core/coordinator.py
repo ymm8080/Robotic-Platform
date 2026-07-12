@@ -371,7 +371,12 @@ class RobotPlatformCoordinator:
         return True
 
     def _fail_task(self, task: Task, now: float, reason: str) -> None:
-        """Mark the task and its order as failed."""
+        """Mark the task and its order as failed.
+
+        All callers (``_is_expired_or_exhausted``, ``_requeue_task``) pass
+        the current tick's ``now`` timestamp so that downstream consumers
+        (e.g. SAP bridge) can correlate failure timing.
+        """
         self._recently_failed.append((task.task_id, now))
         order_id = self._task_order.get(task.task_id)
         if order_id is not None:
@@ -898,8 +903,8 @@ class RobotPlatformCoordinator:
             "robot_brands": {
                 rid: adapter.brand for rid, adapter in self._robot_adapter.items()
             },
-            "recently_completed": [tid for tid, _ in self._recently_completed],
-            "recently_failed": [tid for tid, _ in self._recently_failed],
+            "recently_completed": [[tid, ts] for tid, ts in self._recently_completed],
+            "recently_failed": [[tid, ts] for tid, ts in self._recently_failed],
         }
 
     def restore(self, data: dict) -> None:
@@ -1042,13 +1047,21 @@ class RobotPlatformCoordinator:
         self._task_retries = dict(data.get("task_retries", {}))
         self._robot_lane = dict(data.get("robot_lane", {}))
 
-        # Restore recently completed / failed task tracking
+        # Restore recently completed / failed task tracking.
+        # Snapshot stores [tid, timestamp] pairs; fall back to 0.0 for
+        # snapshots produced by older versions that stored only tid strings.
         self._recently_completed.clear()
-        for tid in data.get("recently_completed", []):
-            self._recently_completed.append((tid, 0.0))
+        for item in data.get("recently_completed", []):
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                self._recently_completed.append((str(item[0]), float(item[1])))
+            else:
+                self._recently_completed.append((str(item), 0.0))
         self._recently_failed.clear()
-        for tid in data.get("recently_failed", []):
-            self._recently_failed.append((tid, 0.0))
+        for item in data.get("recently_failed", []):
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                self._recently_failed.append((str(item[0]), float(item[1])))
+            else:
+                self._recently_failed.append((str(item), 0.0))
 
     # ── helpers ──────────────────────────────────────────────────
     def _worm_event(self, now: float, category: str, robot_id: str, payload: dict) -> None:
