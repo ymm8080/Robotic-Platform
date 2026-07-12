@@ -42,8 +42,11 @@ class RescueDashboardPage {
   }
 
   async getRobotCount() {
-    const count = await this.robotCards.count();
-    return count;
+    const cardCount = await this.robotCards.count();
+    if (cardCount > 0) return cardCount;
+    // Fallback: count table rows if layout uses a table instead of cards
+    const rowCount = await this.page.locator('table tbody tr').count();
+    return rowCount;
   }
 
   async getPageTitle() {

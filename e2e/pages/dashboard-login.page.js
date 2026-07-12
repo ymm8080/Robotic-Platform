@@ -29,7 +29,9 @@ class DashboardLoginPage {
     this.registerConfirmInput = page.locator('[data-testid="register-confirm-password-input"]').or(
       page.locator('input[type="password"]').nth(1)
     );
-    this.registerRoleSelect = this.page.locator('select').nth(1);
+    this.registerRoleSelect = this.page.locator('[data-testid="register-role-select"]').or(
+      this.page.getByLabel(/Role/i).nth(1)
+    );
     this.registerSubmitButton = page.getByRole('button', { name: /Create Account/i });
 
     this.errorBanner = page.getByRole('alert').or(page.locator('[data-testid="auth-error"]'));

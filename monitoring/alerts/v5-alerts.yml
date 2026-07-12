@@ -1,85 +1,107 @@
 # =============================================================================
-# Prometheus Alert Rules — Traffic Coordinator v5.x
-# Severity: P0=emergency, P1=critical, P2=critical, P3=warning
+# Prometheus Alert Rules — V5 Traffic Coordinator v5.x
 # =============================================================================
 groups:
-  - name: v5-traffic-coordinator
+  - name: v5_traffic_coordinator
     interval: 15s
     rules:
 
-      # ── P3: Robot Battery Low ──────────────────────────────────────────────
-      - alert: tc_robot_battery_low
-        expr: tc_robot_battery_percent < 25
-        for: 5m
-        labels:
-          severity: warning
-          priority: P3
-        annotations:
-          summary: "Robot battery low"
-          description: "Robot {{ $labels.robot_id }} battery at {{ $value }}% for >5m — schedule recharge"
+      # ══════════════════════════════════════════════════════════════════════
+      # P0 — Critical (30s for)
+      # ══════════════════════════════════════════════════════════════════════
 
-      # ── P3: Adapter Parse Errors ───────────────────────────────────────────
-      - alert: tc_adapter_parse_errors
-        expr: rate(tc_adapter_parse_errors_total[5m]) > 0.1
-        for: 5m
-        labels:
-          severity: warning
-          priority: P3
-        annotations:
-          summary: "Adapter parse errors elevated"
-          description: "Traffic-coordinator adapter parse error rate {{ $value }}/s for >5m — check upstream message format"
-
-      # ── P2: Robot Offline ──────────────────────────────────────────────────
-      - alert: tc_robot_offline
-        expr: time() - tc_robot_last_heartbeat_seconds > 10
-        for: 0s
-        labels:
-          severity: critical
-          priority: P2
-        annotations:
-          summary: "Robot offline"
-          description: "Robot {{ $labels.robot_id }} heartbeat missing for >10s — check connectivity and battery"
-
-      # ── P2: Deadlock Detected ──────────────────────────────────────────────
-      - alert: tc_deadlock_detected
-        expr: tc_deadlocks_total > 0
-        for: 1m
-        labels:
-          severity: critical
-          priority: P2
-        annotations:
-          summary: "Deadlock detected"
-          description: "Traffic-coordinator has {{ $value }} unresolved deadlocks for >1m — requires intervention"
-
-      # ── P2: WORM Disk Low ──────────────────────────────────────────────────
-      - alert: tc_worm_disk_low
-        expr: tc_worm_disk_free_percent < 20
-        for: 5m
-        labels:
-          severity: critical
-          priority: P2
-        annotations:
-          summary: "WORM disk space low"
-          description: "WORM storage free at {{ $value }}% — archive or expand volume"
-
-      # ── P1: Coordinator Down ───────────────────────────────────────────────
-      - alert: tc_coordinator_down
-        expr: up{job="traffic-coordinator"} == 0
+      - alert: V5CoordinatorDown
+        expr: traffic_coordinator_up == 0
         for: 30s
         labels:
           severity: critical
-          priority: P1
+          component: traffic-coordinator
         annotations:
-          summary: "Traffic Coordinator down"
-          description: "Traffic-coordinator metrics scrape failed for >30s — dispatch may be impaired"
+          summary: "V5 Traffic Coordinator is down"
+          description: "Traffic Coordinator has been unreachable for >30s — robot dispatch will halt"
+          runbook_url: ""
 
-      # ── P0: Multiple Collisions ────────────────────────────────────────────
-      - alert: tc_multiple_collisions
-        expr: increase(tc_collision_holds_total[1m]) > 5
-        for: 0s
+      - alert: V5DeadlockActive
+        expr: traffic_coordinator_deadlocks > 0
+        for: 30s
         labels:
           severity: critical
-          priority: P0
+          component: traffic-coordinator
         annotations:
-          summary: "Multiple collision holds detected"
-          description: "Traffic-coordinator recorded >5 collision holds in 1m ({{ $value }}) — emergency investigation required"
+          summary: "Active deadlock detected"
+          description: "Traffic Coordinator reports {{ $value }} unresolved deadlock(s) for >30s — manual intervention required"
+          runbook_url: ""
+
+      - alert: V5ZoneEmergencyLockdown
+        expr: traffic_coordinator_emergency_lockdown == 1
+        for: 30s
+        labels:
+          severity: critical
+          component: traffic-coordinator
+        annotations:
+          summary: "Zone emergency lockdown active"
+          description: "Zone {{ $labels.zone }} is in emergency lockdown — all traffic in that zone is stopped"
+          runbook_url: ""
+
+      # ══════════════════════════════════════════════════════════════════════
+      # P1 — Warning (60s for)
+      # ══════════════════════════════════════════════════════════════════════
+
+      - alert: V5IntersectionQueueHigh
+        expr: traffic_coordinator_intersection_queue > 5
+        for: 60s
+        labels:
+          severity: warning
+          component: traffic-coordinator
+        annotations:
+          summary: "Intersection queue high"
+          description: "Intersection {{ $labels.intersection }} has {{ $value }} robots waiting for >60s — risk of congestion"
+          runbook_url: ""
+
+      - alert: V5RobotDegraded
+        expr: traffic_coordinator_robot_mode{mode="DEGRADED"} > 0
+        for: 60s
+        labels:
+          severity: warning
+          component: traffic-coordinator
+        annotations:
+          summary: "Robot in degraded mode"
+          description: "{{ $value }} robot(s) operating in DEGRADED state for >60s — reduced capability"
+          runbook_url: ""
+
+      - alert: V5ChargerAllOccupied
+        expr: traffic_coordinator_charger_available == 0
+        for: 60s
+        labels:
+          severity: warning
+          component: traffic-coordinator
+        annotations:
+          summary: "All chargers occupied"
+          description: "No charger bays available for >60s — robots may run out of battery"
+          runbook_url: ""
+
+      # ══════════════════════════════════════════════════════════════════════
+      # P2 — Info (300s for)
+      # ══════════════════════════════════════════════════════════════════════
+
+      - alert: V5WormDiskWarning
+        expr: traffic_coordinator_worm_disk_free_pct < 20
+        for: 300s
+        labels:
+          severity: info
+          component: traffic-coordinator
+        annotations:
+          summary: "WORM disk free space low"
+          description: "WORM blackbox disk has {{ $value }}% free space — below 20% threshold for >5m"
+          runbook_url: ""
+
+      - alert: V5SimulatorOffline
+        expr: traffic_coordinator_simulator_online == 0
+        for: 300s
+        labels:
+          severity: info
+          component: traffic-coordinator
+        annotations:
+          summary: "Simulator offline"
+          description: "Traffic Coordinator simulator endpoint has been offline for >5m"
+          runbook_url: ""

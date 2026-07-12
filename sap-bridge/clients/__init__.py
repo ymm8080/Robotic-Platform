@@ -12,7 +12,11 @@ Type definitions and exceptions:
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 from .traffic_coordinator_client import TrafficCoordinatorClient
+=======
+from .traffic_coordinator_client import ClientResult, TrafficCoordinatorClient
+>>>>>>> cc689e2268ba4a3d37c8aff7f99fb9dd46e122da
 from .zewm_robco_client import ZewmRobcoClient
 from .zewm_robco_exceptions import (
     NoErrorQueueError,
@@ -45,6 +49,10 @@ from .zewm_robco_types import (
 __all__ = [
     # Clients
     "TrafficCoordinatorClient",
+<<<<<<< HEAD
+=======
+    "ClientResult",
+>>>>>>> cc689e2268ba4a3d37c8aff7f99fb9dd46e122da
     "ZewmRobcoClient",
     # Types
     "RobotType",

@@ -4,6 +4,7 @@ Reads diff from pr_diff.txt, calls DeepSeek API, writes review_output.md.
 """
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -46,7 +47,13 @@ payload = json.dumps({
                 "3) performance concerns 4) code style. Be specific - reference "
                 "actual line content. If the code looks good, say so briefly.\n"
                 "6. Distinguish between 'must fix' (bugs, security) and 'suggestion' "
-                "(style, minor perf). Only report 'must fix' issues as bugs."
+                "(style, minor perf). Only report 'must fix' issues as bugs.\n"
+                "7. If there are NO must-fix bugs, do NOT include a '必须修复' section. "
+                "Only include '必须修复的问题' section when there are REAL bugs that "
+                "would cause runtime errors, security vulnerabilities, or data loss. "
+                "Style improvements and design suggestions should go in '建议改进' only.\n"
+                "8. If the code has no must-fix issues, start the review with "
+                "'<!--AUTOFIX:CLEAN-->' marker on the first line."
             ),
         },
         {
@@ -71,9 +78,19 @@ try:
     resp = urllib.request.urlopen(req, timeout=120)
     result = json.loads(resp.read().decode("utf-8"))
     review = result["choices"][0]["message"]["content"]
+
+    # Append structured marker for auto-fix.sh to parse
+    # Check if the "必须修复" section has actual numbered items (e.g., "1. **...**").
+    # The section header alone is not enough — the AI always includes it.
+    # We look for numbered list items under a "必须修复" heading.
+    must_fix_pattern = r"必须修复[^#]*?\d+\.\s+\*\*"
+    has_issues = bool(re.search(must_fix_pattern, review, re.DOTALL))
+    marker = "<!--AUTOFIX:HAS_ISSUES-->" if has_issues else "<!--AUTOFIX:CLEAN-->"
+
     with open("review_output.md", "w", encoding="utf-8") as f:
         f.write(review)
-    print("Review generated successfully")
+        f.write(f"\n\n{marker}\n")
+    print(f"Review generated successfully (marker: {marker})")
 except urllib.error.HTTPError as e:
     print(f"HTTP Error: {e.code} {e.reason}")
     body = e.read().decode("utf-8")

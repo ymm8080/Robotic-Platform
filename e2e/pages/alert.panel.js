@@ -18,15 +18,16 @@ class AlertPanel {
   }
 
   async filterBy(level) {
-    const button =
-      level === 'ALL'
-        ? this.filterAll
-        : level === 'P0'
-        ? this.filterP0
-        : level === 'P1'
-        ? this.filterP1
-        : this.filterP2;
-    await button.click();
+    const filterMap = {
+      ALL: this.filterAll,
+      P0: this.filterP0,
+      P1: this.filterP1,
+      P2: this.filterP2,
+    };
+    const button = filterMap[level];
+    if (button) {
+      await button.click();
+    }
   }
 
   async acknowledgeFirstAlert() {
