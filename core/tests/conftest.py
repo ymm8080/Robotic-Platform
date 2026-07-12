@@ -26,6 +26,8 @@ def _patched_init(self, *args, **kwargs):
     DEMO mode skips the PRODUCTION-only WORM disk writability check.
     Tests that explicitly pass mode='PRODUCTION' are not affected.
     """
+    # Only override when mode is not explicitly provided (keyword arg).
+    # CoreConfig does not accept mode as a positional arg, so this is safe.
     if "mode" not in kwargs:
         kwargs["mode"] = "DEMO"
     _original_init(self, *args, **kwargs)

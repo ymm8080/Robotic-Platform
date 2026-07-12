@@ -234,6 +234,7 @@ class FleetSimulator:
             lane_map.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
             lane_map.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
             # battery=19.9: below the 20% force_lock_threshold to trigger automatic charger dispatch.
+            # 5 robots vs 2 charger bays: intentional stress test for charger reservation logic.
             for i in range(1, 6):
                 rid = f"R-{i:03d}"
                 self.add_robot(rid, "L_A_B", battery=19.9, config=RobotConfig(max_speed=0.5))
@@ -252,8 +253,10 @@ class FleetSimulator:
         elif name == "safe_distance":
             lane_map.add_lane(Lane("L_A_B", "A", "B", length=50.0, max_speed=2.0))
             lane_map.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=2.0))
-            self.add_robot("R-001", "L_A_B", config=RobotConfig(max_speed=1.0))
-            self.add_robot("R-002", "L_A_B", config=RobotConfig(max_speed=0.5))
+            # R-002 is faster and starts behind R-001, creating a following scenario
+            # where the coordinator must cap R-002 speed to maintain safe distance.
+            self.add_robot("R-001", "L_A_B", config=RobotConfig(max_speed=0.5))
+            self.add_robot("R-002", "L_A_B", config=RobotConfig(max_speed=1.0))
             robot_ids.extend(["R-001", "R-002"])
         else:
             raise ValueError(
