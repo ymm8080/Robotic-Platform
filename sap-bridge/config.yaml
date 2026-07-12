@@ -137,6 +137,31 @@ sap:
       # rate_limit: 60
       # plant: ""
       # storage_location: ""
+  # ── ZEWM ROBCO Custom OData Service ─────────────────────────────────
+  # Robot-specific warehouse order operations (assignment, confirmation,
+  # status management).  Requires ABAP transport from SAP/ewm-cloud-robotics.
+  zewm_robco:
+    enabled: false  # set to true when ABAP side is installed and tested
+    base_url: "https://sap-host.example.com:443"
+    client: "100"
+    odata_service: "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
+    auth_mode: "basic"       # basic | oauth2
+    user: "ROBCO_USER"
+    password_file: "/run/secrets/sap_password"
+    rate_limit: 80           # requests per minute
+    connection_timeout: 30   # seconds (httpx connect/read timeout)
+    redis_url: "${REDIS_URL:-redis://redis:6379/0}"
+    # ── Two-step confirmation retry ──
+    confirm_retry_max: 5            # max retries for step-2 confirmation
+    confirm_retry_backoff_base: 1   # seconds (exponential: 1, 2, 4, 8, 16)
+    confirm_retry_backoff_cap: 30   # seconds cap on backoff
+    # ── OAuth2 mode (uncomment for S/4HANA) ──
+    # auth_mode: oauth2
+    # oauth2:
+    #   token_url: "https://sap-s4hana:44300/sap/bc/sec/oauth2/token"
+    #   client_id: "ZEWM_ROBCO_CLIENT"
+    #   client_secret_file: "/run/secrets/sap_oauth_client_secret"
+    #   scope: "ZEWM_ROBCO_SRV_0001"
 
   default_warehouse: "WM01"
   rate_limit_per_minute: 80
