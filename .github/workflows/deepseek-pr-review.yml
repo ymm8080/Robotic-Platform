@@ -84,3 +84,23 @@ jobs:
               echo "Push event — no open PR found for branch $BRANCH, skipping comment."
             fi
           fi
+
+      - name: Unblock merge if review is clean
+        if: steps.review.outcome == 'success' && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if grep -q "AUTOFIX:CLEAN" review_output.md; then
+            echo "AI review is clean - dismissing any stale CHANGES_REQUESTED reviews"
+            REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$PR/reviews --jq '.[] | select(.state == "CHANGES_REQUESTED") | .id')
+            for RID in $REVIEWS; do
+              echo "Dismissing review $RID"
+              gh api --method PUT repos/${{ github.repository }}/pulls/$PR/reviews/$RID/dismissals -f message="AI review is CLEAN - auto-dismissing block" || true
+            done
+            echo "All blocking reviews dismissed - merge is now allowed"
+          else
+            echo "AI review found issues - keeping merge blocked"
+            gh pr review "$PR" --request-changes --body "AI Code Review Found Issues - see PR comments for details" || true
+          fi

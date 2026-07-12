@@ -7,13 +7,14 @@ import logging
 import random
 import signal
 import sys
+import threading
 import time
 
 from core.platform.fixed_lane_map import FixedLaneMap
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
-from traffic_coordinator_v5.simulator.robot import RobotConfig
+from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,9 @@ def run(argv: list[str] | None = None) -> int:
         level=level,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
+
+    if args.scenario:
+        return _run_scenario(args)
 
     lane_graph = LaneGraph.from_yaml(args.map)
     if not lane_graph.all_lanes():

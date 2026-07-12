@@ -25,7 +25,9 @@ MQTT topics:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import logging
 import os
 import pathlib
 import re
@@ -45,6 +47,8 @@ from core.orders import Order
 from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
+
+_logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
@@ -170,13 +174,16 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
+    _snap_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="snapshot",
+    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+                _snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
                 _logger.warning("[snapshot] submit failed: %s", exc)
@@ -184,7 +191,7 @@ def _background_tick(stop_event: threading.Event) -> None:
     _snap_executor.shutdown(wait=True)
 
 
-def _save_snapshot(snapshot_data) -> None:
+def _save_snapshot(snapshot_data: dict) -> None:
     """Save snapshot in background thread to avoid blocking tick loop."""
     try:
         STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
