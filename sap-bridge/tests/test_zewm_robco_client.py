@@ -123,6 +123,7 @@ class TestImports:
     def test_exception_base(self):
         from clients.zewm_robco_exceptions import (
             RobcoError,
+            raise_for_error_code,
         )
         assert issubclass(RobcoError, Exception)
         assert callable(raise_for_error_code)
