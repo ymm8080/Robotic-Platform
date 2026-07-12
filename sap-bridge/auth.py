@@ -158,3 +158,4 @@ class OAuth2TokenManager:
         if self._redis:
             with contextlib.suppress(Exception):
                 self._redis.close()
+# EOF
