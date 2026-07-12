@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 
+from core.platform.fixed_lane_map import FixedLaneMap
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
@@ -198,8 +199,6 @@ def _run_scenario(args: argparse.Namespace) -> int:
     logger.info("Running scenario: %s (duration=%.1fs)", args.scenario, args.duration)
 
     # Build an empty lane graph that ``load_scenario()`` will populate.
-    from core.platform.fixed_lane_map import FixedLaneMap
-
     lane_graph = LaneGraph(FixedLaneMap())
 
     mqtt_client: MqttVDAClient | None = None

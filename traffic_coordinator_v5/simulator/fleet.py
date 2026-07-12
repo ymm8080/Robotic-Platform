@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 
+from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
 from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
@@ -207,8 +208,6 @@ class FleetSimulator:
         - ``"deadlock"``: 2 robots facing each other on a corridor
         - ``"safe_distance"``: 2 following robots exercising SPEED_CAP
         """
-        from core.platform.fixed_lane_map import FixedLaneMap, Lane
-
         robot_ids: list[str] = []
         fmap = self.lane_graph._fmap
         if name == "intersection":
@@ -273,8 +272,6 @@ class FleetSimulator:
           - ``"deadlock"``      — 2 robots facing each other on a single lane
           - ``"safe_distance"`` — 2 robots following each other on a linear path
         """
-        from core.platform.fixed_lane_map import FixedLaneMap, Lane
-
         fmap = FixedLaneMap()
 
         if name == "intersection":
