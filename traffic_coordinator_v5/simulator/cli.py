@@ -175,8 +175,6 @@ def run(argv: list[str] | None = None) -> int:
         while not shutdown_event.is_set():
             shutdown_event.wait(0.1)
             if args.fault_prob > 0:
-                import random
-
                 for rid in fleet.robot_ids:
                     robot = fleet.get_robot(rid)
                     if robot is None:
