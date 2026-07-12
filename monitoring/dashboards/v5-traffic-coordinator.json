@@ -26,7 +26,7 @@
   "title": "V5 Traffic Coordinator",
   "uid": "v5-traffic-coordinator",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "tags": ["v5", "traffic-coordinator", "ewm-robot"],
   "time": { "from": "now-1h", "to": "now" },
   "refresh": "5s",
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "id": 4,
+      "id": 2,
       "title": "Deadlock Events",
       "type": "stat",
       "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
@@ -115,7 +115,7 @@
       ]
     },
     {
-      "id": 2,
+      "id": 3,
       "title": "Robot States",
       "type": "bargauge",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
@@ -138,25 +138,25 @@
           {
             "matcher": { "id": "byName", "options": "ERROR" },
             "properties": [
-              { "id": "color", "value": { "fixed": "red" } }
+              { "id": "color", "value": { "fixedColor": "red" } }
             ]
           },
           {
             "matcher": { "id": "byName", "options": "DEGRADED" },
             "properties": [
-              { "id": "color", "value": { "fixed": "orange" } }
+              { "id": "color", "value": { "fixedColor": "orange" } }
             ]
           },
           {
             "matcher": { "id": "byName", "options": "IDLE" },
             "properties": [
-              { "id": "color", "value": { "fixed": "green" } }
+              { "id": "color", "value": { "fixedColor": "green" } }
             ]
           },
           {
             "matcher": { "id": "byName", "options": "CHARGING" },
             "properties": [
-              { "id": "color", "value": { "fixed": "purple" } }
+              { "id": "color", "value": { "fixedColor": "purple" } }
             ]
           }
         ]
@@ -181,7 +181,7 @@
       ]
     },
     {
-      "id": 3,
+      "id": 4,
       "title": "Intersection Queue",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
@@ -266,7 +266,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(traffic_coordinator_speed_cap[5m])",
+          "expr": "rate(traffic_coordinator_speed_caps[5m])",
           "legendFormat": "Speed Caps",
           "editorMode": "code"
         }
