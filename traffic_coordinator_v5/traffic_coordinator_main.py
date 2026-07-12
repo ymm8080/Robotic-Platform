@@ -52,12 +52,14 @@ _logger = logging.getLogger(__name__)
 MODE = os.environ.get("MODE", "PRODUCTION")
 
 # Configure root logger so _logger.info() calls produce output.
-# Without this, only WARNING+ messages are emitted (via lastResort handler).
+# Guard ensures idempotency: basicConfig is a no-op if handlers already exist,
+# but we check explicitly to avoid overriding level set by another module.
 _LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "INFO" if MODE != "PRODUCTION" else "WARNING")
-logging.basicConfig(
-    level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
 
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
