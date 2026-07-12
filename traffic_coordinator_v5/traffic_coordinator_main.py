@@ -170,13 +170,16 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
+    _snap_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="snapshot",
+    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+                _snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
                 _logger.warning("[snapshot] submit failed: %s", exc)
