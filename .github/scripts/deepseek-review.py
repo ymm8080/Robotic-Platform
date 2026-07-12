@@ -78,7 +78,7 @@ try:
         "逻辑错误", "性能问题", "critical", "严重",
         "错误", "缺陷", "漏洞", "risk", "danger",
     ]
-    has_issues = any(kw in review.lower() for kw in [k.lower() for k in issue_keywords])
+    has_issues = any(kw in review.lower() for kw in issue_keywords)
     marker = "<!--AUTOFIX:HAS_ISSUES-->" if has_issues else "<!--AUTOFIX:CLEAN-->"
 
     with open("review_output.md", "w", encoding="utf-8") as f:

@@ -30,7 +30,7 @@ jobs:
           ### What happens next:
           1. The **DeepSeek AI Review** workflow is running…
           2. If the review passes cleanly → the block is **auto-dismissed** and the merge button becomes available
-          3. If issues are found → the block remains with details in the [AI review comment](${{ github.server_url }}/${{ github.repository }}/pull/$PR#issuecomment-new)
+          3. If issues are found → the block remains with details in the [AI review comment](${{ github.server_url }}/${{ github.repository }}/pull/$PR)
 
           ### Manual override
           A maintainer with write access can dismiss this review and approve manually if needed.
