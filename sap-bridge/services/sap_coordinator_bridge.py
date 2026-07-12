@@ -64,7 +64,7 @@ class CoordinatorState:
     pending_tasks: int = 0
 
     @classmethod
-    def from_api(cls, data: dict | None) -> "CoordinatorState":
+    def from_api(cls, data: dict | None) -> CoordinatorState:
         """Parse a raw API response dict into a typed object.
 
         Falls back gracefully: if the ``assignments`` field is missing,
