@@ -983,14 +983,18 @@ class ZewmRobcoClient:
                 )
 
         base_url = config.get("base_url", "")
-        if not base_url or base_url == DEFAULT_BASE_URL:
-            errors.append(
-                f"base_url may be default ({DEFAULT_BASE_URL}) — check config",
+        if not base_url:
+            errors.append("base_url is not configured")
+        elif base_url == DEFAULT_BASE_URL:
+            logger.info(
+                "base_url may be default (%s) — verify config", DEFAULT_BASE_URL,
             )
 
         client_val = config.get("client", "")
-        if not client_val or client_val == "100":
-            errors.append("SAP client may be default (100) — verify tenant")
+        if not client_val:
+            errors.append("SAP client is not configured")
+        elif client_val == "100":
+            logger.info("SAP client may be default (100) — verify tenant")
 
         return errors
 
