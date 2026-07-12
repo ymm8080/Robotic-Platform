@@ -1,0 +1,388 @@
+# =============================================================================
+# Loop Fix Manager — SEPARATE from the existing auto-fix.yml
+#
+# This workflow is dedicated to detecting and fixing loop-related code issues.
+# It does NOT overlap with auto-fix.yml (which fixes CI failures) or
+# deepseek-pr-review.yml (which posts AI review comments).
+#
+# TRIGGER:
+#   1. push to any feature/fix/auto branch (not main/master)
+#   2. pull_request opened/synchronized on main
+#   3. schedule — nightly scan at 02:00 UTC
+#
+# FLOW:
+#   push ──► scan ──► fix ──► commit & push to SAME branch
+#   PR   ──► scan ──► post review comment with findings
+#   cron ──► scan ──► create fix PR if issues found
+#
+# LOOP PREVENTION:
+#   Commit messages tagged [loop-fixer] are detected.
+#   If the last 3 commits are all [loop-fixer], the workflow stops
+#   to prevent infinite fix loops.
+# =============================================================================
+name: Loop Fix Manager
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+      - 'fix/**'
+      - 'auto/**'
+      - 'develop'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+      - '00_inbox/**'
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  schedule:
+    - cron: "0 2 * * *"  # Nightly at 02:00 UTC
+
+concurrency:
+  group: loop-fix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  MAX_LOOP_FIX_COMMITS: "3"
+
+jobs:
+  # ===========================================================================
+  # JOB 1: Detect & Fix on Push (commits fixes to the same branch)
+  # ===========================================================================
+  fix-on-push:
+    name: Auto-Fix Loops (Push)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10  # Need history for loop-prevention check
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # ── Loop Prevention: check if we're in an infinite fix loop ───────
+      - name: Check for fix loop
+        id: loop-check
+        run: |
+          # Count consecutive [loop-fixer] commits
+          LOOP_COUNT=0
+          for i in $(seq 1 ${{ env.MAX_LOOP_FIX_COMMITS }}); do
+            MSG=$(git log -${i} --pretty=%B 2>/dev/null | head -1)
+            if echo "$MSG" | grep -q "\[loop-fixer\]"; then
+              LOOP_COUNT=$((LOOP_COUNT + 1))
+            else
+              break
+            fi
+          done
+
+          echo "loop_count=$LOOP_COUNT" >> $GITHUB_OUTPUT
+          echo "max=${{ env.MAX_LOOP_FIX_COMMITS }}" >> $GITHUB_OUTPUT
+
+          if [ "$LOOP_COUNT" -ge "${{ env.MAX_LOOP_FIX_COMMITS }}" ]; then
+            echo "stop=true" >> $GITHUB_OUTPUT
+            echo "⛔ Loop prevention: last $LOOP_COUNT commits were all [loop-fixer]. Stopping."
+          else
+            echo "stop=false" >> $GITHUB_OUTPUT
+            echo "✅ Loop check passed ($LOOP_COUNT/${{ env.MAX_LOOP_FIX_COMMITS }} consecutive fix commits)"
+          fi
+
+      # ── Skip protected branches ───────────────────────────────────────
+      - name: Check branch protection
+        id: branch-check
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Skipping loop fix on protected branch: $BRANCH"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Run the loop fixer ────────────────────────────────────────────
+      - name: Run Loop Fixer
+        id: fixer
+        if: |
+          steps.loop-check.outputs.stop != 'true' &&
+          steps.branch-check.outputs.skip != 'true'
+        run: |
+          echo "🔍 Running loop fixer in CI mode..."
+          python scripts/loop_fixer.py \
+            --fix \
+            --ci \
+            --format markdown \
+            --output loop-fix-report.md \
+            core/ \
+            sap-bridge/ \
+            scripts/ \
+            traffic_coordinator_v5/
+
+          # Capture exit code
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Check if any files were changed
+          if git diff --quiet; then
+            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  No changes applied"
+          else
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "🔧 Changes detected"
+          fi
+
+          # Show report
+          if [ -f loop-fix-report.md ]; then
+            echo "=== Loop Fix Report ==="
+            cat loop-fix-report.md
+          fi
+
+      # ── Commit and push fixes ─────────────────────────────────────────
+      - name: Commit and push fixes
+        if: |
+          steps.fixer.outputs.changes == 'true' &&
+          steps.loop-check.outputs.stop != 'true'
+        run: |
+          git config user.name "Loop Fixer Bot"
+          git config user.email "loop-fixer[bot]@users.noreply.github.com"
+
+          git add -A
+
+          # Check staged changes
+          if git diff --staged --quiet; then
+            echo "ℹ️  No staged changes — skipping commit"
+            exit 0
+          fi
+
+          # Build commit message with loop counter
+          LOOP_COUNT=${{ steps.loop-check.outputs.loop_count }}
+          NEXT_LOOP=$((LOOP_COUNT + 1))
+          MAX_LOOP=${{ env.MAX_LOOP_FIX_COMMITS }}
+
+          # Use the report as commit body
+          BODY=""
+          if [ -f .loop-fixer-summary.md ]; then
+            BODY=$(cat .loop-fixer-summary.md)
+          fi
+
+          git commit -m "fix: loop issues [loop-fixer ${NEXT_LOOP}/${MAX_LOOP}]
+
+          ${BODY}
+
+          Automated fix by scripts/loop_fixer.py
+          [loop-fixer]"
+
+          git push
+
+          echo "✅ Pushed loop fix commit (${NEXT_LOOP}/${MAX_LOOP})"
+
+      # ── Comment on PR if one exists for this branch ───────────────────
+      - name: Comment on associated PR
+        if: always() && steps.fixer.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ github.ref_name }}"
+
+          # Find PR for this branch
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            echo "ℹ️  No PR found for branch $BRANCH — skipping comment"
+            exit 0
+          fi
+
+          if [ -f loop-fix-report.md ]; then
+            {
+              echo "## 🔁 Loop Fix Manager Report"
+              echo ""
+              echo "**Branch:** \`$BRANCH\`"
+              echo "**Commit:** ${{ github.sha }}"
+              echo ""
+              cat loop-fix-report.md
+              echo ""
+              echo "---"
+              echo "*Automated by Loop Fix Manager workflow • [loop-fixer]*"
+            } > /tmp/loop-fix-comment.md
+
+            gh pr comment "$PR_NUMBER" --body-file /tmp/loop-fix-comment.md
+            echo "✅ Posted comment on PR #$PR_NUMBER"
+          else
+            echo "ℹ️  No report file found — skipping comment"
+          fi
+
+      # ── Alert if loop prevention triggered ────────────────────────────
+      - name: Alert — loop prevention triggered
+        if: steps.loop-check.outputs.stop == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            gh pr comment "$PR_NUMBER" --body "## ⚠️ Loop Fix Manager — Loop Prevention Triggered
+
+          The last **${{ env.MAX_LOOP_FIX_COMMITS }}** commits on this branch were all automated loop fixes.
+          The Loop Fix Manager has stopped to prevent an infinite fix loop.
+
+          **Action needed:** Please review the recent changes manually and push a non-automated commit to reset the loop counter.
+
+          ---
+          *Automated by Loop Fix Manager workflow*"
+          fi
+
+          echo "::warning::Loop prevention triggered — ${{ env.MAX_LOOP_FIX_COMMITS }} consecutive fix commits detected"
+
+  # ===========================================================================
+  # JOB 2: Scan & Comment on PR (does NOT commit — just reports)
+  # ===========================================================================
+  scan-on-pr:
+    name: Scan Loops (PR Review)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Scan for loop issues
+        id: scan
+        run: |
+          python scripts/loop_fixer.py \
+            --scan \
+            --format markdown \
+            --output loop-scan-report.md \
+            core/ \
+            sap-bridge/ \
+            scripts/ \
+            traffic_coordinator_v5/
+
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [ -f loop-scan-report.md ]; then
+            echo "=== Loop Scan Report ==="
+            cat loop-scan-report.md
+          fi
+
+          # Check if there are any issues
+          if grep -q "Total issues:.*[1-9]" loop-scan-report.md 2>/dev/null; then
+            echo "has_issues=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_issues=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post review comment
+        if: always() && steps.scan.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f loop-scan-report.md ]; then
+            echo "ℹ️  No report file found — skipping comment"
+            exit 0
+          fi
+
+          {
+            echo "## 🔁 Loop Fixer — PR Scan"
+            echo ""
+            echo "**PR:** #${{ github.event.pull_request.number }}"
+            echo "**Commit:** ${{ github.event.pull_request.head.sha }}"
+            echo ""
+            cat loop-scan-report.md
+            echo ""
+            echo "---"
+            echo "*Automated by Loop Fix Manager workflow • Scan-only mode (no changes made)*"
+          } > /tmp/loop-scan-comment.md
+
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/loop-scan-comment.md
+          echo "✅ Posted scan comment on PR #${{ github.event.pull_request.number }}"
+
+  # ===========================================================================
+  # JOB 3: Nightly Scan & Auto-PR (creates a new fix PR from schedule)
+  # ===========================================================================
+  nightly-fix-pr:
+    name: Nightly Loop Fix PR
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Configure git
+        run: |
+          git config user.name "Loop Fixer Bot"
+          git config user.email "loop-fixer[bot]@users.noreply.github.com"
+
+      - name: Run Loop Fixer with auto-PR
+        id: fixer
+        run: |
+          python scripts/loop_fixer.py \
+            --auto-pr \
+            --ci \
+            --format markdown \
+            --output loop-nightly-report.md \
+            --base-branch main \
+            core/ \
+            sap-bridge/ \
+            scripts/ \
+            traffic_coordinator_v5/
+
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [ -f loop-nightly-report.md ]; then
+            echo "=== Nightly Loop Fix Report ==="
+            cat loop-nightly-report.md
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "============================================"
+          echo "  Loop Fix Manager — Nightly Summary"
+          echo "============================================"
+          echo "Exit code: ${{ steps.fixer.outputs.exit_code }}"
+          echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          if [ -f .loop-fixer-report.json ]; then
+            echo ""
+            echo "JSON Report:"
+            cat .loop-fixer-report.json
+          fi
+          echo "============================================"

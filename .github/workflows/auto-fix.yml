@@ -1,0 +1,232 @@
+# =============================================================================
+# Auto-Fix CI — Self-Healing Pipeline
+#
+# 当 CI 或 v5.0 Core CI 失败时自动触发:
+#   1. 收集错误日志 (ruff, pytest, syntax check)
+#   2. 发送给 DeepSeek API 分析并生成修复
+#   3. 应用修复, 本地验证
+#   4. 提交并推送修复 commit
+#   5. 新 commit 触发 CI → 如果仍然失败, 循环继续 (最多 3 次)
+#
+# 循环防护: commit message 中编码重试次数 [auto-fix attempt N/3]
+# 安全措施: 跳过 main/master 分支, 仅修复 feature 分支
+# =============================================================================
+name: Auto-Fix CI
+
+on:
+  workflow_run:
+    workflows: ["CI", "v5.0 Core CI"]
+    types: [completed]
+
+# 防止多个 auto-fix 同时运行同一分支
+concurrency:
+  group: auto-fix-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+  MAX_RETRIES: "3"
+
+jobs:
+  auto-fix:
+    name: AI Auto-Fix
+    runs-on: ubuntu-latest
+    # 仅当上游 CI 失败时触发
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    steps:
+      # ── 1. 检出失败分支的代码 ──────────────────────────────────────
+      - name: Checkout failed branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Resolve branch name
+        id: branch
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Branch: $BRANCH"
+
+      # ── 2. 安全检查: 跳过 main/master ─────────────────────────────
+      - name: Skip protected branches
+        id: skip-check
+        run: |
+          BRANCH="${{ steps.branch.outputs.name }}"
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Skipping auto-fix on protected branch: $BRANCH"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── 3. 检查重试次数 ──────────────────────────────────────────
+      - name: Check retry count
+        id: retry
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Last commit message:"
+          echo "$LAST_COMMIT_MSG"
+          echo "---"
+
+          # 检查是否已经是 auto-fix commit
+          if echo "$LAST_COMMIT_MSG" | grep -qP "auto-fix attempt \d+/\d+"; then
+            CURRENT=$(echo "$LAST_COMMIT_MSG" | grep -oP "auto-fix attempt \K\d+" | head -1)
+            MAX=$(echo "$LAST_COMMIT_MSG" | grep -oP "auto-fix attempt \d+/\K\d+" | head -1)
+            echo "current=$CURRENT" >> $GITHUB_OUTPUT
+            echo "max=$MAX" >> $GITHUB_OUTPUT
+
+            if [ "$CURRENT" -ge "$MAX" ]; then
+              echo "max_reached=true" >> $GITHUB_OUTPUT
+              echo "⛔ Max retry attempts ($CURRENT/$MAX) reached. Stopping auto-fix loop."
+            else
+              echo "max_reached=false" >> $GITHUB_OUTPUT
+              NEXT=$((CURRENT + 1))
+              echo "next=$NEXT" >> $GITHUB_OUTPUT
+              echo "🔄 Auto-fix retry $NEXT/$MAX"
+            fi
+          else
+            echo "current=0" >> $GITHUB_OUTPUT
+            echo "max=${MAX_RETRIES}" >> $GITHUB_OUTPUT
+            echo "next=1" >> $GITHUB_OUTPUT
+            echo "max_reached=false" >> $GITHUB_OUTPUT
+            echo "🔄 First auto-fix attempt (1/${MAX_RETRIES})"
+          fi
+
+      # ── 4. 设置环境 ──────────────────────────────────────────────
+      - name: Setup Python
+        if: steps.skip-check.outputs.skip != 'true' && steps.retry.outputs.max_reached != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        if: steps.skip-check.outputs.skip != 'true' && steps.retry.outputs.max_reached != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest pytest-asyncio pytest-cov
+          # 安装项目依赖 (忽略 pyrfc 等需要 SAP SDK 的包)
+          pip install -r sap-bridge/requirements-base.txt 2>/dev/null || true
+
+      # ── 5. 核心: AI 自动修复 ─────────────────────────────────────
+      - name: Run AI auto-fix
+        id: fix
+        if: steps.skip-check.outputs.skip != 'true' && steps.retry.outputs.max_reached != 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_BRANCH: ${{ steps.branch.outputs.name }}
+          RETRY_CURRENT: ${{ steps.retry.outputs.current }}
+          RETRY_MAX: ${{ steps.retry.outputs.max }}
+        run: |
+          echo "=== Running AI Auto-Fix ==="
+          python .github/scripts/ai_auto_fix.py
+
+          # 检查是否有修复被应用
+          if [ -f .auto-fix-summary.txt ]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "=== Auto-Fix Summary ==="
+            cat .auto-fix-summary.txt
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "No fixes could be applied"
+          fi
+
+      # ── 6. 提交并推送修复 ────────────────────────────────────────
+      - name: Commit and push fixes
+        if: steps.fix.outputs.changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="${{ steps.branch.outputs.name }}"
+          NEXT="${{ steps.retry.outputs.next }}"
+          MAX="${{ steps.retry.outputs.max }}"
+
+          # 切换到目标分支
+          git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH"
+
+          # 暂存所有变更
+          git add -A
+
+          # 检查是否有实际变更
+          if git diff --staged --quiet; then
+            echo "No actual changes to commit (files already fixed)"
+            exit 0
+          fi
+
+          # 生成 commit message (编码重试次数用于循环防护)
+          SUMMARY=$(cat .auto-fix-summary.txt 2>/dev/null || echo "Automated fix")
+          
+          git commit -m "fix: auto-fix attempt ${NEXT}/${MAX}
+
+          ${SUMMARY}
+
+          Triggered by CI failure on ${BRANCH}.
+          Automated fix by DeepSeek AI.
+
+          [auto-fix attempt ${NEXT}/${MAX}]"
+
+          # 推送到目标分支
+          git push origin "$BRANCH"
+
+          echo "✅ Pushed auto-fix commit to $BRANCH"
+          echo "   CI will re-run automatically. If it fails again,"
+          echo "   auto-fix will trigger again (attempt $((NEXT+1))/${MAX})."
+
+      # ── 7. 在 PR 上评论 (如果有关联的 PR) ─────────────────────────
+      - name: Comment on PR if exists
+        if: steps.fix.outputs.changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.name }}"
+          NEXT="${{ steps.retry.outputs.next }}"
+          MAX="${{ steps.retry.outputs.max }}"
+
+          # 查找关联此分支的 PR
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            {
+              echo "## 🤖 Auto-Fix Applied (Attempt ${NEXT}/${MAX})"
+              echo ""
+              cat .auto-fix-summary.txt 2>/dev/null || echo "Automated fix applied"
+              echo ""
+              echo "---"
+              echo "*CI failed → DeepSeek AI analyzed errors → fixes pushed → CI will re-run.*"
+              if [ "$NEXT" -ge "$MAX" ]; then
+                echo ""
+                echo "⚠️ **This was the last auto-fix attempt.** If CI still fails, manual intervention is needed."
+              fi
+            } > /tmp/auto-fix-comment.md
+
+            gh pr comment "$PR_NUMBER" --body-file /tmp/auto-fix-comment.md
+            echo "Posted comment on PR #$PR_NUMBER"
+          else
+            echo "No PR found for branch $BRANCH — skipping comment"
+          fi
+
+      # ── 8. 最终报告 ──────────────────────────────────────────────
+      - name: Summary
+        if: always()
+        run: |
+          echo "============================================"
+          echo "  Auto-Fix CI Summary"
+          echo "============================================"
+          echo "Branch:       ${{ steps.branch.outputs.name }}"
+          echo "Skip (main):  ${{ steps.skip-check.outputs.skip }}"
+          echo "Max reached:  ${{ steps.retry.outputs.max_reached }}"
+          echo "Changes made: ${{ steps.fix.outputs.changes }}"
+          echo "Retry:        ${{ steps.retry.outputs.next }}/${{ steps.retry.outputs.max }}"
+          echo "============================================"
