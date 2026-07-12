@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 
+from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
 from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
@@ -210,6 +211,73 @@ class FleetSimulator:
             self._route_order = on_order
         if on_instant_actions is not None:
             self._route_instant_actions = on_instant_actions
+
+    def load_scenario(self, name: str) -> list[str]:
+        """Load a named scenario configuration and return created robot IDs.
+
+        :param name: Scenario name. One of: intersection, charger, fault,
+                     deadlock, safe_distance.
+        :returns: List of created robot IDs.
+        :raises RuntimeError: If called on a fleet that already has robots or a lane graph that already has lanes (prevents accidental double-loading).
+        :raises ValueError: If *name* is not a recognised scenario.
+
+        Supported scenarios:
+        - ``"intersection"``: 3 robots converging at X1, exercise traffic light gating
+        - ``"charger"``: 5 low-battery robots competing for 2 charger bays
+        - ``"fault"``: 1 robot that gets an injected error mid-task
+        - ``"deadlock"``: 2 robots facing each other on a corridor
+        - ``"safe_distance"``: 2 following robots exercising SPEED_CAP
+        """
+        if self._robots or len(self.lane_graph.all_lanes()) > 0:
+            raise RuntimeError("load_scenario() called on a non-empty fleet or non-empty map; create a new FleetSimulator instead")
+        robot_ids: list[str] = []
+        lane_map = self.lane_graph.fmap
+        if name == "intersection":
+            # Different lengths simulate robots arriving from varying distances.
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
+            lane_map.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
+            lane_map.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
+            lane_map.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
+            for rid, lane in [("R-001", "L_A_B"), ("R-002", "L_X_B"), ("R-003", "L_Y_B")]:
+                self.add_robot(rid, lane)
+                robot_ids.append(rid)
+        elif name == "charger":
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
+            lane_map.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
+            # battery=19.9: below the 20% force_lock_threshold to trigger automatic charger dispatch.
+            # 5 robots vs 2 charger bays: intentional stress test for charger reservation logic.
+            for i in range(1, 6):
+                rid = f"R-{i:03d}"
+                self.add_robot(rid, "L_A_B", battery=19.9, config=RobotConfig(max_speed=0.5))
+                robot_ids.append(rid)
+        elif name == "fault":
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
+            self.add_robot("R-001", "L_A_B")
+            robot_ids.append("R-001")
+        elif name == "deadlock":
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
+            lane_map.add_lane(Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
+            self.add_robot("R-001", "L_A_B")
+            self.add_robot("R-002", "L_B_A")
+            robot_ids.extend(["R-001", "R-002"])
+        elif name == "safe_distance":
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=50.0, max_speed=2.0))
+            lane_map.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=2.0))
+            # R-002 is faster and starts behind R-001, creating a following scenario
+            # where the coordinator must cap R-002 speed to maintain safe distance.
+            self.add_robot("R-001", "L_A_B", config=RobotConfig(max_speed=0.5))
+            self.add_robot("R-002", "L_A_B", config=RobotConfig(max_speed=1.0))
+            robot_ids.extend(["R-001", "R-002"])
+        else:
+            raise ValueError(
+                f"Unknown scenario: {name}. "
+                "Available: intersection, charger, fault, deadlock, safe_distance"
+            )
+        return robot_ids
 
     @property
     def robot_ids(self) -> list[str]:
