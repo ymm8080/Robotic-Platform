@@ -208,6 +208,8 @@ class FleetSimulator:
         - ``"deadlock"``: 2 robots facing each other on a corridor
         - ``"safe_distance"``: 2 following robots exercising SPEED_CAP
         """
+        if self._robots:
+            raise RuntimeError("load_scenario() called on a non-empty fleet; create a new FleetSimulator instead")
         robot_ids: list[str] = []
         fmap = self.lane_graph.fmap
         if name == "intersection":
@@ -225,10 +227,10 @@ class FleetSimulator:
             fmap.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
             fmap.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
             fmap.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
-            # battery=21.0: just above the 20% low-battery threshold to trigger charging demand.
+            # battery=19.9: below the 20% force_lock_threshold to trigger automatic charger dispatch.
             for i in range(1, 6):
                 rid = f"R-{i:03d}"
-                self.add_robot(rid, "L_A_B", battery=21.0, config=RobotConfig(max_speed=0.5))
+                self.add_robot(rid, "L_A_B", battery=19.9, config=RobotConfig(max_speed=0.5))
                 robot_ids.append(rid)
         elif name == "fault":
             fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))

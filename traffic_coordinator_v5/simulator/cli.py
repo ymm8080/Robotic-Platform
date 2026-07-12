@@ -282,7 +282,7 @@ def _assign_scenario_orders(fleet: FleetSimulator, scenario: str) -> None:
     elif scenario == "charger":
         for i in range(1, 6):
             rid = f"R-{i:03d}"
-            charger = "L_B_CHG1" if i % 2 == 1 else "L_B_CHG2"
+            charger = "L_B_CHG1" if (i - 1) % 2 == 0 else "L_B_CHG2"
             _assign_order(fleet.get_robot(rid), ["L_A_B", charger])
     elif scenario == "fault":
         _assign_order(fleet.get_robot("R-001"), ["L_A_B", "L_B_C"])
