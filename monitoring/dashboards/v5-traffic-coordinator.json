@@ -1,393 +1,359 @@
 {
-  "title": "v5 Traffic Coordinator",
-  "version": 0,
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    }
+  ],
+  "title": "V5 Traffic Coordinator",
   "uid": "v5-traffic-coordinator",
-  "description": "v5 Traffic Coordinator — robot health, throughput, deadlocks, WORM disk",
-  "tags": ["vda5050", "traffic-coordinator", "v5", "robots"],
-  "timezone": "browser",
   "schemaVersion": 39,
-  "editable": true,
-  "refresh": "10s",
+  "version": 2,
+  "tags": ["v5", "traffic-coordinator", "ewm-robot"],
   "time": { "from": "now-1h", "to": "now" },
-  "templating": {
-    "list": [
-      {
-        "name": "datasource",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": { "value": "Prometheus" }
-      }
-    ]
-  },
+  "refresh": "5s",
   "panels": [
     {
-      "title": "Robot Health",
-      "type": "table",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 8 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "tc_robot_online",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
-        },
-        {
-          "expr": "tc_robot_mode",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
-        },
-        {
-          "expr": "tc_robot_battery_percent",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
-        },
-        {
-          "expr": "tc_robot_speed",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Time 1": true,
-              "Time 2": true,
-              "Time 3": true,
-              "__name__": true,
-              "__name__ 1": true,
-              "__name__ 2": true,
-              "__name__ 3": true,
-              "instance": true,
-              "instance 1": true,
-              "instance 2": true,
-              "instance 3": true,
-              "job": true,
-              "job 1": true,
-              "job 2": true,
-              "job 3": true
-            },
-            "indexByName": {
-              "robot_id": 0,
-              "Value": 1,
-              "Value 1": 2,
-              "Value 2": 3,
-              "Value 3": 4
-            },
-            "renameByName": {
-              "robot_id": "Robot ID",
-              "Value": "Online",
-              "Value 1": "Mode",
-              "Value 2": "Battery %",
-              "Value 3": "Speed (m/s)"
-            }
-          }
-        }
-      ],
+      "id": 1,
+      "title": "Active Assignments",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "unit": "none",
+          "min": 0,
           "thresholds": {
+            "mode": "absolute",
             "steps": [
-              { "color": "green" }
+              { "color": "green" },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "traffic_coordinator_active_assignments",
+          "legendFormat": "Active",
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Deadlock Events",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green" },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "traffic_coordinator_deadlocks",
+          "legendFormat": "Deadlocks",
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Robot States",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue" },
+              { "color": "green", "value": 1 },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "ERROR" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DEGRADED" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "orange" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "IDLE" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "green" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "CHARGING" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "purple" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count by (mode) (traffic_coordinator_robot_mode)",
+          "legendFormat": "{{mode}}",
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Intersection Queue",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green" },
+              { "color": "yellow", "value": 3 },
+              { "color": "red", "value": 5 }
             ]
           },
           "custom": {
-            "displayMode": "color-text",
-            "align": "left"
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "showPoints": "never"
           }
         },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "Battery %" },
-            "properties": [
-              { "id": "unit", "value": "percent" },
-              { "id": "min", "value": 0 },
-              { "id": "max", "value": 100 },
-              {
-                "id": "thresholds",
-                "value": {
-                  "steps": [
-                    { "color": "red" },
-                    { "value": 25, "color": "yellow" },
-                    { "value": 50, "color": "green" }
-                  ]
-                }
-              },
-              {
-                "id": "custom.displayMode",
-                "value": "color-background"
-              }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Online" },
-            "properties": [
-              {
-                "id": "thresholds",
-                "value": {
-                  "steps": [
-                    { "color": "red" },
-                    { "value": 1, "color": "green" }
-                  ]
-                }
-              },
-              {
-                "id": "custom.displayMode",
-                "value": "color-background"
-              }
-            ]
-          }
-        ]
-      }
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "traffic_coordinator_intersection_queue",
+          "legendFormat": "{{intersection}}",
+          "editorMode": "code"
+        }
+      ]
     },
     {
-      "title": "TC Throughput",
+      "id": 5,
+      "title": "Safe Distance Holds",
       "type": "timeseries",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 8 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "rate(tc_tasks_allocated_total[5m])",
-          "legendFormat": "allocated/s"
-        },
-        {
-          "expr": "rate(tc_tasks_completed_total[5m])",
-          "legendFormat": "completed/s"
-        },
-        {
-          "expr": "tc_tasks_queue_depth",
-          "legendFormat": "queue depth"
-        }
-      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "cps",
           "min": 0,
-          "custom": { "showPoints": "never" },
-          "color": { "mode": "palette-classic" }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "queue depth" },
-            "properties": [
-              { "id": "unit", "value": "short" },
-              { "id": "custom.axisSide", "value": "right" }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "title": "End-to-End RTT",
-      "type": "gauge",
-      "gridPos": { "x": 0, "y": 8, "w": 4, "h": 6 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "tc_mqtt_rtt_ms",
-          "legendFormat": "RTT"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "min": 0,
-          "max": 500,
-          "color": { "mode": "thresholds" },
           "thresholds": {
+            "mode": "absolute",
             "steps": [
               { "color": "green" },
-              { "value": 50, "color": "yellow" },
-              { "value": 150, "color": "red" }
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 5 }
             ]
+          },
+          "custom": {
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "showPoints": "never"
           }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
-      }
-    },
-    {
-      "title": "Robot Speed + Battery Table",
-      "type": "table",
-      "gridPos": { "x": 4, "y": 8, "w": 4, "h": 6 },
-      "datasource": "Prometheus",
+      },
       "targets": [
         {
-          "expr": "tc_robot_speed",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
-        },
-        {
-          "expr": "tc_robot_battery_percent",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
-        },
-        {
-          "expr": "rate(tc_robot_battery_delta_total[5m])",
-          "legendFormat": "{{robot_id}}",
-          "format": "table",
-          "instant": true
+          "refId": "A",
+          "expr": "rate(traffic_coordinator_speed_caps[5m])",
+          "legendFormat": "Speed Caps",
+          "editorMode": "code"
         }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true, "Time 1": true, "Time 2": true,
-              "__name__": true, "__name__ 1": true, "__name__ 2": true,
-              "instance": true, "instance 1": true, "instance 2": true,
-              "job": true, "job 1": true, "job 2": true
-            },
-            "indexByName": {
-              "robot_id": 0,
-              "Value": 1,
-              "Value 1": 2,
-              "Value 2": 3
-            },
-            "renameByName": {
-              "robot_id": "Robot ID",
-              "Value": "Speed (m/s)",
-              "Value 1": "Battery %",
-              "Value 2": "Battery Trend"
-            }
-          }
-        }
-      ],
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Battery / Charger State",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": {
         "defaults": {
-          "custom": { "align": "left" }
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Battery %" },
+            "matcher": { "id": "byName", "options": "Value #A" },
             "properties": [
+              { "id": "displayName", "value": "Battery %" },
               { "id": "unit", "value": "percent" },
-              { "id": "min", "value": 0 },
-              { "id": "max", "value": 100 },
-              {
-                "id": "thresholds",
-                "value": {
-                  "steps": [
-                    { "color": "red" },
-                    { "value": 25, "color": "yellow" },
-                    { "value": 50, "color": "green" }
-                  ]
-                }
-              },
               { "id": "custom.displayMode", "value": "color-background" }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Battery Trend" },
+            "matcher": { "id": "byName", "options": "Value #B" },
             "properties": [
-              { "id": "unit", "value": "percent" },
+              { "id": "displayName", "value": "Charger Bay" },
+              { "id": "custom.displayMode", "value": "color-text" },
               {
-                "id": "thresholds",
-                "value": {
-                  "steps": [
-                    { "color": "red" },
-                    { "value": 0, "color": "green" }
-                  ]
-                }
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": { "text": "Free", "color": "green" },
+                      "1": { "text": "Occupied", "color": "red" }
+                    }
+                  }
+                ]
               }
             ]
           }
         ]
-      }
-    },
-    {
-      "title": "Deadlock / Conflict Events",
-      "type": "stat",
-      "gridPos": { "x": 8, "y": 8, "w": 4, "h": 6 },
-      "datasource": "Prometheus",
+      },
+      "options": {
+        "sortBy": [],
+        "footer": { "show": false },
+        "frameIndex": 0,
+        "showTypeIcons": false
+      },
       "targets": [
         {
-          "expr": "increase(tc_deadlocks_total[5m])",
-          "legendFormat": "deadlocks"
+          "refId": "A",
+          "expr": "traffic_coordinator_battery_percent",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{robot}}",
+          "editorMode": "code"
         },
         {
-          "expr": "increase(tc_collision_holds_total[5m])",
-          "legendFormat": "collision holds"
+          "refId": "B",
+          "expr": "traffic_coordinator_charger_occupancy",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{robot}}",
+          "editorMode": "code"
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "steps": [
-              { "color": "green" },
-              { "value": 1, "color": "yellow" },
-              { "value": 5, "color": "red" }
-            ]
-          },
-          "unit": "short",
-          "min": 0
-        }
-      }
-    },
-    {
-      "title": "WORM Write Status",
-      "type": "stat",
-      "gridPos": { "x": 0, "y": 14, "w": 4, "h": 6 },
-      "datasource": "Prometheus",
-      "targets": [
+      "transformations": [
         {
-          "expr": "rate(tc_worm_records_total[5m])",
-          "legendFormat": "WORM writes/s"
-        },
-        {
-          "expr": "tc_worm_disk_free_percent",
-          "legendFormat": "disk free %"
+          "id": "merge",
+          "options": {}
         }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "steps": [
-              { "color": "green" },
-              { "value": 20, "color": "yellow" },
-              { "value": 10, "color": "red" }
-            ]
-          },
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "disk free %" },
-            "properties": [
-              { "id": "unit", "value": "percent" },
-              {
-                "id": "thresholds",
-                "value": {
-                  "steps": [
-                    { "color": "green" },
-                    { "value": 30, "color": "yellow" },
-                    { "value": 20, "color": "red" }
-                  ]
-                }
-              }
-            ]
-          }
-        ]
-      }
+      ]
     }
   ]
 }
