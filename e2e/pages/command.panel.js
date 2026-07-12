@@ -22,8 +22,9 @@ class CommandPanel {
     return robotSection
       .getByRole('button', { name: new RegExp(`^${command}$`, 'i') })
       .or(
-        this.page.getByRole('button', { name: new RegExp(`^${command}$`, 'i') }).first()
-      );
+        this.page.getByRole('button', { name: new RegExp(`^${command}$`, 'i') })
+      )
+      .first();
   }
 
   async sendCommand(robotId, command) {

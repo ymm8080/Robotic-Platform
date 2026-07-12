@@ -44,7 +44,10 @@ def read_client_secret(secret_file: str) -> str:
     """Read OAuth2 client secret from Docker secret file."""
     try:
         with open(secret_file) as f:
-            return f.read().strip()
+            secret = f.read().strip()
+            if not secret:
+                raise ValueError(f"OAuth2 client secret file is empty: {secret_file}")
+            return secret
     except FileNotFoundError:
         logger.error("OAuth2 client secret file not found at configured path")
         raise
