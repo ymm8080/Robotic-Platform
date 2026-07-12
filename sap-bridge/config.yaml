@@ -145,22 +145,24 @@ sap:
     base_url: "https://sap-host.example.com:443"
     client: "100"
     odata_service: "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
-    auth_mode: "basic"       # basic | oauth2
-    user: "ROBCO_USER"
-    password_file: "/run/secrets/sap_password"
-    rate_limit: 80           # requests per minute
+    auth_mode: "basic"       # basic | oauth2 (change to "oauth2" when enabling OAuth2 below)
+    user: "${SAP_ROBCO_USER:-ROBCO_USER}"
+    password_file: "${SAP_ROBCO_PASSWORD_FILE:-/run/secrets/sap_password}"
+    rate_limit: 80           # requests per minute (overrides sap.rate_limit_per_minute for this service)
     connection_timeout: 30   # seconds (httpx connect/read timeout)
+    # Service-level Redis override: zewm_robco uses DB0 for its own cache/circuit-breaker state
     redis_url: "${REDIS_URL:-redis://redis:6379/0}"
     # ── Two-step confirmation retry ──
     confirm_retry_max: 5            # max retries for step-2 confirmation
     confirm_retry_backoff_base: 1   # seconds (exponential: 1, 2, 4, 8, 16)
     confirm_retry_backoff_cap: 30   # seconds cap on backoff
     # ── OAuth2 mode (uncomment for S/4HANA) ──
+    # NOTE: When enabling OAuth2, change auth_mode above to "oauth2" and uncomment the following:
     # auth_mode: oauth2
     # oauth2:
-    #   token_url: "https://sap-s4hana:44300/sap/bc/sec/oauth2/token"
-    #   client_id: "ZEWM_ROBCO_CLIENT"
-    #   client_secret_file: "/run/secrets/sap_oauth_client_secret"
+    #   token_url: "${SAP_ROBCO_OAUTH_TOKEN_URL:-https://sap-s4hana:44300/sap/bc/sec/oauth2/token}"
+    #   client_id: "${SAP_ROBCO_OAUTH_CLIENT_ID:-}"
+    #   client_secret_file: "${SAP_ROBCO_OAUTH_SECRET_FILE:-/run/secrets/sap_oauth_client_secret}"
     #   scope: "ZEWM_ROBCO_SRV_0001"
 
   default_warehouse: "WM01"
