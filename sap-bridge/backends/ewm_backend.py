@@ -27,7 +27,7 @@ from models.warehouse_task import WarehouseTask
 from redis_client import redis_from_url
 
 from .base import WarehouseBackend
-from auth import OAuth2TokenManager, read_client_secret
+from .oauth2_token_manager import OAuth2TokenManager, read_client_secret
 
 logger = logging.getLogger(__name__)
 
