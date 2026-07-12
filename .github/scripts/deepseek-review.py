@@ -80,12 +80,11 @@ try:
     review = result["choices"][0]["message"]["content"]
 
     # Append structured marker for auto-fix.sh to parse
-    issue_keywords = [
-        "must fix", "必须修复", "bug", "安全问题",
-        "逻辑错误", "性能问题", "critical", "严重",
-        "错误", "缺陷", "漏洞", "risk", "danger",
-    ]
-    has_issues = any(kw in review.lower() for kw in issue_keywords)
+    # Check if the "必须修复" section has actual numbered items (e.g., "1. **...**").
+    # The section header alone is not enough — the AI always includes it.
+    # We look for numbered list items under a "必须修复" heading.
+    must_fix_pattern = r"必须修复[^#]*?\d+\.\s+\*\*"
+    has_issues = bool(re.search(must_fix_pattern, review, re.DOTALL))
     marker = "<!--AUTOFIX:HAS_ISSUES-->" if has_issues else "<!--AUTOFIX:CLEAN-->"
 
     with open("review_output.md", "w", encoding="utf-8") as f:
