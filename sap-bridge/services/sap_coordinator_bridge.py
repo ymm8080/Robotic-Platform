@@ -32,8 +32,13 @@ POLL_INTERVAL = float(os.getenv("SAP_TC_POLL_INTERVAL", "5"))
 WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # When "0", tasks that disappear from the coordinator active list are NOT
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
-# confirmation.  Set to "1" (default) for automatic confirmation.
-AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "1") == "1"
+# confirmation.  Set to "1" for automatic confirmation (risky).
+AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
+
+# Maximum confirmed task IDs to retain in memory.
+MAX_CONFIRMED_RETENTION = 500
+# How often (in polls) to run cleanup.
+CLEANUP_INTERVAL = 60
 
 
 @dataclass
@@ -256,3 +261,14 @@ class SapCoordinatorBridge:
                 logger.info("SAP-TC bridge: confirmed SAP task %s", tid)
             else:
                 logger.warning("SAP-TC bridge: SAP confirm failed for task %s", tid)
+
+        # Prune confirmed entries to prevent unbounded memory growth.
+        if self._poll_count % CLEANUP_INTERVAL == 0 and len(self._confirmed) > MAX_CONFIRMED_RETENTION:
+            excess = len(self._confirmed) - MAX_CONFIRMED_RETENTION
+            to_remove = list(self._confirmed)[:excess]
+            for tid in to_remove:
+                self._confirmed.discard(tid)
+            logger.info(
+                "SAP-TC bridge: pruned %d stale confirmed entries (retention=%d)",
+                excess, MAX_CONFIRMED_RETENTION,
+            )

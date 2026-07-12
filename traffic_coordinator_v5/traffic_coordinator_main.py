@@ -25,12 +25,12 @@ MQTT topics:
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import logging
 import os
-import pathlib
+from pathlib import Path
 import re
+import secrets
 import sys
 import threading
 import time
@@ -59,7 +59,7 @@ WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
 # directory exists before the WORM blackbox tries to write there.
 _config_worm = WormConfig()
 if WORM_SINK_PATH:
-    sink_path = pathlib.Path(WORM_SINK_PATH)
+    sink_path = Path(WORM_SINK_PATH)
     sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
     sink_dir.mkdir(parents=True, exist_ok=True)
     _config_worm = WormConfig(sink_dir=str(sink_dir))
@@ -81,8 +81,6 @@ SNAPSHOT_KEY = "tc:snapshot:v5"
 
 def _load_api_key() -> str:
     """Load Traffic Coordinator API key from Docker secret or env var."""
-    from pathlib import Path
-
     key_path = Path(TC_API_KEY_FILE)
     if key_path.is_file():
         return key_path.read_text().strip()
@@ -118,7 +116,6 @@ def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
         # via TC_ALLOW_UNAUTHENTICATED=1 (e.g. for local development).
         return TC_ALLOW_UNAUTHENTICATED
     provided = handler.headers.get("X-API-Key", "")
-    import secrets
 
     return secrets.compare_digest(TC_API_KEY, provided)
 
@@ -147,7 +144,13 @@ def _on_mqtt_inbound(msg: InboundMessage) -> None:
     Routes the raw message through the registered brand adapter so the
     coordinator's unified FleetState is updated.
     """
-    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    try:
+        COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    except Exception:
+        _logger.exception(
+            "Failed to ingest MQTT uplink from brand=%s robot=%s",
+            msg.brand, msg.raw.get("robotId", "?"),
+        )
 
 
 def _publish_tick_result(result) -> None:
@@ -174,29 +177,17 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
-    _snap_executor = concurrent.futures.ThreadPoolExecutor(
-        max_workers=1, thread_name_prefix="snapshot",
-    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                _snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
+                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                _logger.warning("[snapshot] submit failed: %s", exc)
+                _logger.warning("[snapshot] save failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
-    _snap_executor.shutdown(wait=True)
-
-
-def _save_snapshot(snapshot_data: dict) -> None:
-    """Save snapshot in background thread to avoid blocking tick loop."""
-    try:
-        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
-    except Exception as exc:
-        _logger.warning("[snapshot] save failed: %s", exc)
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
@@ -223,7 +214,7 @@ if facility.fmap.all_lanes():
     for lift in facility.lift_ids:
         COORDINATOR.register_lift(lift["id"])
 else:
-    _logger.warning("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
+    _logger.info("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
     COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
     COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
     COORDINATOR.register_intersection("X1")
@@ -344,9 +335,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         elif path == "/metrics":
-            if not _check_auth(self):
-                self._json(401, {"error": "unauthorized"})
-                return
+            # /metrics is intentionally unauthenticated for Prometheus scraping.
             snap = COORDINATOR.metrics.snapshot()
             lines = [
                 "# HELP tc_uplinks_total Total robot state uplinks received",
@@ -458,8 +447,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/estop":
-            zone_id = body.get("zone_id")
-            COORDINATOR.emergency_stop(zone_id, now)
+            zone_id = body.get("zone_id", "")
+            if zone_id and not _SAFE_ID_RE.match(zone_id):
+                self._json(400, {"error": "invalid zone_id"})
+                return
+            COORDINATOR.emergency_stop(zone_id or None, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)
             self._json(200, {"estop": True, "zone": zone_id})

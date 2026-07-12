@@ -19,6 +19,7 @@ objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
@@ -42,6 +43,8 @@ from core.scheduling.task_allocator import Task, TaskAllocator, model_of
 from core.scheduling.traffic_light_controller import TrafficLightController
 from core.survival.version_router import VersionRouter
 from core.survival.worm_blackbox import WormBlackbox
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -162,7 +165,10 @@ class RobotPlatformCoordinator:
         events.extend(self.failover.observe(state, now))
         state = self.failover.stamp(state)
         self._robot_states[state.robot_id] = state
-        self._auto_report_progress(state.robot_id, now)
+        # Only run auto-progress inference when the robot has an active
+        # assignment; avoids needless work on every uplink for idle robots.
+        if state.robot_id in self._active_assignments:
+            self._auto_report_progress(state.robot_id, now)
 
         # footprint / obstacle layer update
         self.obstacles.update(
@@ -323,6 +329,13 @@ class RobotPlatformCoordinator:
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
             except Exception as exc:
+                try:
+                    self._release_lifts_for_assignment(robot, assignment)
+                except Exception:
+                    logger.exception(
+                        "Failed to release lifts for robot %s after dispatch failure",
+                        robot.robot_id,
+                    )
                 if self._requeue_task(task, now, f"dispatch_error:{exc}"):
                     remaining.append(task)
                 self._worm_event(
@@ -417,6 +430,17 @@ class RobotPlatformCoordinator:
             if not self.lift.request(lane.lift_id, robot.robot_id, lane.floor, now):
                 return False
         return True
+
+    def _release_lifts_for_assignment(
+        self, robot: FleetState, assignment: TaskAssignment
+    ) -> None:
+        """Release any lifts reserved for an assignment that failed to dispatch."""
+        for lane_id in assignment.path:
+            lane = self.fmap.lane(lane_id)
+            if lane is None or lane.lift_id is None:
+                continue
+            if self.lift.current_user(lane.lift_id) == robot.robot_id:
+                self.lift.release(lane.lift_id, robot.robot_id)
 
     def _breaker_closed(self, robot_id: str) -> bool:
         adapter = self.adapter_for(robot_id)
@@ -758,6 +782,11 @@ class RobotPlatformCoordinator:
         for offset, lane_id in enumerate(path[idx:]):
             lane = self.fmap.lane(lane_id)
             if lane is not None and lane.to_node == last_node:
+                logger.debug(
+                    "auto_report_progress: robot %s reached end of lane %s "
+                    "(path offset %d, last_node=%s)",
+                    robot_id, lane_id, offset, last_node,
+                )
                 if self.report_progress(robot_id, lane_id, now):
                     break
 
