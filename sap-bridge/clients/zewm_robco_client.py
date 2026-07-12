@@ -59,18 +59,20 @@ DEFAULT_ODATA_SERVICE = "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
 MAX_REQUESTS_PER_MINUTE = 80
 TOKEN_BUCKET_INTERVAL = 60.0 / MAX_REQUESTS_PER_MINUTE
 CSRF_REFRESH_INTERVAL = 1500  # 25 minutes
-CSRF_REDIS_KEY = "sap:zewm_robco:csrf_token"
-CSRF_REDIS_COOKIE_KEY = "sap:zewm_robco:csrf_cookies"
-CSRF_REDIS_REFRESH_KEY = "sap:zewm_robco:csrf_last_refresh"
-CONFIRM_RETRY_MAX = 5
-CONFIRM_RETRY_BACKOFF_BASE = 1.0
-CONFIRM_RETRY_BACKOFF_CAP = 30.0
+_CSRF_REDIS_KEY = "sap:zewm_robco:csrf_token"
+_CSRF_REDIS_COOKIE_KEY = "sap:zewm_robco:csrf_cookies"
+_CSRF_REDIS_REFRESH_KEY = "sap:zewm_robco:csrf_last_refresh"
+_CONFIRM_RETRY_MAX = 5
+_CONFIRM_RETRY_BACKOFF_BASE = 1.0
+_CONFIRM_RETRY_BACKOFF_CAP = 30.0
+# Max HTTP retries for 401/403/429 in a single _request() call
+_MAX_HTTP_RETRIES = 3
 
 
 def _read_password(password_file: str) -> str:
     """Read password from a Docker secret file."""
     try:
-        with open(password_file) as f:
+        with open(password_file, encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
         logger.error("Password file not found at configured path: %s", password_file)
@@ -99,8 +101,8 @@ class _ZewmCsrfManager:
 
     def get_token(self) -> tuple[str, str] | None:
         """Return cached (token, cookies) or None."""
-        token = self._redis.get(CSRF_REDIS_KEY)
-        cookies = self._redis.get(CSRF_REDIS_COOKIE_KEY)
+        token = self._redis.get(_CSRF_REDIS_KEY)
+        cookies = self._redis.get(_CSRF_REDIS_COOKIE_KEY)
         if token and cookies:
             return (token, cookies)
         return None
@@ -108,9 +110,9 @@ class _ZewmCsrfManager:
     def set_token(self, token: str, cookies: str) -> None:
         """Cache CSRF token and cookies in Redis."""
         pipe = self._redis.pipeline()
-        pipe.setex(CSRF_REDIS_KEY, CSRF_REFRESH_INTERVAL, token)
-        pipe.setex(CSRF_REDIS_COOKIE_KEY, CSRF_REFRESH_INTERVAL, cookies)
-        pipe.set(CSRF_REDIS_REFRESH_KEY, str(time.time()))
+        pipe.setex(_CSRF_REDIS_KEY, CSRF_REFRESH_INTERVAL, token)
+        pipe.setex(_CSRF_REDIS_COOKIE_KEY, CSRF_REFRESH_INTERVAL, cookies)
+        pipe.set(_CSRF_REDIS_REFRESH_KEY, str(time.time()))
         pipe.execute()
 
     def fetch_new(
@@ -183,13 +185,13 @@ class ZewmRobcoClient:
 
         # Confirm retry settings
         self._confirm_retry_max = int(
-            self._cfg.get("confirm_retry_max", CONFIRM_RETRY_MAX),
+            self._cfg.get("confirm_retry_max", _CONFIRM_RETRY_MAX),
         )
         self._confirm_retry_backoff_base = float(
-            self._cfg.get("confirm_retry_backoff_base", CONFIRM_RETRY_BACKOFF_BASE),
+            self._cfg.get("confirm_retry_backoff_base", _CONFIRM_RETRY_BACKOFF_BASE),
         )
         self._confirm_retry_backoff_cap = float(
-            self._cfg.get("confirm_retry_backoff_cap", CONFIRM_RETRY_BACKOFF_CAP),
+            self._cfg.get("confirm_retry_backoff_cap", _CONFIRM_RETRY_BACKOFF_CAP),
         )
 
         # Auth mode: "basic" (default) or "oauth2"
@@ -281,8 +283,13 @@ class ZewmRobcoClient:
     # ── Rate limiting ─────────────────────────────────────────────────
 
     def _throttle(self) -> None:
-        """Token-bucket rate limiter (simple sleep-based)."""
+        """Token-bucket rate limiter (simple sleep-based).
+
+        Even when disabled, ``_last_request_time`` is updated so that if
+        the client is re-enabled later, the rate limit window is accurate.
+        """
         if not self._enabled:
+            self._last_request_time = time.time()
             return
         elapsed = time.time() - self._last_request_time
         if elapsed < self._token_interval:
@@ -470,29 +477,38 @@ class ZewmRobcoClient:
                 auth=self._get_auth_for_request(),
             )
 
-            # CSRF token expired — refresh and retry once
-            if resp.status_code == 403:
-                logger.info("CSRF token expired, refreshing...")
-                csrf = self._ensure_csrf()
-                token, cookies = csrf.fetch_new(
-                    client, self._base_url, self._odata_service,
-                )
-                headers["X-CSRF-Token"] = token
-                headers["Cookie"] = cookies
-                resp = client.request(
-                    method=method,
-                    url=full_url,
-                    json=body,
-                    headers=headers,
-                    auth=self._get_auth_for_request(),
-                )
+            # Retry loop for transient failures (403, 401, 429)
+            # with a bounded retry count to prevent infinite loops.
+            retries = 0
+            while (
+                resp.status_code in (401, 403, 429)
+                and retries < _MAX_HTTP_RETRIES
+            ):
+                if resp.status_code == 403:
+                    # CSRF token expired — refresh and retry
+                    logger.info("CSRF token expired, refreshing...")
+                    csrf = self._ensure_csrf()
+                    token, cookies = csrf.fetch_new(
+                        client, self._base_url, self._odata_service,
+                    )
+                    headers["X-CSRF-Token"] = token
+                    headers["Cookie"] = cookies
+                elif resp.status_code == 401 and self._auth_mode == "oauth2":
+                    # OAuth2 token expired — invalidate and retry
+                    logger.info("OAuth2 token may be expired, invalidating...")
+                    self._ensure_oauth2().invalidate()
+                    headers = self._get_csrf_headers(client)
+                elif resp.status_code == 429:
+                    # Rate-limited — backoff and retry
+                    retry_after = int(resp.headers.get("Retry-After", 2))
+                    delay = min(retry_after, 30)
+                    logger.warning("SAP rate limited — backing off %ds", delay)
+                    time.sleep(delay)
+                    headers = self._get_csrf_headers(client)
+                else:
+                    # 401 in basic mode — not retryable
+                    break
 
-            # OAuth2 token expired — invalidate and retry once
-            if resp.status_code == 401 and self._auth_mode == "oauth2":
-                logger.info("OAuth2 token may be expired, invalidating...")
-                self._ensure_oauth2().invalidate()
-                # Rebuild headers with fresh token
-                headers = self._get_csrf_headers(client)
                 resp = client.request(
                     method=method,
                     url=full_url,
@@ -500,21 +516,7 @@ class ZewmRobcoClient:
                     headers=headers,
                     auth=self._get_auth_for_request(),
                 )
-
-            # Rate-limited — backoff and retry once
-            if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 2))
-                delay = min(retry_after, 30)
-                logger.warning("SAP rate limited — backing off %ds", delay)
-                time.sleep(delay)
-                headers = self._get_csrf_headers(client)
-                resp = client.request(
-                    method=method,
-                    url=full_url,
-                    json=body,
-                    headers=headers,
-                    auth=self._get_auth_for_request(),
-                )
+                retries += 1
 
             # Success paths
             if resp.status_code in (200, 201, 204):
@@ -972,13 +974,13 @@ class ZewmRobcoClient:
 
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
-            errors.append(
-                f"base_url may be default ({DEFAULT_BASE_URL}) — check config",
+            logger.info(
+                "base_url may be default (%s) — verify config", DEFAULT_BASE_URL,
             )
 
         client_val = config.get("client", "")
         if not client_val or client_val == "100":
-            errors.append("SAP client may be default (100) — verify tenant")
+            logger.info("SAP client may be default (100) — verify tenant")
 
         return errors
 
