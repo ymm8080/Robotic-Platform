@@ -384,6 +384,7 @@ class TestCsrfRetry:
         result = client.get_new_robot_who("WH01", "R1")
         assert result == {"who": "RECOVERED_WHO"}
         assert mock_httpx.request.call_count == 2
+        mock_httpx.get.assert_called_once()
 
     def test_csrf_retry_respects_new_token(self, client, mock_httpx):
         """After CSRF refresh, the new token is used in the retry."""
@@ -402,6 +403,8 @@ class TestCsrfRetry:
 
         client.get_new_robot_who("WH01", "R1")
 
+        # CSRF refresh must have been triggered
+        mock_httpx.get.assert_called_once()
         # The second request should use the freshly fetched token
         second_call_headers = mock_httpx.request.call_args_list[1][1]["headers"]
         assert second_call_headers["X-CSRF-Token"] == "refreshed-token"
@@ -435,7 +438,7 @@ class TestRateLimit:
         with patch("time.sleep") as mock_sleep:
             limited = MagicMock()
             limited.status_code = 429
-            limited.headers = {"Retry-After": "999"}
+            limited.headers = {"Retry-After": "31"}
             limited.text = ""
 
             success = _mock_response(200, {"d": {"who": "OK"}})
@@ -500,7 +503,7 @@ class TestConfigValidation:
     def test_empty_config_returns_errors(self):
         """An empty config dict produces multiple validation errors."""
         errs = ZewmRobcoClient.validate_config({})
-        assert len(errs) >= 1
+        assert len(errs) > 1
 
     def test_missing_basic_auth_user(self):
         """Missing user for basic auth -> error."""
@@ -543,7 +546,11 @@ class TestConfigValidation:
         assert any("client_id" in e.lower() for e in errs)
 
     def test_default_base_url_warning(self):
-        """Default base_url triggers a validation warning."""
+        """Default base_url triggers a validation warning.
+
+        This test verifies config-level validation only — no network
+        connection is made to the default URL.
+        """
         errs = ZewmRobcoClient.validate_config({
             "base_url": "http://sap-ewm:8000",
             "user": "U",
