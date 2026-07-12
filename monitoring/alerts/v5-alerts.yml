@@ -3,7 +3,7 @@
 # =============================================================================
 groups:
   - name: v5_traffic_coordinator
-    interval: 30s
+    interval: 15s
     rules:
 
       # ══════════════════════════════════════════════════════════════════════
@@ -40,7 +40,7 @@ groups:
           component: traffic-coordinator
         annotations:
           summary: "Zone emergency lockdown active"
-          description: "A zone is in emergency lockdown — all traffic in that zone is stopped"
+          description: "Zone {{ $labels.zone }} is in emergency lockdown — all traffic in that zone is stopped"
           runbook_url: ""
 
       # ══════════════════════════════════════════════════════════════════════
