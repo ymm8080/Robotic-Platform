@@ -25,7 +25,6 @@ MQTT topics:
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import logging
 import os
