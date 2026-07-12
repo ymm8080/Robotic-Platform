@@ -126,6 +126,11 @@ class RobotPlatformCoordinator:
         self._task_retries: dict[str, int] = {}
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
+        # Recently completed / failed task IDs with timestamps, so downstream
+        # consumers (e.g. SAP bridge) can distinguish success from failure
+        # instead of guessing from the absence in the active list.
+        self._recently_completed: deque[tuple[str, float]] = deque(maxlen=200)
+        self._recently_failed: deque[tuple[str, float]] = deque(maxlen=200)
 
     MAX_TASK_RETRIES = 3
 
@@ -367,6 +372,7 @@ class RobotPlatformCoordinator:
 
     def _fail_task(self, task: Task, now: float, reason: str) -> None:
         """Mark the task and its order as failed."""
+        self._recently_failed.append((task.task_id, now))
         order_id = self._task_order.get(task.task_id)
         if order_id is not None:
             plan = self._order_plans.get(order_id)
@@ -778,6 +784,7 @@ class RobotPlatformCoordinator:
             return False
         if reached_lane == assignment.path[-1]:
             del self._active_assignments[robot_id]
+            self._recently_completed.append((assignment.task_id, now))
             adapter.expect(robot_id, RobotMode.IDLE)
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
@@ -891,6 +898,8 @@ class RobotPlatformCoordinator:
             "robot_brands": {
                 rid: adapter.brand for rid, adapter in self._robot_adapter.items()
             },
+            "recently_completed": [tid for tid, _ in self._recently_completed],
+            "recently_failed": [tid for tid, _ in self._recently_failed],
         }
 
     def restore(self, data: dict) -> None:
@@ -1032,6 +1041,14 @@ class RobotPlatformCoordinator:
         }
         self._task_retries = dict(data.get("task_retries", {}))
         self._robot_lane = dict(data.get("robot_lane", {}))
+
+        # Restore recently completed / failed task tracking
+        self._recently_completed.clear()
+        for tid in data.get("recently_completed", []):
+            self._recently_completed.append((tid, 0.0))
+        self._recently_failed.clear()
+        for tid in data.get("recently_failed", []):
+            self._recently_failed.append((tid, 0.0))
 
     # ── helpers ──────────────────────────────────────────────────
     def _worm_event(self, now: float, category: str, robot_id: str, payload: dict) -> None:
