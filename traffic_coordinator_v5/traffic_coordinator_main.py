@@ -185,15 +185,6 @@ def _background_tick(stop_event: threading.Event) -> None:
             except Exception as exc:
                 _logger.warning("[snapshot] submit failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
-    _snap_executor.shutdown(wait=True)
-
-
-def _save_snapshot(snapshot_data) -> None:
-    """Save snapshot in background thread to avoid blocking tick loop."""
-    try:
-        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
-    except Exception as exc:
-        _logger.warning("[snapshot] save failed: %s", exc)
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
