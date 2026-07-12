@@ -151,6 +151,8 @@ sap:
     rate_limit: 80           # requests per minute (overrides sap.rate_limit_per_minute for this service)
     connection_timeout: 30   # seconds (httpx connect/read timeout)
     # Service-level Redis override: zewm_robco uses DB0 for its own cache/circuit-breaker state
+    # Service-level Redis: zewm_robco isolates its token cache and circuit-breaker state in DB0
+    # to avoid key collisions with the main sap-bridge Redis (DB1) and gateway (DB2)
     redis_url: "${REDIS_URL:-redis://redis:6379/0}"
     # ── Two-step confirmation retry ──
     confirm_retry_max: 5            # max retries for step-2 confirmation
