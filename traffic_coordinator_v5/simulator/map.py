@@ -150,6 +150,11 @@ class LaneGraph:
                 fallback_idx += 1
         return positions
 
+    @property
+    def fmap(self) -> FixedLaneMap:
+        """Return the underlying `FixedLaneMap` (read-only access)."""
+        return self._fmap
+
     def lane(self, lane_id: str) -> Lane | None:
         """Return the physical lane definition, or None if unknown."""
         return self._fmap.lane(lane_id)
