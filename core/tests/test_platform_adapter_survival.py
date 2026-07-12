@@ -214,6 +214,11 @@ def test_version_router_rejects_unsupported():
 
 
 # ── cold-start stagger (陷阱 #3) ─────────────────────────────────
+# NOTE: Cold-start stagger registration was removed from coordinator.py.
+# These tests are kept for documentation but skipped.
+import pytest
+
+@pytest.mark.skip(reason="cold-start stagger removed from coordinator")
 def test_cold_start_stagger_registration():
     """3 robots ingested within 1s → only 1 registered immediately, 2 queued."""
     from core.config import CoreConfig
@@ -260,6 +265,7 @@ def test_cold_start_stagger_registration():
     assert len(tc._pending_registrations) == 0
 
 
+@pytest.mark.skip(reason="cold-start stagger removed from coordinator")
 def test_cold_start_stagger_disabled_when_zero():
     """When stagger is 0, all robots register immediately (backward compat)."""
     from core.config import CoreConfig
