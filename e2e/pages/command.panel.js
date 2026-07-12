@@ -12,15 +12,22 @@ class CommandPanel {
   }
 
   /**
-   * Get a command button by label.
+   * Get a command button by label, optionally scoped to a specific robot.
+   * @param {string} robotId - The robot ID to scope the button search to.
    * @param {'Pause' | 'Resume' | 'Stop' | 'Cancel Order' | 'Recharge' | 'Reboot' | 'State' | 'Factsheet'} command
    */
-  commandButton(command) {
-    return this.page.getByRole('button', { name: new RegExp(`^${command}$`, 'i') }).first();
+  commandButton(robotId, command) {
+    // Try to scope to the robot's card/row first; fall back to global search.
+    const robotSection = this.page.locator(`[data-testid="robot-${robotId}"]`);
+    return robotSection
+      .getByRole('button', { name: new RegExp(`^${command}$`, 'i') })
+      .or(
+        this.page.getByRole('button', { name: new RegExp(`^${command}$`, 'i') }).first()
+      );
   }
 
   async sendCommand(robotId, command) {
-    await this.commandButton(command).click();
+    await this.commandButton(robotId, command).click();
   }
 
   async expectCommandSuccess(robotId, command) {

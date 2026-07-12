@@ -45,7 +45,7 @@ class DashboardPage extends BasePage {
    */
   async gotoTab(key) {
     await this.tabs[key].click();
-    await this.tabs[key].waitFor({ state: 'visible' });
+    await this.page.waitForLoadState('networkidle');
   }
 
   async clickLogout() {
@@ -58,7 +58,12 @@ class DashboardPage extends BasePage {
   }
 
   async isAuthenticated() {
-    return this.title.isVisible().catch(() => false);
+    try {
+      await this.title.waitFor({ state: 'visible', timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
