@@ -25,7 +25,9 @@ MQTT topics:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import logging
 import os
 import pathlib
 import re
@@ -45,6 +47,8 @@ from core.orders import Order
 from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
+
+_logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
@@ -170,17 +174,29 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
+    _snap_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="snapshot",
+    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+                _snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                print(f"[snapshot] save failed: {exc}")
+                _logger.warning("[snapshot] submit failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
+    _snap_executor.shutdown(wait=True)
+
+
+def _save_snapshot(snapshot_data: dict) -> None:
+    """Save snapshot in background thread to avoid blocking tick loop."""
+    try:
+        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
+    except Exception as exc:
+        _logger.warning("[snapshot] save failed: %s", exc)
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
@@ -189,13 +205,14 @@ facility = load_facility_map(MAP_PATH if MAP_PATH else None)
 
 if facility.warnings:
     for w in facility.warnings:
-        print(f"[bootstrap] WARNING: {w}")
+        _logger.warning("[bootstrap] %s", w)
 
 if facility.fmap.all_lanes():
-    print(
-        f"[bootstrap] loaded facility '{facility.facility_name}' "
-        f"with {len(facility.fmap.all_lanes())} lanes, "
-        f"{len(facility.intersections)} intersections"
+    _logger.info(
+        "[bootstrap] loaded facility '%s' with %d lanes, %d intersections",
+        facility.facility_name,
+        len(facility.fmap.all_lanes()),
+        len(facility.intersections),
     )
     for lane in facility.fmap.all_lanes():
         COORDINATOR.add_lane(lane)
@@ -206,7 +223,7 @@ if facility.fmap.all_lanes():
     for lift in facility.lift_ids:
         COORDINATOR.register_lift(lift["id"])
 else:
-    print("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
+    _logger.warning("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
     COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
     COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
     COORDINATOR.register_intersection("X1")
@@ -219,11 +236,11 @@ _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
     try:
         COORDINATOR.restore(_saved)
-        print("[snapshot] restored coordinator state from snapshot")
+        _logger.info("[snapshot] restored coordinator state from snapshot")
     except Exception as exc:
-        print(f"[snapshot] restore failed: {exc}")
+        _logger.warning("[snapshot] restore failed: %s", exc)
 else:
-    print("[snapshot] no prior snapshot found — starting fresh")
+    _logger.info("[snapshot] no prior snapshot found — starting fresh")
 
 # Start MQTT gateway + background ticker
 _TICK_STOP = threading.Event()
@@ -235,12 +252,12 @@ if MQTT_ENABLED:
         target=_background_tick, args=(_TICK_STOP,), daemon=True, name="tc-tick-loop"
     )
     _TICK_THREAD.start()
-    print(
-        f"[mqtt] gateway started — broker={MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}, "
-        f"tick_interval={TICK_INTERVAL}s"
+    _logger.info(
+        "[mqtt] gateway started — broker=%s:%d, tick_interval=%ss",
+        MQTT_BROKER_HOST, MQTT_BROKER_PORT, TICK_INTERVAL,
     )
 else:
-    print("[mqtt] gateway disabled (MQTT_ENABLED=0)")
+    _logger.info("[mqtt] gateway disabled (MQTT_ENABLED=0)")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -516,7 +533,7 @@ def main() -> None:
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
-    print(f"v5.0 Traffic Coordinator listening on 0.0.0.0:{PORT} mode={MODE}")
+    _logger.info("v5.0 Traffic Coordinator listening on 0.0.0.0:%d mode=%s", PORT, MODE)
     try:
         server.serve_forever()
     finally:
