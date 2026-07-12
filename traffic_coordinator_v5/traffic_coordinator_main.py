@@ -117,7 +117,6 @@ def _check_auth(handler: BaseHTTPRequestHandler) -> bool:
         # via TC_ALLOW_UNAUTHENTICATED=1 (e.g. for local development).
         return TC_ALLOW_UNAUTHENTICATED
     provided = handler.headers.get("X-API-Key", "")
-    import secrets
 
     return secrets.compare_digest(TC_API_KEY, provided)
 
@@ -146,7 +145,13 @@ def _on_mqtt_inbound(msg: InboundMessage) -> None:
     Routes the raw message through the registered brand adapter so the
     coordinator's unified FleetState is updated.
     """
-    COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    try:
+        COORDINATOR.ingest_uplink(msg.brand, msg.raw, msg.received_at)
+    except Exception:
+        _logger.exception(
+            "Failed to ingest MQTT uplink from brand=%s robot=%s",
+            msg.brand, msg.raw.get("robotId", "?"),
+        )
 
 
 def _publish_tick_result(result) -> None:
@@ -195,10 +200,10 @@ if facility.warnings:
         print(f"[bootstrap] WARNING: {w}")
 
 if facility.fmap.all_lanes():
-    print(
-        f"[bootstrap] loaded facility '{facility.facility_name}' "
-        f"with {len(facility.fmap.all_lanes())} lanes, "
-        f"{len(facility.intersections)} intersections"
+    _logger.info(
+        "[bootstrap] loaded facility '{facility.facility_name}' "
+        len(facility.fmap.all_lanes()),
+        len(facility.intersections),
     )
     for lane in facility.fmap.all_lanes():
         COORDINATOR.add_lane(lane)
@@ -209,7 +214,7 @@ if facility.fmap.all_lanes():
     for lift in facility.lift_ids:
         COORDINATOR.register_lift(lift["id"])
 else:
-    print("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
+    _logger.info("[bootstrap] no map loaded; seeding DEMO fallback (A->B->C, X1)")
     COORDINATOR.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
     COORDINATOR.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
     COORDINATOR.register_intersection("X1")
@@ -238,12 +243,12 @@ if MQTT_ENABLED:
         target=_background_tick, args=(_TICK_STOP,), daemon=True, name="tc-tick-loop"
     )
     _TICK_THREAD.start()
-    print(
-        f"[mqtt] gateway started — broker={MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}, "
+    _logger.info(
+        "[mqtt] gateway started — broker={MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}, "
         f"tick_interval={TICK_INTERVAL}s"
     )
 else:
-    print("[mqtt] gateway disabled (MQTT_ENABLED=0)")
+    _logger.info("[mqtt] gateway disabled (MQTT_ENABLED=0)")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -330,9 +335,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         elif path == "/metrics":
-            if not _check_auth(self):
-                self._json(401, {"error": "unauthorized"})
-                return
+            # /metrics is intentionally unauthenticated for Prometheus scraping.
             snap = COORDINATOR.metrics.snapshot()
             lines = [
                 "# HELP tc_uplinks_total Total robot state uplinks received",
@@ -444,8 +447,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/estop":
-            zone_id = body.get("zone_id")
-            COORDINATOR.emergency_stop(zone_id, now)
+            zone_id = body.get("zone_id", "")
+            if zone_id and not _SAFE_ID_RE.match(zone_id):
+                self._json(400, {"error": "invalid zone_id"})
+                return
+            COORDINATOR.emergency_stop(zone_id or None, now)
             result = COORDINATOR.tick(now)
             _publish_tick_result(result)
             self._json(200, {"estop": True, "zone": zone_id})
@@ -519,7 +525,7 @@ def main() -> None:
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
-    print(f"v5.0 Traffic Coordinator listening on 0.0.0.0:{PORT} mode={MODE}")
+    _logger.info("v5.0 Traffic Coordinator listening on 0.0.0.0:%d mode=%s", PORT, MODE)
     try:
         server.serve_forever()
     finally:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -198,6 +199,14 @@ class MqttGateway(InboundGateway, OutboundGateway):
 
         # ── MQTT authentication (v5.x zero-trust) ──────────────
         mqtt_username = os.environ.get("MQTT_USERNAME", "")
+        mqtt_require_auth = os.environ.get("MQTT_REQUIRE_AUTH", "false").lower() == "true"
+        if mqtt_require_auth and not mqtt_username:
+            logger.error(
+                "MqttGateway: MQTT_REQUIRE_AUTH=true but MQTT_USERNAME not set. "
+                "Aborting connection — auth is required."
+            )
+            self._client = None
+            return
         if mqtt_username:
             password = self._load_mqtt_password()
             if password:

@@ -329,6 +329,7 @@ class RobotPlatformCoordinator:
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
             except Exception as exc:
+                self._release_lifts_for_assignment(robot, assignment)
                 if self._requeue_task(task, now, f"dispatch_error:{exc}"):
                     remaining.append(task)
                 self._worm_event(
@@ -423,6 +424,17 @@ class RobotPlatformCoordinator:
             if not self.lift.request(lane.lift_id, robot.robot_id, lane.floor, now):
                 return False
         return True
+
+    def _release_lifts_for_assignment(
+        self, robot: FleetState, assignment: TaskAssignment
+    ) -> None:
+        """Release any lifts reserved for an assignment that failed to dispatch."""
+        for lane_id in assignment.path:
+            lane = self.fmap.lane(lane_id)
+            if lane is None or lane.lift_id is None:
+                continue
+            if self.lift.current_user(lane.lift_id) == robot.robot_id:
+                self.lift.release(lane.lift_id, robot.robot_id)
 
     def _breaker_closed(self, robot_id: str) -> bool:
         adapter = self.adapter_for(robot_id)
