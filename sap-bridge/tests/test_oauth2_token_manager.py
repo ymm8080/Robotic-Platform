@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+
 from backends.ewm_backend import EwmBackend
 from backends.oauth2_token_manager import OAuth2TokenManager
 

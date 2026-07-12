@@ -3,6 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from mqtt_publisher import VDA5050Publisher
 
 
