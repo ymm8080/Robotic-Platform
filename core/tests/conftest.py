@@ -1,6 +1,11 @@
 """Shared test configuration for core tests.
 
 Forces DEMO mode to avoid /data/worm permission issues in CI.
+
+Scope: This fixture is auto-applied to ALL tests under ``core/tests/``.
+It patches ``CoreConfig.__init__`` to default to DEMO mode, which skips
+the PRODUCTION-only WORM disk writability check. Tests that explicitly
+pass ``mode='PRODUCTION'`` are not affected.
 """
 
 from __future__ import annotations

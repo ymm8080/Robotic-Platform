@@ -201,6 +201,12 @@ class FleetSimulator:
     def load_scenario(self, name: str) -> list[str]:
         """Load a named scenario configuration and return created robot IDs.
 
+        :param name: Scenario name. One of: intersection, charger, fault,
+                     deadlock, safe_distance.
+        :returns: List of created robot IDs.
+        :raises RuntimeError: If called on a non-empty fleet.
+        :raises ValueError: If *name* is not a recognised scenario.
+
         Supported scenarios:
         - ``"intersection"``: 3 robots converging at X1, exercise traffic light gating
         - ``"charger"``: 5 low-battery robots competing for 2 charger bays
@@ -211,41 +217,41 @@ class FleetSimulator:
         if self._robots:
             raise RuntimeError("load_scenario() called on a non-empty fleet; create a new FleetSimulator instead")
         robot_ids: list[str] = []
-        fmap = self.lane_graph.fmap
+        lane_map = self.lane_graph.fmap
         if name == "intersection":
             # Different lengths simulate robots arriving from varying distances.
-            fmap.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
-            fmap.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
-            fmap.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
-            fmap.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
-            fmap.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
-            fmap.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
+            lane_map.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
+            lane_map.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
+            lane_map.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
             for rid, lane in [("R-001", "L_A_B"), ("R-002", "L_X_B"), ("R-003", "L_Y_B")]:
                 self.add_robot(rid, lane)
                 robot_ids.append(rid)
         elif name == "charger":
-            fmap.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
-            fmap.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
-            fmap.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
+            lane_map.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
             # battery=19.9: below the 20% force_lock_threshold to trigger automatic charger dispatch.
             for i in range(1, 6):
                 rid = f"R-{i:03d}"
                 self.add_robot(rid, "L_A_B", battery=19.9, config=RobotConfig(max_speed=0.5))
                 robot_ids.append(rid)
         elif name == "fault":
-            fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
-            fmap.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5))
+            lane_map.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=1.5))
             self.add_robot("R-001", "L_A_B")
             robot_ids.append("R-001")
         elif name == "deadlock":
-            fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
-            fmap.add_lane(Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
+            lane_map.add_lane(Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
             self.add_robot("R-001", "L_A_B")
             self.add_robot("R-002", "L_B_A")
             robot_ids.extend(["R-001", "R-002"])
         elif name == "safe_distance":
-            fmap.add_lane(Lane("L_A_B", "A", "B", length=50.0, max_speed=2.0))
-            fmap.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=2.0))
+            lane_map.add_lane(Lane("L_A_B", "A", "B", length=50.0, max_speed=2.0))
+            lane_map.add_lane(Lane("L_B_C", "B", "C", length=10.0, max_speed=2.0))
             self.add_robot("R-001", "L_A_B", config=RobotConfig(max_speed=1.0))
             self.add_robot("R-002", "L_A_B", config=RobotConfig(max_speed=0.5))
             robot_ids.extend(["R-001", "R-002"])
