@@ -50,6 +50,15 @@ from traffic_coordinator_v5.maps.loader import load_facility_map
 _logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
+
+# Configure root logger so _logger.info() calls produce output.
+# Without this, only WARNING+ messages are emitted (via lastResort handler).
+_LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "INFO" if MODE != "PRODUCTION" else "WARNING")
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
 WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
@@ -182,7 +191,7 @@ def _background_tick(stop_event: threading.Event) -> None:
                 STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception as exc:
-                _logger.warning("[snapshot] save failed: %s", exc)
+                _logger.error("[snapshot] save failed: %s", exc)
         stop_event.wait(TICK_INTERVAL)
 
 
@@ -224,7 +233,7 @@ if _saved is not None:
         COORDINATOR.restore(_saved)
         _logger.info("[snapshot] restored coordinator state from snapshot")
     except Exception as exc:
-        _logger.warning("[snapshot] restore failed: %s", exc)
+        _logger.error("[snapshot] restore failed: %s", exc)
 else:
     _logger.info("[snapshot] no prior snapshot found — starting fresh")
 

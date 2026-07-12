@@ -322,5 +322,5 @@ class SimulatedRobot:
     @staticmethod
     def _iso_now() -> str:
         """Return an ISO-8601 UTC timestamp with millisecond precision (VDA5050 format)."""
-        now = datetime.now(timezone.utc)  # noqa: UP017 - keep timezone.utc for clarity
+        now = datetime.now(timezone.utc)
         return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
