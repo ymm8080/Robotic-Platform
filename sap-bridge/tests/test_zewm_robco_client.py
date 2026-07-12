@@ -124,30 +124,29 @@ class TestImports:
     def test_exception_base(self):
         from clients.zewm_robco_exceptions import (
             RobcoError,
-            raise_for_error_code,
         )
         assert issubclass(RobcoError, Exception)
         assert callable(raise_for_error_code)
 
     def test_concrete_exceptions(self):
         from clients.zewm_robco_exceptions import (
-            RobotNotFoundError,
-            RobotHasOrderError,
-            StatusNotSetError,
-            NoRobotResourceTypeError,
-            WhoNotFoundError,
-            WhoLockedError,
-            WhoAssignedError,
-            WhoInProcessError,
-            WhoNotUnassignedError,
-            NoOrderFoundError,
-            WarehouseOrderLockedError,
-            WhtAssignedError,
-            WhtNotConfirmedError,
-            WhtAlreadyConfirmedError,
             NoErrorQueueError,
+            NoOrderFoundError,
+            NoRobotResourceTypeError,
             QueueNotChangedError,
             RobcoInternalError,
+            RobotHasOrderError,
+            RobotNotFoundError,
+            StatusNotSetError,
+            WarehouseOrderLockedError,
+            WhoAssignedError,
+            WhoInProcessError,
+            WhoLockedError,
+            WhoNotFoundError,
+            WhoNotUnassignedError,
+            WhtAlreadyConfirmedError,
+            WhtAssignedError,
+            WhtNotConfirmedError,
         )
         assert all(issubclass(e, RobcoError) for e in (
             RobotNotFoundError,
@@ -171,8 +170,8 @@ class TestImports:
 
     def test_types_module(self):
         from clients.zewm_robco_types import (
-            RobotType,
             ExceptionCode,
+            RobotType,
             map_robot_error_to_exccode,
         )
         assert RobotType.MIR == "MIR"
