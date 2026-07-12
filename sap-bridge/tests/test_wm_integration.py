@@ -7,7 +7,6 @@ Uses mocked _create_connection -- no real SAP WM required.
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from models.warehouse_task import WarehouseTask
 
 

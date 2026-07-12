@@ -18,7 +18,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from clients.zewm_robco_client import ZewmRobcoClient
 from clients.zewm_robco_exceptions import (
     NoErrorQueueError,

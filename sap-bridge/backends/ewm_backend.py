@@ -21,13 +21,13 @@ import re
 import time
 
 import httpx
-import redis as rd
-
+from auth import OAuth2TokenManager, read_client_secret
 from models.warehouse_task import WarehouseTask
 from redis_client import redis_from_url
 
+import redis as rd
+
 from .base import WarehouseBackend
-from auth import OAuth2TokenManager, read_client_secret
 
 logger = logging.getLogger(__name__)
 
