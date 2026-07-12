@@ -28,8 +28,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import pathlib
+from pathlib import Path
 import re
+import secrets
 import sys
 import threading
 import time
@@ -58,7 +59,7 @@ WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
 # directory exists before the WORM blackbox tries to write there.
 _config_worm = WormConfig()
 if WORM_SINK_PATH:
-    sink_path = pathlib.Path(WORM_SINK_PATH)
+    sink_path = Path(WORM_SINK_PATH)
     sink_dir = sink_path.parent if sink_path.suffix == ".jsonl" else sink_path
     sink_dir.mkdir(parents=True, exist_ok=True)
     _config_worm = WormConfig(sink_dir=str(sink_dir))
@@ -197,11 +198,12 @@ facility = load_facility_map(MAP_PATH if MAP_PATH else None)
 
 if facility.warnings:
     for w in facility.warnings:
-        print(f"[bootstrap] WARNING: {w}")
+        _logger.warning("[bootstrap] %s", w)
 
 if facility.fmap.all_lanes():
     _logger.info(
-        "[bootstrap] loaded facility '{facility.facility_name}' "
+        "[bootstrap] loaded facility '%s' with %d lanes, %d intersections",
+        facility.facility_name,
         len(facility.fmap.all_lanes()),
         len(facility.intersections),
     )
@@ -244,8 +246,8 @@ if MQTT_ENABLED:
     )
     _TICK_THREAD.start()
     _logger.info(
-        "[mqtt] gateway started — broker={MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}, "
-        f"tick_interval={TICK_INTERVAL}s"
+        "[mqtt] gateway started — broker=%s:%d, tick_interval=%ss",
+        MQTT_BROKER_HOST, MQTT_BROKER_PORT, TICK_INTERVAL,
     )
 else:
     _logger.info("[mqtt] gateway disabled (MQTT_ENABLED=0)")

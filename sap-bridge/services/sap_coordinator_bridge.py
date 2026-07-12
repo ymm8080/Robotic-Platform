@@ -268,7 +268,6 @@ class SapCoordinatorBridge:
             to_remove = list(self._confirmed)[:excess]
             for tid in to_remove:
                 self._confirmed.discard(tid)
-                self._submitted.discard(tid)
             logger.info(
                 "SAP-TC bridge: pruned %d stale confirmed entries (retention=%d)",
                 excess, MAX_CONFIRMED_RETENTION,

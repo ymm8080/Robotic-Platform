@@ -329,8 +329,14 @@ class RobotPlatformCoordinator:
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
             except Exception as exc:
-                self._release_lifts_for_assignment(robot, assignment)
-                if self._requeue_task(task, now, f"dispatch_error:{exc}"):
+                try:
+                    self._release_lifts_for_assignment(robot, assignment)
+                except Exception:
+                    logger.exception(
+                        "Failed to release lifts for robot %s after dispatch failure",
+                        robot.robot_id,
+                    )
+                if self._requeue_task(task, now, f"dispatch_error:{exc}"
                     remaining.append(task)
                 self._worm_event(
                     now, "ERROR", robot.robot_id,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
