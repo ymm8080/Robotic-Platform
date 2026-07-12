@@ -48,7 +48,7 @@ from core.platform.fixed_lane_map import Lane
 from traffic_coordinator_v5.bootstrap import bootstrap_adapters
 from traffic_coordinator_v5.maps.loader import load_facility_map
 
-$_logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
