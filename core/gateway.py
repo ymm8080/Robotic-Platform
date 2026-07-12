@@ -188,7 +188,10 @@ class MqttGateway(InboundGateway, OutboundGateway):
             )
             return
 
-        self._client = mqtt.Client(client_id=self._client_id, clean_session=False)
+        self._client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=self._client_id,
+        )
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
@@ -241,8 +244,9 @@ class MqttGateway(InboundGateway, OutboundGateway):
         except Exception:
             logger.exception("MqttGateway failed to connect to MQTT broker")
 
-    def _on_connect(self, client, userdata, flags, rc) -> None:
-        if rc == 0:
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
+        rc_value = getattr(reason_code, "value", reason_code)
+        if rc_value == 0:
             client.subscribe(VDA5050_STATE_TOPIC, qos=self._qos)
             client.subscribe(VDA5050_CONNECTION_TOPIC, qos=self._qos)
             # Announce TC online
@@ -254,11 +258,11 @@ class MqttGateway(InboundGateway, OutboundGateway):
             )
             logger.info("MqttGateway subscribed to VDA5050 topics")
         else:
-            logger.error("MqttGateway connection failed, rc=%s", rc)
+            logger.error("MqttGateway connection failed, rc=%s", reason_code)
 
-    def _on_disconnect(self, client, userdata, rc) -> None:
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if self._running:
-            logger.warning("MqttGateway disconnected (rc=%s), will retry on next tick", rc)
+            logger.warning("MqttGateway disconnected (rc=%s), will retry on next tick", reason_code)
 
     # ── inbound: VDA5050 MQTT → coordinator ──────────────────
 
@@ -322,7 +326,10 @@ class MqttGateway(InboundGateway, OutboundGateway):
         payload.setdefault("manufacturer", brand)
 
         if self._callback is not None:
-            self._callback(InboundMessage(brand=brand, raw=payload, received_at=now))
+            try:
+                self._callback(InboundMessage(brand=brand, raw=payload, received_at=now))
+            except Exception:
+                logger.exception("MqttGateway: callback failed for %s", robot_id)
 
         with self._lock:
             conn_key = f"{brand}_{serial_number}"

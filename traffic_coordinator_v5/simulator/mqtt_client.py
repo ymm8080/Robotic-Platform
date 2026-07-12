@@ -40,6 +40,10 @@ class MqttVDAClient:
         self._client: mqtt.Client | None = None
         self._connected: bool = False
         self._robot_ids: set[str] = set()
+        # Fixed LWT topic so downstream systems can subscribe reliably.
+        # Cleared on connect (to remove stale CONNECTIONBROKEN from a previous
+        # crash) and on disconnect (clean shutdown).
+        self._lwt_topic = f"vda5050/{brand}/simulator/connection"
 
     def _client_id(self) -> str:
         return f"{self._brand}-sim-{uuid.uuid4().hex[:8]}"
@@ -74,9 +78,11 @@ class MqttVDAClient:
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         # Last Will: if the simulator process dies, all robots appear broken.
-        lwt_topic = f"vda5050/{self._brand}/simulator/connection"
+        # The LWT topic is fixed (not per-instance) so downstream systems can
+        # subscribe reliably.  It is explicitly cleared on connect to remove
+        # any stale CONNECTIONBROKEN retained message from a previous crash.
         self._client.will_set(
-            lwt_topic,
+            self._lwt_topic,
             json.dumps({"connectionState": "CONNECTIONBROKEN"}),
             qos=1,
             retain=True,
@@ -88,8 +94,8 @@ class MqttVDAClient:
             logger.info(
                 "Simulator MQTT connected to %s:%d", self._broker_host, self._broker_port
             )
-        except Exception:
-            logger.exception("Simulator failed to connect to MQTT broker")
+        except (OSError, ConnectionError) as exc:
+            logger.exception("Simulator failed to connect to MQTT broker: %s", exc)
             self._client = None
 
     def disconnect(self) -> None:
@@ -98,6 +104,9 @@ class MqttVDAClient:
             return
         for robot_id in list(self._robot_ids):
             self.publish_connection(robot_id, "OFFLINE")
+        # Clear the retained LWT so it does not linger after a clean shutdown.
+        with contextlib.suppress(Exception):
+            self._client.publish(self._lwt_topic, payload=b"", qos=1, retain=True)
         with contextlib.suppress(Exception):
             self._client.loop_stop()
             self._client.disconnect()
@@ -106,6 +115,15 @@ class MqttVDAClient:
     def _on_connect(self, client: mqtt.Client, _userdata: Any, _flags: Any, rc: int, _props: Any = None) -> None:
         if rc == 0:
             self._connected = True
+            # Clear any stale retained LWT from a previous crash so downstream
+            # systems do not see a lingering CONNECTIONBROKEN message.
+            with contextlib.suppress(Exception):
+                client.publish(
+                    self._lwt_topic,
+                    payload=b"",
+                    qos=1,
+                    retain=True,
+                )
             for robot_id in self._robot_ids:
                 self._subscribe_for(robot_id)
                 self.publish_connection(robot_id, "ONLINE")
@@ -152,8 +170,8 @@ class MqttVDAClient:
         topic = STATE_TOPIC.format(manufacturer=self._brand, serialNumber=robot_id)
         try:
             self._client.publish(topic, json.dumps(state), qos=0)
-        except Exception:
-            logger.exception("Simulator failed to publish state for %s", robot_id)
+        except (OSError, ConnectionError) as exc:
+            logger.exception("Simulator failed to publish state for %s: %s", robot_id, exc)
 
     def publish_connection(self, robot_id: str, state: str) -> None:
         """Publish a connection message for ``robot_id`` (retained, QoS 1)."""
@@ -167,5 +185,5 @@ class MqttVDAClient:
                 qos=1,
                 retain=True,
             )
-        except Exception:
-            logger.exception("Simulator failed to publish connection for %s", robot_id)
+        except (OSError, ConnectionError) as exc:
+            logger.exception("Simulator failed to publish connection for %s: %s", robot_id, exc)

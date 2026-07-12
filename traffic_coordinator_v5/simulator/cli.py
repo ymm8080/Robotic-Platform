@@ -6,7 +6,7 @@ import argparse
 import logging
 import signal
 import sys
-import threading
+import time
 
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
@@ -138,10 +138,11 @@ def run(argv: list[str] | None = None) -> int:
             mqtt_client.publish_connection(rid, "ONLINE")
 
     # Graceful shutdown on SIGINT/SIGTERM.
-    shutdown_event = threading.Event()
+    shutdown_requested = False
 
     def _signal_handler(_signum: int, _frame: object) -> None:
-        shutdown_event.set()
+        nonlocal shutdown_requested
+        shutdown_requested = True
         logger.info("Shutdown requested")
 
     signal.signal(signal.SIGINT, _signal_handler)
@@ -157,18 +158,15 @@ def run(argv: list[str] | None = None) -> int:
     )
 
     try:
-        while not shutdown_event.is_set():
-            shutdown_event.wait(0.1)
+        while not shutdown_requested:
+            time.sleep(0.1)
             if args.fault_prob > 0:
                 import random
 
                 for rid in fleet.robot_ids:
-                    robot = fleet.get_robot(rid)
-                    if robot is None:
-                        continue
-                    if random.random() < args.fault_prob and robot.mode.name != "ERROR":
-                        robot.inject_error("ERR_INJECTED_FAULT")
-                        logger.warning("Injected fault into %s", rid)
+                    if random.random() < args.fault_prob:
+                        if fleet.inject_fault(rid, "ERR_INJECTED_FAULT"):
+                            logger.warning("Injected fault into %s", rid)
     finally:
         fleet.stop()
         logger.info("Simulator stopped")

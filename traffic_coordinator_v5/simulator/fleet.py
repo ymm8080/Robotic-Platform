@@ -88,28 +88,39 @@ class FleetSimulator:
             self._mqtt.disconnect()
 
     def _run_loop(self) -> None:
-        """Real-time loop: tick and publish at the configured interval.
+        """Real-time loop: tick at a fixed cadence, publish independently.
 
-        Tick and publish use independent schedules so that a slow tick_once
-        does not delay state publishing (or vice versa).
+        Uses an accumulating ``next_tick`` to maintain a deterministic tick
+        rate.  If the loop falls behind by more than 3 intervals (e.g.
+        due to a long GC pause or system suspension), ``next_tick`` is
+        reset to the current time to prevent a burst of catch-up ticks.
         """
-        last_tick = time.monotonic()
         next_tick = time.monotonic()
-        next_publish = time.monotonic()
+        max_catchup = self._publish_interval * 3
         while self._running and not self._stop_event.is_set():
             now = time.monotonic()
-            if now >= next_tick:
-                # Use actual elapsed time for physics accuracy; cap at 2x
-                # interval to prevent physics explosions under heavy load.
-                dt = min(now - last_tick, self._publish_interval * 2)
-                last_tick = now
-                self.tick_once(dt)
-                next_tick = now + self._publish_interval
-            if now >= next_publish:
-                self._publish_states(now)
-                next_publish = now + self._publish_interval
-            sleep_dur = min(next_tick, next_publish) - time.monotonic()
-            self._stop_event.wait(max(0.0, sleep_dur))
+            # If we've fallen too far behind, reset to avoid a tick storm.
+            if now - next_tick > max_catchup:
+                next_tick = now
+            self.tick_once(self._publish_interval)
+            self._publish_states(now)
+            next_tick += self._publish_interval
+            sleep_dur = max(0.0, next_tick - time.monotonic())
+            self._stop_event.wait(sleep_dur)
+
+    def inject_fault(self, robot_id: str, error_type: str = "ERR_INJECTED_FAULT") -> bool:
+        """Inject a fault into a specific robot.
+
+        Returns True if the fault was injected, False if the robot was not
+        found or was already in ERROR mode.
+        """
+        robot = self._robots.get(robot_id)
+        if robot is None:
+            return False
+        if robot.mode.name == "ERROR":
+            return False
+        robot.inject_error(error_type)
+        return True
 
     def tick_once(self, dt: float) -> dict[str, list[str]]:
         """Advance every robot by ``dt`` seconds (deterministic).
@@ -166,18 +177,13 @@ class FleetSimulator:
             if action_type == "CANCELORDER":
                 robot.cancel_order()
         elif action_type == "INSTANTVELOCITY":
-            # Handle max_speed (speed cap) and linear_x (direction) independently.
-            # Both can be present in the same action; max_speed acts as an upper
-            # bound, while linear_x determines forward/retreat behaviour.
             if "max_speed" in params:
                 robot.set_speed_cap(float(params["max_speed"]))
-            if "linear_x" in params:
-                linear_x = float(params["linear_x"])
-                if linear_x < 0:
-                    # Retreat: negative linear velocity. Keep it simple — hold.
+            elif "linear_x" in params:
+                # Retreat: negative linear velocity. Keep it simple — hold.
+                if float(params["linear_x"]) < 0:
                     robot.hold("retreat")
-                elif linear_x > 0 and not robot.held:
-                    # Forward velocity requested and robot is not held — resume.
+                else:
                     robot.resume()
         elif action_type == "TRAFFICLIGHT":
             color = str(params.get("color", "")).upper()
