@@ -24,6 +24,7 @@ Reference:
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import time
@@ -120,10 +121,12 @@ class _ZewmCsrfManager:
         client: httpx.Client,
         base_url: str,
         odata_service: str,
+        auth_headers: dict[str, str] | None = None,
     ) -> tuple[str, str]:
         """Fetch a fresh CSRF token from SAP via $metadata."""
         url = f"{base_url}{odata_service}/$metadata"
-        headers = {"X-CSRF-Token": "Fetch", **self._auth_headers}
+        hdrs = auth_headers if auth_headers is not None else self._auth_headers
+        headers = {"X-CSRF-Token": "Fetch", **hdrs}
         resp = client.get(url, headers=headers, auth=self._auth)
         resp.raise_for_status()
         token = resp.headers.get("X-CSRF-Token", "")
@@ -319,12 +322,13 @@ class ZewmRobcoClient:
         token = oauth2.get_valid_token(client)
         return {"Authorization": f"Bearer {token}"}
 
-    def _get_headers(
-        self,
-        csrf_token: str | None = None,
-        client: httpx.Client | None = None,
-    ) -> dict[str, str]:
-        """Build standard HTTP headers for ZEWM_ROBCO_SRV requests."""
+    def _get_base_headers(self, csrf_token: str | None = None) -> dict[str, str]:
+        """Build base HTTP headers (no auth) for ZEWM_ROBCO_SRV requests.
+
+        Auth headers (OAuth2 Bearer token) are added separately by
+        ``_get_full_headers`` to avoid coupling header construction
+        with token retrieval.
+        """
         headers: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -332,7 +336,25 @@ class ZewmRobcoClient:
         }
         if csrf_token:
             headers["X-CSRF-Token"] = csrf_token
-        if client and self._auth_mode == "oauth2":
+        return headers
+
+    def _get_full_headers(
+        self,
+        csrf_token: str | None,
+        cookies: str | None,
+        client: httpx.Client,
+    ) -> dict[str, str]:
+        """Build complete headers: base + auth + CSRF cookie.
+
+        This is the single place where OAuth2 Bearer tokens are
+        injected into request headers, avoiding duplicate token
+        fetches that occurred when ``_get_headers`` was called
+        multiple times for the same request.
+        """
+        headers = self._get_base_headers(csrf_token)
+        if cookies:
+            headers["Cookie"] = cookies
+        if self._auth_mode == "oauth2":
             headers.update(self._get_auth_headers(client))
         return headers
 
@@ -340,14 +362,24 @@ class ZewmRobcoClient:
         """Get headers including a valid CSRF token.
 
         Uses cached token if available, otherwise fetches a new one.
+        Auth headers (OAuth2 Bearer token) are obtained on demand
+        and passed to ``fetch_new`` for the $metadata request.
         """
         csrf = self._ensure_csrf()
         cached = csrf.get_token()
         if cached:
             token, cookies = cached
-            return {**self._get_headers(token, client), "Cookie": cookies}
-        token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
-        return {**self._get_headers(token, client), "Cookie": cookies}
+            return self._get_full_headers(token, cookies, client)
+        auth_hdrs = (
+            self._get_auth_headers(client)
+            if self._auth_mode == "oauth2"
+            else {}
+        )
+        token, cookies = csrf.fetch_new(
+            client, self._base_url, self._odata_service,
+            auth_headers=auth_hdrs,
+        )
+        return self._get_full_headers(token, cookies, client)
 
     # ── OData URL construction ────────────────────────────────────────
 
@@ -383,21 +415,36 @@ class ZewmRobcoClient:
     # ── Response parsing ──────────────────────────────────────────────
 
     @staticmethod
-    def _parse_response(resp: httpx.Response) -> dict[str, Any]:
+    @staticmethod
+    def parse_response(resp: httpx.Response) -> dict[str, Any] | list[dict[str, Any]] | None:
         """Unwrap SAP OData V2 ``{"d": {...}}`` envelope.
 
-        SAP NetWeaver Gateway wraps entity responses in a ``d`` key.
-        Collection responses may use ``d.results``.  This method handles
-        both, returning the unwrapped dict.
+        SAP NetWeaver Gateway wraps responses in a ``d`` key:
+        - Single entity: ``{"d": {"Who": "123"}}``
+        - Collection: ``{"d": {"results": [...]}}``
+
+        When the ``d`` object contains a ``results`` list (SAP collection
+        convention), the list is returned directly.  Otherwise the ``d``
+        content is returned as-is.
 
         Args:
             resp: The httpx response object.
 
         Returns:
-            The unwrapped response body dict.
+            - ``dict`` for single-entity responses.
+            - ``list[dict]`` for collection responses (``d.results``).
+            - ``None`` if ``d`` is null or response is empty.
         """
+        if resp.status_code == 204 or not resp.text.strip():
+            return None
         body = resp.json()
-        return body.get("d", body)
+        d = body.get("d", body)
+        if d is None:
+            return None
+        if isinstance(d, dict) and "results" in d:
+            results = d["results"]
+            return results if isinstance(results, list) else d
+        return d
 
     def _handle_error_response(self, resp: httpx.Response) -> None:
         """Parse SAP error JSON and raise the matching typed exception.
@@ -424,10 +471,42 @@ class ZewmRobcoClient:
             error_code = raw_code.split("/")[0]
             detail = err.get("message", {}).get("value", "")
             raise_for_error_code(error_code, detail)
-        except (ValueError, KeyError, AttributeError):
+        except json.JSONDecodeError:
             raise RobcoInternalError(
-                f"HTTP {resp.status_code}: {resp.text[:200]}",
+                f"HTTP {resp.status_code}: non-JSON response: {resp.text[:200]}",
             )
+        except KeyError:
+            raise RobcoInternalError(
+                f"HTTP {resp.status_code}: unexpected error format: {body}",
+            )
+
+    def _prepare_retry_headers(
+        self, status_code: int, client: httpx.Client,
+    ) -> dict[str, str]:
+        """Build fresh headers for a retry after a transient failure.
+
+        Centralises the header preparation logic for 403/401/429 retries
+        to avoid code duplication between retry paths.
+
+        - **403**: CSRF token expired - fetch a new CSRF token.
+        - **401**: OAuth2 token expired - invalidated by caller; fresh
+          token obtained via ``_get_csrf_headers``.
+        - **429**: Rate limited - CSRF invalidated by caller; fresh
+          token obtained via ``_get_csrf_headers``.
+        """
+        if status_code == 403:
+            csrf = self._ensure_csrf()
+            auth_hdrs = (
+                self._get_auth_headers(client)
+                if self._auth_mode == "oauth2"
+                else {}
+            )
+            token, cookies = csrf.fetch_new(
+                client, self._base_url, self._odata_service,
+                auth_headers=auth_hdrs,
+            )
+            return self._get_full_headers(token, cookies, client)
+        return self._get_csrf_headers(client)
 
     # ── Core request method ───────────────────────────────────────────
 
@@ -475,12 +554,7 @@ class ZewmRobcoClient:
             # CSRF token expired — refresh and retry once
             if resp.status_code == 403:
                 logger.info("CSRF token expired, refreshing...")
-                csrf = self._ensure_csrf()
-                token, cookies = csrf.fetch_new(
-                    client, self._base_url, self._odata_service,
-                )
-                headers["X-CSRF-Token"] = token
-                headers["Cookie"] = cookies
+                headers = self._prepare_retry_headers(403, client)
                 resp = client.request(
                     method=method,
                     url=full_url,
@@ -493,8 +567,7 @@ class ZewmRobcoClient:
             if resp.status_code == 401 and self._auth_mode == "oauth2":
                 logger.info("OAuth2 token may be expired, invalidating...")
                 self._ensure_oauth2().invalidate()
-                # Rebuild headers with fresh token
-                headers = self._get_csrf_headers(client)
+                headers = self._prepare_retry_headers(401, client)
                 resp = client.request(
                     method=method,
                     url=full_url,
@@ -509,7 +582,8 @@ class ZewmRobcoClient:
                 delay = min(retry_after, 30)
                 logger.warning("SAP rate limited — backing off %ds", delay)
                 time.sleep(delay)
-                headers = self._get_csrf_headers(client)
+                self._ensure_csrf().invalidate()
+                headers = self._prepare_retry_headers(429, client)
                 resp = client.request(
                     method=method,
                     url=full_url,
@@ -522,7 +596,7 @@ class ZewmRobcoClient:
             if resp.status_code in (200, 201, 204):
                 if resp.status_code == 204 or not resp.text.strip():
                     return {}
-                return self._parse_response(resp)
+                return self.parse_response(resp)
 
             # Error path
             self._handle_error_response(resp)
@@ -897,7 +971,7 @@ class ZewmRobcoClient:
         try:
             with self._get_client() as client:
                 url = f"{self._base_url}{self._odata_service}/$metadata"
-                headers = self._get_headers(client=client)
+                headers = self._get_base_headers()
                 resp = client.get(
                     url,
                     headers=headers,
