@@ -27,6 +27,7 @@ import contextlib
 import logging
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -91,11 +92,11 @@ class _ZewmCsrfManager:
         self,
         redis_client: rd.Redis,
         auth: tuple[str, str] | None = None,
-        auth_headers: dict[str, str] | None = None,
+        auth_headers_fn: Callable[[httpx.Client], dict[str, str]] | None = None,
     ):
         self._redis = redis_client
         self._auth = auth
-        self._auth_headers = auth_headers or {}
+        self._auth_headers_fn = auth_headers_fn or (lambda _client: {})
 
     def get_token(self) -> tuple[str, str] | None:
         """Return cached (token, cookies) or None."""
@@ -121,7 +122,7 @@ class _ZewmCsrfManager:
     ) -> tuple[str, str]:
         """Fetch a fresh CSRF token from SAP via $metadata."""
         url = f"{base_url}{odata_service}/$metadata"
-        headers = {"X-CSRF-Token": "Fetch", **self._auth_headers}
+        headers = {"X-CSRF-Token": "Fetch", **self._auth_headers_fn(client)}
         resp = client.get(url, headers=headers, auth=self._auth)
         resp.raise_for_status()
         token = resp.headers.get("X-CSRF-Token", "")
@@ -258,16 +259,16 @@ class ZewmRobcoClient:
         return self._redis
 
     def _ensure_csrf(self) -> _ZewmCsrfManager:
-        """Get or create CSRF token manager (lazy init)."""
+        """Get or create CSRF token manager (lazy init).
+
+        Auth headers are fetched lazily via a callable to avoid creating
+        an unnecessary HTTP connection during initialization.
+        """
         if self._csrf is None:
-            auth_headers: dict[str, str] = {}
-            if self._auth_mode == "oauth2":
-                with self._get_client() as client:
-                    auth_headers = self._get_auth_headers(client)
             self._csrf = _ZewmCsrfManager(
                 self._ensure_redis(),
                 auth=self._auth,
-                auth_headers=auth_headers,
+                auth_headers_fn=self._get_auth_headers,
             )
         return self._csrf
 
@@ -375,10 +376,14 @@ class ZewmRobcoClient:
         base = f"{self._base_url}{self._odata_service}/{name}"
         if not params:
             return base
-        qs = "&".join(
-            f"{k}='{v}'" for k, v in params.items() if v is not None
-        )
-        return f"{base}?{qs}"
+        parts: list[str] = []
+        for k, v in params.items():
+            if v is not None:
+                escaped = str(v).replace("'", "''")
+                parts.append(f"{k}='{escaped}'")
+        if not parts:
+            return base
+        return f"{base}?{'&'.join(parts)}"
 
     # ── Response parsing ──────────────────────────────────────────────
 
@@ -397,6 +402,8 @@ class ZewmRobcoClient:
             The unwrapped response body dict.
         """
         body = resp.json()
+        if not isinstance(body, dict):
+            return body
         return body.get("d", body)
 
     def _handle_error_response(self, resp: httpx.Response) -> None:
@@ -503,6 +510,8 @@ class ZewmRobcoClient:
                     headers=headers,
                     auth=self._get_auth_for_request(),
                 )
+                if resp.status_code == 401:
+                    logger.error("OAuth2 token refresh failed - still receiving 401")
 
             # Rate-limited — backoff and retry once
             if resp.status_code == 429:
