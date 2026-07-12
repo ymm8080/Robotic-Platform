@@ -927,8 +927,8 @@ class RobotPlatformCoordinator:
             "robot_brands": {
                 rid: adapter.brand for rid, adapter in self._robot_adapter.items()
             },
-            "recently_completed": [tid for tid, _ in self._recently_completed],
-            "recently_failed": [tid for tid, _ in self._recently_failed],
+            "recently_completed": [[tid, ts] for tid, ts in self._recently_completed],
+            "recently_failed": [[tid, ts] for tid, ts in self._recently_failed],
         }
 
     def restore(self, data: dict) -> None:
@@ -1071,13 +1071,19 @@ class RobotPlatformCoordinator:
         self._task_retries = dict(data.get("task_retries", {}))
         self._robot_lane = dict(data.get("robot_lane", {}))
 
-        # Restore recently completed / failed task tracking
+        # Restore recently completed / failed task tracking (with timestamps)
         self._recently_completed.clear()
-        for tid in data.get("recently_completed", []):
-            self._recently_completed.append((tid, 0.0))
+        for item in data.get("recently_completed", []):
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                self._recently_completed.append((item[0], float(item[1])))
+            else:
+                self._recently_completed.append((item, 0.0))
         self._recently_failed.clear()
-        for tid in data.get("recently_failed", []):
-            self._recently_failed.append((tid, 0.0))
+        for item in data.get("recently_failed", []):
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                self._recently_failed.append((item[0], float(item[1])))
+            else:
+                self._recently_failed.append((item, 0.0))
 
     # ── helpers ──────────────────────────────────────────────────
     def _worm_event(self, now: float, category: str, robot_id: str, payload: dict) -> None:
