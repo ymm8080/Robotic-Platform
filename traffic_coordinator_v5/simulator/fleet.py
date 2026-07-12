@@ -204,7 +204,7 @@ class FleetSimulator:
         :param name: Scenario name. One of: intersection, charger, fault,
                      deadlock, safe_distance.
         :returns: List of created robot IDs.
-        :raises RuntimeError: If called on a non-empty fleet.
+        :raises RuntimeError: If called on a fleet that already has robots or a lane graph that already has lanes (prevents accidental double-loading).
         :raises ValueError: If *name* is not a recognised scenario.
 
         Supported scenarios:
