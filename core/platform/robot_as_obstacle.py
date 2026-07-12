@@ -140,7 +140,11 @@ class RobotAsObstacle:
         The tolerance is configurable via ``self.collision_margin``.
         """
         def _margin(fp: Footprint) -> float:
-            # virtual walls (half_length == half_width == 0) keep their corridor
+            # Design decision: virtual walls (half_length == half_width == 0)
+            # use their full `corridor` as the collision radius because they
+            # represent safety zones (e.g., MANUAL_WALL_RADIUS = 1.5m for
+            # degraded robots). Physical robots use the tight COLLISION_MARGIN
+            # so that SPEED_CAP is issued before COLLISION_HOLD.
             if fp.half_length == 0.0 and fp.half_width == 0.0:
                 return fp.corridor
             return self.collision_margin

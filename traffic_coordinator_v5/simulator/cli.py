@@ -6,14 +6,13 @@ import argparse
 import logging
 import signal
 import sys
-import threading
 import time
 
 from core.platform.fixed_lane_map import FixedLaneMap
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
-from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
+from traffic_coordinator_v5.simulator.robot import RobotConfig
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +104,6 @@ def run(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    if args.scenario:
-        return _run_scenario(args)
-
     lane_graph = LaneGraph.from_yaml(args.map)
     if not lane_graph.all_lanes():
         logger.error("Map %s contains no lanes; cannot start simulator", args.map)
@@ -153,10 +149,11 @@ def run(argv: list[str] | None = None) -> int:
             mqtt_client.publish_connection(rid, "ONLINE")
 
     # Graceful shutdown on SIGINT/SIGTERM.
-    shutdown_event = threading.Event()
+    shutdown_requested = False
 
     def _signal_handler(_signum: int, _frame: object) -> None:
-        shutdown_event.set()
+        nonlocal shutdown_requested
+        shutdown_requested = True
         logger.info("Shutdown requested")
 
     signal.signal(signal.SIGINT, _signal_handler)
@@ -172,16 +169,13 @@ def run(argv: list[str] | None = None) -> int:
     )
 
     try:
-        while not shutdown_event.is_set():
-            shutdown_event.wait(0.1)
+        while not shutdown_requested:
+            time.sleep(0.1)
             if args.fault_prob > 0:
                 for rid in fleet.robot_ids:
-                    robot = fleet.get_robot(rid)
-                    if robot is None:
-                        continue
-                    if random.random() < args.fault_prob and robot.mode.name != "ERROR":
-                        robot.inject_error("ERR_INJECTED_FAULT")
-                        logger.warning("Injected fault into %s", rid)
+                    if random.random() < args.fault_prob:
+                        if fleet.inject_fault(rid, "ERR_INJECTED_FAULT"):
+                            logger.warning("Injected fault into %s", rid)
     finally:
         fleet.stop()
         logger.info("Simulator stopped")

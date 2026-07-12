@@ -1,7 +1,7 @@
 // @ts-check
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
-// ── Mock data ────────────────────────────────────────────────────
+// ── Mock data ─────────────────────────────────────────────────────────
 
 const MOCK_HEALTH = {
   timestamp: new Date().toISOString(),
@@ -52,10 +52,10 @@ const MOCK_ROBOTS = {
   ],
 };
 
-// ── Helpers ───────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 
 /**
- * Mock all backend API routes so the dashboard renders real data in the browser.
+ * Mock all backend API routes so the dashboard renders deterministic data.
  */
 async function mockBackend(page, { health = MOCK_HEALTH, robots = MOCK_ROBOTS } = {}) {
   await page.route('**/api/v1/system/health', route => {
@@ -69,209 +69,175 @@ async function mockBackend(page, { health = MOCK_HEALTH, robots = MOCK_ROBOTS } 
   });
 }
 
-async function navigateToTab(page, tabLabel) {
-  await page.getByRole('button', { name: new RegExp(tabLabel) }).click();
-}
+// ── Suite: System Health (监控面板) ───────────────────────────────────
 
-// ── Suite: System Health (监控面板) ───────────────────────────────
-
-test.describe('Dashboard — System Health 监控面板', () => {
-  test.beforeEach(async ({ page }) => {
+test.describe('Dashboard — System Health', () => {
+  test.beforeEach(async ({ page, dashboardPage }) => {
     await mockBackend(page);
-    await page.goto('/');
-    await navigateToTab(page, 'System');
+    await dashboardPage.goto();
+    await dashboardPage.gotoTab('system');
   });
 
-  test('renders service status grid with all 5 services', async ({ page }) => {
-    await expect(page.getByText('SAP Bridge')).toBeVisible();
-    await expect(page.getByText('MQTT Broker')).toBeVisible();
-    await expect(page.getByText('Redis')).toBeVisible();
-    await expect(page.getByText('Database')).toBeVisible();
-    await expect(page.getByText('Watchdog')).toBeVisible();
+  test('renders service status grid with all 5 services', async ({ systemHealthPanel }) => {
+    await systemHealthPanel.expectServiceVisible('SAP Bridge');
+    await systemHealthPanel.expectServiceVisible('MQTT Broker');
+    await systemHealthPanel.expectServiceVisible('Redis');
+    await systemHealthPanel.expectServiceVisible('Database');
+    await systemHealthPanel.expectServiceVisible('Watchdog');
   });
 
-  test('renders CPU, Memory, and Error Rate gauges', async ({ page }) => {
-    await expect(page.getByText('CPU')).toBeVisible();
-    await expect(page.getByText('Memory')).toBeVisible();
-    await expect(page.getByText('Error Rate')).toBeVisible();
-    // Values should be rendered
-    await expect(page.getByText('45%')).toBeVisible();
-    await expect(page.getByText('62%')).toBeVisible();
+  test('renders CPU, Memory, and Error Rate gauges', async ({ systemHealthPanel }) => {
+    await systemHealthPanel.expectGaugeVisible('CPU');
+    await systemHealthPanel.expectGaugeVisible('Memory');
+    await systemHealthPanel.expectGaugeVisible('Error Rate');
+    await expect(systemHealthPanel.page.getByText('45%')).toBeVisible();
+    await expect(systemHealthPanel.page.getByText('62%')).toBeVisible();
   });
 
-  test('renders fleet status with all categories', async ({ page }) => {
-    await expect(page.getByText('Fleet Status')).toBeVisible();
-    await expect(page.getByText('Total')).toBeVisible();
-    await expect(page.getByText('Online')).toBeVisible();
-    await expect(page.getByText('Moving')).toBeVisible();
-    await expect(page.getByText('Idle')).toBeVisible();
-    await expect(page.getByText('Errors')).toBeVisible();
-    await expect(page.getByText('Charging')).toBeVisible();
+  test('renders fleet status with all categories', async ({ systemHealthPanel }) => {
+    await expect(systemHealthPanel.fleetStatusHeading).toBeVisible();
+    for (const label of systemHealthPanel.fleetLabels) {
+      await systemHealthPanel.expectFleetStatVisible(label);
+    }
   });
 
-  test('shows version number', async ({ page }) => {
-    await expect(page.getByText(/v3\.4\.0/)).toBeVisible();
+  test('shows version number', async ({ systemHealthPanel }) => {
+    await expect(systemHealthPanel.versionText).toBeVisible();
   });
 
-  test('shows SAFE MODE and THROTTLE indicators when system is degraded', async ({ page }) => {
-    // Re-navigate with warning data
+  test('shows SAFE MODE and THROTTLE indicators when system is degraded', async ({ page, dashboardPage, systemHealthPanel }) => {
     await mockBackend(page, { health: MOCK_HEALTH_WARNINGS });
     await page.reload();
-    await navigateToTab(page, 'System');
+    await dashboardPage.gotoTab('system');
 
-    await expect(page.getByText('SAFE MODE ACTIVE')).toBeVisible();
-    await expect(page.getByText('THROTTLE ACTIVE')).toBeVisible();
-    // Gauges should show warning/critical colors (CPU 88% → orange, Memory 93% → red)
+    await systemHealthPanel.expectSafeModeVisible();
+    await systemHealthPanel.expectThrottleVisible();
   });
 });
 
-// ── Suite: Alert Panel (错误追踪面板) ─────────────────────────────
+// ── Suite: Alert Panel (错误追踪面板) ─────────────────────────────────
 
-test.describe('Dashboard — Alert Panel 错误追踪面板', () => {
-  test.beforeEach(async ({ page }) => {
+test.describe('Dashboard — Alert Panel', () => {
+  test.beforeEach(async ({ page, dashboardPage }) => {
     await mockBackend(page);
-    await page.goto('/');
-    await navigateToTab(page, 'Alerts');
+    await dashboardPage.goto();
+    await dashboardPage.gotoTab('alerts');
   });
 
-  test('shows "No active alerts" when system is healthy', async ({ page }) => {
-    await expect(page.getByText('No active alerts')).toBeVisible();
+  test('shows "No active alerts" when system is healthy', async ({ alertPanel }) => {
+    await alertPanel.expectNoAlerts();
   });
 
-  test('shows multiple P0/P1/P2 alerts when system is degraded', async ({ page }) => {
+  test('shows P0/P1/P2 alerts when system is degraded', async ({ page, dashboardPage, alertPanel }) => {
     await mockBackend(page, { health: MOCK_HEALTH_WARNINGS });
     await page.reload();
-    await navigateToTab(page, 'Alerts');
+    await dashboardPage.gotoTab('alerts');
 
-    // Should show alerts (at minimum SAFE MODE and service disconnect)
-    await expect(page.getByText(/SAFE MODE/)).toBeVisible();
-    await expect(page.locator('text=P0').first()).toBeVisible();
+    await alertPanel.expectAlertWithText(/SAFE MODE/);
+    await expect(alertPanel.page.getByText('P0').first()).toBeVisible();
   });
 
-  test('filter buttons show alert counts', async ({ page }) => {
+  test('filter buttons show alert counts', async ({ page, dashboardPage, alertPanel }) => {
     await mockBackend(page, { health: MOCK_HEALTH_WARNINGS });
     await page.reload();
-    await navigateToTab(page, 'Alerts');
+    await dashboardPage.gotoTab('alerts');
 
-    // Filter buttons display counts
-    await expect(page.getByRole('button', { name: /All/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /P0/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /P1/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /P2/ })).toBeVisible();
+    await expect(alertPanel.filterAll).toBeVisible();
+    await expect(alertPanel.filterP0).toBeVisible();
+    await expect(alertPanel.filterP1).toBeVisible();
+    await expect(alertPanel.filterP2).toBeVisible();
   });
 
-  test('Acknowledge button works on an active alert', async ({ page }) => {
+  test('Acknowledge button works on an active alert', async ({ page, dashboardPage, alertPanel }) => {
     await mockBackend(page, { health: MOCK_HEALTH_WARNINGS });
     await page.reload();
-    await navigateToTab(page, 'Alerts');
+    await dashboardPage.gotoTab('alerts');
 
-    // Wait for alerts to render
-    await expect(page.getByText(/SAFE MODE/)).toBeVisible();
-
-    // Click the first Ack button
-    const ackButton = page.getByText('Ack').first();
-    await ackButton.click();
-
-    // Should change to "Acked"
-    await expect(page.getByText('✓ Acked')).toBeVisible();
+    await alertPanel.expectAlertWithText(/SAFE MODE/);
+    await alertPanel.acknowledgeFirstAlert();
   });
 });
 
-// ── Suite: Command Panel (指令下发控制台) ────────────────────────
+// ── Suite: Command Panel (指令下发控制台) ─────────────────────────────
 
-test.describe('Dashboard — Command Panel 指令下发控制台', () => {
-  test.beforeEach(async ({ page }) => {
+test.describe('Dashboard — Command Panel', () => {
+  test.beforeEach(async ({ page, dashboardPage }) => {
     await mockBackend(page);
-    await page.goto('/');
-    await navigateToTab(page, 'Commands');
+    await dashboardPage.goto();
+    await dashboardPage.gotoTab('commands');
   });
 
-  test('renders all robots with brand and state', async ({ page }) => {
-    await expect(page.getByText('RBT-001')).toBeVisible();
-    await expect(page.getByText('RBT-002')).toBeVisible();
-    await expect(page.getByText('RBT-003')).toBeVisible();
-    await expect(page.getByText('Geek+')).toBeVisible();
-    await expect(page.getByText('Quicktron')).toBeVisible();
-    await expect(page.getByText('ForwardX')).toBeVisible();
+  test('renders all robots with brand and state', async ({ commandPanel }) => {
+    await commandPanel.expectRobotVisible('RBT-001');
+    await commandPanel.expectRobotVisible('RBT-002');
+    await commandPanel.expectRobotVisible('RBT-003');
+    await expect(commandPanel.page.getByText('Geek+')).toBeVisible();
+    await expect(commandPanel.page.getByText('Quicktron')).toBeVisible();
+    await expect(commandPanel.page.getByText('ForwardX')).toBeVisible();
   });
 
-  test('each robot has 4 command buttons', async ({ page }) => {
-    // 3 robots × 4 commands = 12 buttons in command groups
-    await expect(page.getByText('Pause').first()).toBeVisible();
-    await expect(page.getByText('Resume').first()).toBeVisible();
-    await expect(page.getByText('Cancel Order').first()).toBeVisible();
-    await expect(page.getByText('Reboot').first()).toBeVisible();
+  test('each robot has command buttons', async ({ commandPanel }) => {
+    await expect(commandPanel.commandButton('RBT-001', 'Pause')).toBeVisible();
+    await expect(commandPanel.commandButton('RBT-001', 'Resume')).toBeVisible();
+    await expect(commandPanel.commandButton('RBT-001', 'Cancel Order')).toBeVisible();
+    await expect(commandPanel.commandButton('RBT-001', 'Reboot')).toBeVisible();
   });
 
-  test('sends a Pause command and shows success result', async ({ page }) => {
-    // Click Pause on the first robot
-    await page.getByText('Pause').first().click();
-
-    // Should show success message
-    await expect(page.getByText(/Command "pause" sent/)).toBeVisible();
+  test('sends a Pause command and shows success result', async ({ commandPanel }) => {
+    await commandPanel.sendCommand('RBT-001', 'Pause');
+    await commandPanel.expectCommandSuccess('RBT-001', 'Pause');
   });
 
-  test('sends a Reboot command and shows success result', async ({ page }) => {
-    await page.getByText('Reboot').first().click();
-
-    await expect(page.getByText(/Command "reboot" sent/)).toBeVisible();
+  test('sends a Reboot command and shows success result', async ({ commandPanel }) => {
+    await commandPanel.sendCommand('RBT-001', 'Reboot');
+    await commandPanel.expectCommandSuccess('RBT-001', 'Reboot');
   });
 
-  test('robot state badges render with correct colors', async ({ page }) => {
-    // Each robot state appears as a colored badge
-    await expect(page.getByText('ONLINE')).toBeVisible();
-    await expect(page.getByText('MOVING')).toBeVisible();
-    await expect(page.getByText('ERROR')).toBeVisible();
+  test('robot state badges render with correct colors', async ({ commandPanel }) => {
+    await expect(commandPanel.page.getByText('ONLINE')).toBeVisible();
+    await expect(commandPanel.page.getByText('MOVING')).toBeVisible();
+    await expect(commandPanel.page.getByText('ERROR')).toBeVisible();
   });
 
-  test('sends a command that fails and shows error', async ({ page }) => {
-    // Override the command mock to return an error
+  test('sends a command that fails and shows error', async ({ page, commandPanel }) => {
     await page.unroute('**/api/v1/robots/*/command');
     await page.route('**/api/v1/robots/*/command', route => {
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Robot offline' }) });
     });
 
-    await page.getByText('Pause').first().click();
-
-    await expect(page.getByText('Robot offline')).toBeVisible();
+    await commandPanel.sendCommand('RBT-001', 'Pause');
+    await commandPanel.expectCommandError('Robot offline');
   });
 });
 
-// ── Suite: Tab Navigation ─────────────────────────────────────────
+// ── Suite: Tab Navigation ─────────────────────────────────────────────
 
 test.describe('Dashboard — Tab Navigation', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, dashboardPage }) => {
     await mockBackend(page);
-    await page.goto('/');
+    await dashboardPage.goto();
   });
 
-  test('all 8 tabs are visible', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /Robots/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Map/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Battery/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Order/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Tasks/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /System/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Commands/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Alerts/ })).toBeVisible();
+  test('all primary tabs are visible', async ({ dashboardPage }) => {
+    const requiredTabs = ['robots', 'map', 'battery', 'orders', 'tasks', 'system', 'commands', 'alerts'];
+    for (const key of requiredTabs) {
+      await expect(dashboardPage.tabs[key]).toBeVisible();
+    }
   });
 
-  test('switching tabs renders correct panel content', async ({ page }) => {
-    // System tab
-    await navigateToTab(page, 'System');
-    await expect(page.getByText('Fleet Status')).toBeVisible();
+  test('switching tabs renders correct panel content', async ({ dashboardPage, systemHealthPanel, alertPanel, commandPanel }) => {
+    await dashboardPage.gotoTab('system');
+    await expect(systemHealthPanel.fleetStatusHeading).toBeVisible();
 
-    // Alerts tab
-    await navigateToTab(page, 'Alerts');
-    await expect(page.getByText('No active alerts')).toBeVisible();
+    await dashboardPage.gotoTab('alerts');
+    await alertPanel.expectNoAlerts();
 
-    // Commands tab
-    await navigateToTab(page, 'Commands');
-    await expect(page.getByText('RBT-001')).toBeVisible();
+    await dashboardPage.gotoTab('commands');
+    await commandPanel.expectRobotVisible('RBT-001');
   });
 
-  test('header shows dashboard title and robot count', async ({ page }) => {
-    await expect(page.getByText('Robot Dispatch Dashboard')).toBeVisible();
-    await expect(page.getByText(/SAP-EWM/)).toBeVisible();
+  test('header shows dashboard title and robot count', async ({ dashboardPage }) => {
+    await expect(dashboardPage.title).toBeVisible();
+    await expect(dashboardPage.subtitle).toBeVisible();
   });
 });

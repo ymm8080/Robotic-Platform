@@ -29,6 +29,7 @@ yarn-error.log
 
 # Documentation and large assets not needed at build time
 *.md
+!README.md
 !README_v5.md
 !core/README.md
 traffic_coordinator_v5/**/*.md
@@ -36,6 +37,11 @@ traffic_coordinator_v5/**/*.json
 traffic_coordinator_v5/**/*.yaml
 traffic_coordinator_v5/**/*.yml
 traffic_coordinator_v5/monitoring
+# Keep map/simulator YAML needed by the v5 Docker builds.
+!traffic_coordinator_v5/maps/**/*.yaml
+!traffic_coordinator_v5/maps/**/*.yml
+!traffic_coordinator_v5/simulator/**/*.yaml
+!traffic_coordinator_v5/simulator/**/*.yml
 
 # Secrets
 secrets
