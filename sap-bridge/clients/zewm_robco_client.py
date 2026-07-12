@@ -136,11 +136,8 @@ class _ZewmCsrfManager:
         return token, cookies
 
     def close(self) -> None:
-        """Close Redis connection.
-
-        No-op: Redis connection is owned by the caller.
-        """
-        logger.debug("_ZewmCsrfManager.close() is a no-op")
+        """No-op — Redis connection is owned by the caller."""
+        pass
 
 
 # ── Client ─────────────────────────────────────────────────────────────
