@@ -455,6 +455,10 @@ if __name__ == "__main__":
                        help="Path to config file")
     parser.add_argument("--once", action="store_true",
                        help="Run health check once and exit")
+    parser.add_argument("--status", action="store_true",
+                       help="Check status and exit")
+    parser.add_argument("--check", action="store_true",
+                       help="Check all processes and health endpoints")
     
     args = parser.parse_args()
     
@@ -462,6 +466,32 @@ if __name__ == "__main__":
         create_windows_task_scheduler_xml()
     elif args.create_restart_script:
         create_restart_script()
+    elif args.status:
+        monitor = CatPawMonitor(args.config)
+        monitor.log_status()
+    elif args.check:
+        monitor = CatPawMonitor(args.config)
+        print("Running comprehensive health check...\n")
+        for process_config in monitor.config["processes"]:
+            print(f"=== {process_config['name']} ===")
+            # Process check
+            is_running = monitor.is_process_running(process_config["name"])
+            print(f"Process running: {is_running}")
+            
+            # HTTP health check
+            if monitor.config["monitoring"]["enable_http_check"]:
+                health_url = process_config.get("health_check_url")
+                if health_url:
+                    try:
+                        is_healthy = monitor.check_http_health(
+                            health_url,
+                            process_config["health_check_timeout"]
+                        )
+                        print(f"HTTP health check ({health_url}): {is_healthy}")
+                    except Exception as e:
+                        print(f"HTTP health check failed: {e}")
+            print()
+        print("Health check completed.")
     else:
         monitor = CatPawMonitor(args.config)
         
