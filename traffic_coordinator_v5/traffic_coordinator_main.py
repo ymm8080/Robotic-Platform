@@ -200,18 +200,21 @@ def _background_tick(stop_event: threading.Event) -> None:
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
-            # Guard against submit-level failures (e.g. executor shut down
-            # or rejected execution). Internal errors within _save_snapshot
-            # are already caught and logged there as warnings.
+            # submit() raises RuntimeError if the executor is shut down.
+            # Internal errors within _save_snapshot are already caught
+            # and logged there as warnings.
             try:
                 snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
                 last_snapshot = now
-            except Exception:
+            except RuntimeError:
                 _logger.warning("[snapshot] submit failed")
         stop_event.wait(TICK_INTERVAL)
     # wait=True ensures pending snapshot tasks complete before exit,
-    # preventing data loss. Do not change to wait=False without ensuring
-    # an alternative flush mechanism.
+    # preventing data loss. Since _save_snapshot calls STATE_STORE.set
+    # (a synchronous blocking write), shutdown may block briefly until
+    # the in-flight snapshot finishes — acceptable for a single-worker
+    # executor. Do not change to wait=False without ensuring an
+    # alternative flush mechanism.
     snap_executor.shutdown(wait=True)
 
 
