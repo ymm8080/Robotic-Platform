@@ -209,8 +209,8 @@ class SimulatedRobot:
         distance_moved = 0.0
 
         # Safety: prevent infinite loop on degenerate (zero-length) lanes.
-        # Use a generous fixed limit that scales with path size but has a high floor.
-        _guard = max(len(self._path) * 2 + 10, 1000)
+        # Use a fixed large limit (5000) to ensure robustness even with very long paths.
+        _guard = 5000
         while step_distance > 0.0001 and self._path_index < len(self._path):
             _guard -= 1
             if _guard <= 0:
@@ -266,7 +266,9 @@ class SimulatedRobot:
         self.velocity = 0.0
         # Place robot at end of final lane so _pose() interpolates to
         # the destination node's position.
-        self.distance_along_lane = self.lane_graph.length(self.current_lane_id)
+        if self.current_lane_id:
+            lane_length = self.lane_graph.length(self.current_lane_id)
+            self.distance_along_lane = lane_length if lane_length > 0 else 0.0
         # Do not override ERROR state — the robot must stay in ERROR
         # until explicit recovery (clear_errors / manual_recover).
         if self.mode != SimRobotMode.ERROR:

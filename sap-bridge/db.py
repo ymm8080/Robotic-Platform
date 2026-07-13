@@ -8,6 +8,7 @@ Connection config via env vars:
   DB_URL=postgresql://user:pass@host:port/db   (full URL, highest priority)
   PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASSWORD (or PG_PASSWORD_FILE for Docker Secrets)
 """
+
 import logging
 import os
 import re
@@ -69,6 +70,7 @@ def _translate_sql(sql: str) -> str:
 
 # ── Cursor wrapper ─────────────────────────────────────────
 
+
 class CursorWrapper:
     """Thin wrapper around psycopg2 RealDictCursor."""
 
@@ -100,6 +102,7 @@ class CursorWrapper:
 
 
 # ── Connection wrapper ─────────────────────────────────────
+
 
 class ConnectionWrapper:
     """Thin wrapper around psycopg2 connection."""
@@ -139,15 +142,14 @@ class ConnectionWrapper:
 
 # ── Connection factory ─────────────────────────────────────
 
+
 def connect() -> ConnectionWrapper:
     """Get a PostgreSQL connection."""
     try:
         import psycopg2
         from psycopg2.extras import RealDictCursor
     except ImportError:
-        raise RuntimeError(
-            "psycopg2 is not installed. Run: pip install psycopg2-binary"
-        )
+        raise RuntimeError("psycopg2 is not installed. Run: pip install psycopg2-binary")
     conn = psycopg2.connect(DB_URL)
     conn.cursor_factory = RealDictCursor
     logger.debug("PostgreSQL connection established")
@@ -155,6 +157,7 @@ def connect() -> ConnectionWrapper:
 
 
 # ── Schema initialization ──────────────────────────────────
+
 
 def init_schema():
     """Create tables if they don't exist (PostgreSQL only)."""

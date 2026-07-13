@@ -107,10 +107,9 @@ def patch_flows(path):
 
     # 6. Check inject nodes have correct onceDelay
     for node in nodes:
-        if node.get("type") == "inject":
-            if node.get("once") and not node.get("onceDelay"):
-                node["onceDelay"] = "5"
-                patches += 1
+        if node.get("type") == "inject" and node.get("once") and not node.get("onceDelay"):
+            node["onceDelay"] = "5"
+            patches += 1
 
     print(f"\n  Total patches applied: {patches}")
     print(f"  Unprotected function nodes: {len(unprotected_fns)}")

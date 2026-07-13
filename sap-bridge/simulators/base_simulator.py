@@ -2,6 +2,7 @@
 Base VDA5050 robot simulator.
 Emits state/connection messages on MQTT and responds to orders.
 """
+
 import json
 import logging
 import random
@@ -109,11 +110,13 @@ class BaseRobotSimulator:
 
     def add_error(self, error_type: str, level: str = "WARNING", description: str = ""):
         """Inject an error."""
-        self._state["errors"].append({
-            "errorType": error_type,
-            "errorLevel": level,
-            "errorDescription": description,
-        })
+        self._state["errors"].append(
+            {
+                "errorType": error_type,
+                "errorLevel": level,
+                "errorDescription": description,
+            }
+        )
 
     def clear_errors(self):
         """Clear all errors."""
@@ -124,14 +127,16 @@ class BaseRobotSimulator:
     def _connect_mqtt(self):
         self._client.will_set(
             self._topic("connection"),
-            payload=json.dumps({
-                "headerId": 0,
-                "timestamp": self._iso_now(),
-                "version": self.version,
-                "manufacturer": self.manufacturer,
-                "serialNumber": self.serial_number,
-                "connectionState": "CONNECTIONBROKEN",
-            }),
+            payload=json.dumps(
+                {
+                    "headerId": 0,
+                    "timestamp": self._iso_now(),
+                    "version": self.version,
+                    "manufacturer": self.manufacturer,
+                    "serialNumber": self.serial_number,
+                    "connectionState": "CONNECTIONBROKEN",
+                }
+            ),
             qos=1,
             retain=True,
         )
@@ -139,14 +144,20 @@ class BaseRobotSimulator:
         self._client.loop_start()
 
     def _announce_online(self):
-        self._publish("connection", {
-            "connectionState": "ONLINE",
-        })
+        self._publish(
+            "connection",
+            {
+                "connectionState": "ONLINE",
+            },
+        )
 
     def _announce_offline(self):
-        self._publish("connection", {
-            "connectionState": "OFFLINE",
-        })
+        self._publish(
+            "connection",
+            {
+                "connectionState": "OFFLINE",
+            },
+        )
 
     def _publish(self, msg_type: str, extra: dict):
         self._header_id += 1

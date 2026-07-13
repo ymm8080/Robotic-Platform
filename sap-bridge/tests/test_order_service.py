@@ -1,4 +1,5 @@
 """Tests for OrderService with PostgreSQL persistence."""
+
 import pytest
 
 from models.order import OrderStatus, OrderType, WarehouseOrder
@@ -8,6 +9,7 @@ from models.order import OrderStatus, OrderType, WarehouseOrder
 def service():
     """OrderService connected to test PostgreSQL."""
     from services.order_service import OrderService
+
     return OrderService()
 
 
@@ -20,12 +22,14 @@ class TestOrderService:
         assert order.id > 0
 
     def test_create_and_retrieve(self, service):
-        service.create_order(WarehouseOrder(
-            order_no="ORDER-002",
-            type=OrderType.PICK,
-            priority=0,
-            source="SAP-TASK-001",
-        ))
+        service.create_order(
+            WarehouseOrder(
+                order_no="ORDER-002",
+                type=OrderType.PICK,
+                priority=0,
+                source="SAP-TASK-001",
+            )
+        )
         retrieved = service.get_order("ORDER-002")
         assert retrieved is not None
         assert retrieved.order_no == "ORDER-002"

@@ -105,6 +105,7 @@ class TestTrafficCoordinatorClient:
 
     def test_health_http_error(self, monkeypatch):
         from urllib.error import HTTPError
+
         url = f"{DEFAULT_COORDINATOR_URL}/health"
         resp = MagicMock()
         resp.status = 503
@@ -167,6 +168,7 @@ class TestTrafficCoordinatorClient:
 
     def test_submit_order_error(self, monkeypatch):
         from urllib.error import HTTPError
+
         url = f"{DEFAULT_COORDINATOR_URL}/order"
         resp = MagicMock()
         resp.code = 409
@@ -210,6 +212,7 @@ class TestTrafficCoordinatorClient:
 
     def test_urlerror_unreachable(self, monkeypatch):
         from urllib.error import URLError
+
         self._mock_urlopen(monkeypatch, exc=URLError("connection refused"))
         client = TrafficCoordinatorClient()
         result = client.health()

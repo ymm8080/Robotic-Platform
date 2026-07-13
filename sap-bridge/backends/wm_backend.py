@@ -44,20 +44,20 @@ RFC_RETRY_DELAYS = [1.0, 2.0, 4.0]
 # Movement type → task type mapping
 MOVEMENT_TYPE_MAP = {
     "999": "MOVE",
-    "101": "PUT",     # Goods receipt
-    "102": "PUT",     # GR reversal
-    "201": "PICK",    # Goods issue (production)
-    "202": "PICK",    # GI reversal
-    "301": "MOVE",    # Transfer posting
-    "321": "PUT",     # Putaway
-    "322": "PICK",    # Removal
+    "101": "PUT",  # Goods receipt
+    "102": "PUT",  # GR reversal
+    "201": "PICK",  # Goods issue (production)
+    "202": "PICK",  # GI reversal
+    "301": "MOVE",  # Transfer posting
+    "321": "PUT",  # Putaway
+    "322": "PICK",  # Removal
 }
 
 # Transfer type → task type
 TRANSFER_TYPE_MAP = {
-    "E": "PUT",       # Einlagerung (putaway)
-    "A": "PICK",      # Auslagerung (removal)
-    "U": "MOVE",      # Umlagerung (transfer)
+    "E": "PUT",  # Einlagerung (putaway)
+    "A": "PICK",  # Auslagerung (removal)
+    "U": "MOVE",  # Umlagerung (transfer)
 }
 
 
@@ -83,9 +83,7 @@ class WmBackend(WarehouseBackend):
         self._conn_ttl = 300  # Reconnect every 5 min
 
         if self._mode == "http":
-            self._simulator_url = self._cfg.get(
-                "simulator_url", DEFAULT_WM_SIMULATOR_URL
-            )
+            self._simulator_url = self._cfg.get("simulator_url", DEFAULT_WM_SIMULATOR_URL)
             self.display_name_str = f"SAP WM via Simulator ({self._simulator_url})"
         else:
             self._conn_params = self._build_conn_params()
@@ -133,14 +131,12 @@ class WmBackend(WarehouseBackend):
     def _create_connection(self):
         try:
             import pyrfc
+
             conn = pyrfc.Connection(**self._conn_params)
             logger.info("WM RFC connection established")
             return conn
         except ImportError:
-            logger.error(
-                "pyrfc not installed. Install with: pip install pyrfc\n"
-                "Requires SAP NW RFC SDK DLLs."
-            )
+            logger.error("pyrfc not installed. Install with: pip install pyrfc\nRequires SAP NW RFC SDK DLLs.")
             raise
         except Exception as e:
             logger.error(f"WM RFC connection failed: {e}")
@@ -157,6 +153,7 @@ class WmBackend(WarehouseBackend):
     def _get_http_client(self):
         if self._http_client is None:
             import httpx
+
             self._http_client = httpx.Client(base_url=self._simulator_url, timeout=30.0)
         return self._http_client
 
@@ -200,8 +197,9 @@ class WmBackend(WarehouseBackend):
 
     # ── Task CRUD ────────────────────────────────────────
 
-    def list_tasks(self, warehouse: str = "001", status: str = "0",
-                   top: int = 100, skip: int = 0) -> list[WarehouseTask]:
+    def list_tasks(
+        self, warehouse: str = "001", status: str = "0", top: int = 100, skip: int = 0
+    ) -> list[WarehouseTask]:
         try:
             result = self._call_rfc("L_TO_READ", I_LGNUM=warehouse)
         except Exception as e:
@@ -227,7 +225,7 @@ class WmBackend(WarehouseBackend):
             if len(tasks) >= top:
                 break
 
-        return tasks[skip:skip + top]
+        return tasks[skip : skip + top]
 
     def get_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> WarehouseTask | None:
         try:
@@ -280,8 +278,7 @@ class WmBackend(WarehouseBackend):
             logger.error(f"Failed to create WM TO: {e}")
             return None
 
-    def confirm_task(self, warehouse: str, task_id: str, qty: float,
-                     item_no: str = "0001") -> bool:
+    def confirm_task(self, warehouse: str, task_id: str, qty: float, item_no: str = "0001") -> bool:
         try:
             self._call_rfc(
                 "L_TO_CONFIRM",

@@ -20,6 +20,12 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || github.token }}
 
+      - name: Switch to PR branch (fix detached HEAD)
+        run: |
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+          echo "Switching to PR branch: $PR_BRANCH"
+          git checkout -B "$PR_BRANCH" "origin/$PR_BRANCH"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -33,13 +39,10 @@ jobs:
           git config user.name "CatPaw Auto-Fix"
           git config user.email "auto-fix@catpaw.local"
 
-      - name: Run ruff format (fix line length, imports, etc.)
+      - name: Run ruff format (sap-bridge only)
         run: |
-          echo "=== Running ruff format ==="
-          ruff format . --check || {
-            echo "Formatting needed, applying..."
-            ruff format .
-          }
+          echo "=== Running ruff format (sap-bridge) ==="
+          ruff format sap-bridge/ || true
 
       - name: Run ruff check --fix (sap-bridge)
         run: |
@@ -48,24 +51,21 @@ jobs:
           ruff check . --config ruff.toml --fix --unsafe-fixes || true
           cd ..
 
-      - name: Run ruff check --fix (root scripts)
+      - name: Run ruff check --fix (scripts only)
         run: |
-          echo "=== Running ruff check --fix (root) ==="
-          ruff check . --fix --unsafe-fixes || true
+          echo "=== Running ruff check --fix (scripts) ==="
+          ruff check scripts/ --fix --unsafe-fixes || true
 
       - name: Check for changes and commit
         id: check-changes
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           if ! git diff --quiet; then
             echo "Changes detected, committing..."
             git add -A
-            git commit -m "fix: auto-fix lint errors [ci skip]
-
-            - ruff format (line length, import sorting)
-            - ruff check --fix (unsafe-fixes enabled)
-
-            [ci skip]"
-            git push
+            git commit -m "fix: auto-fix lint errors [ci skip]"
+            git push origin "$BRANCH"
             echo "pushed=true" >> $GITHUB_OUTPUT
           else
             echo "No lint fixes needed."
@@ -78,18 +78,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
-          gh pr comment $PR_NUMBER --body "## 🤖 Auto-Fix Applied
-
-          Automatically fixed lint errors:
-          - \`ruff format\` (line length, import sorting)
-          - \`ruff check --fix --unsafe-fixes\` (structural issues)
-
-          Please review the changes and re-push if needed."
+          gh pr comment $PR_NUMBER --body "Auto-fix: applied ruff format + lint fixes"
 
   auto-fix-full:
     name: Full Auto-Fix (requires self-hosted runner)
     runs-on: ubuntu-latest
-    if: false  # Disabled by default. Enable on self-hosted runner with CatPaw CLI.
+    if: false
     permissions:
       pull-requests: write
       contents: write

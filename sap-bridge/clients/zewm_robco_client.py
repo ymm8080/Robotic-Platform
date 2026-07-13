@@ -46,12 +46,14 @@ logger = logging.getLogger(__name__)
 # ── Defaults ───────────────────────────────────────────────────────────
 
 DEFAULT_BASE_URL = os.getenv(
-    "SAP_EWM_BASE_URL", os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"),
+    "SAP_EWM_BASE_URL",
+    os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"),
 )
 DEFAULT_CLIENT = os.getenv("SAP_CLIENT", "100")
 DEFAULT_USER = os.getenv("SAP_USER", "")
 DEFAULT_PASSWORD_FILE = os.getenv(
-    "SAP_PASSWORD_FILE", "/run/secrets/sap_password",
+    "SAP_PASSWORD_FILE",
+    "/run/secrets/sap_password",
 )
 DEFAULT_REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
@@ -387,13 +389,11 @@ class ZewmRobcoClient:
         if cached:
             token, cookies = cached
             return self._get_full_headers(token, cookies, client)
-        auth_hdrs = (
-            self._get_auth_headers(client)
-            if self._auth_mode == "oauth2"
-            else {}
-        )
+        auth_hdrs = self._get_auth_headers(client) if self._auth_mode == "oauth2" else {}
         token, cookies = csrf.fetch_new(
-            client, self._base_url, self._odata_service,
+            client,
+            self._base_url,
+            self._odata_service,
             auth_headers=auth_hdrs,
         )
         return self._get_full_headers(token, cookies, client)
@@ -477,6 +477,7 @@ class ZewmRobcoClient:
             body = resp.json()
         except Exception as e:
             from .zewm_robco_exceptions import RobcoInternalError
+
             raise RobcoInternalError(f"Failed to parse response as JSON: {e}")
 
         d = body.get("d", body)
@@ -498,9 +499,8 @@ class ZewmRobcoClient:
                 else:
                     # Unexpected results type (should not happen)
                     from .zewm_robco_exceptions import RobcoInternalError
-                    raise RobcoInternalError(
-                        f"Unexpected 'results' type in response: {type(results).__name__}"
-                    )
+
+                    raise RobcoInternalError(f"Unexpected 'results' type in response: {type(results).__name__}")
             # Return the dict as-is (single entity response)
             return d
         elif isinstance(d, list):
@@ -547,7 +547,9 @@ class ZewmRobcoClient:
             )
 
     def _prepare_retry_headers(
-        self, status_code: int, client: httpx.Client,
+        self,
+        status_code: int,
+        client: httpx.Client,
     ) -> dict[str, str]:
         """Build fresh headers for a retry after a transient failure.
 
@@ -571,11 +573,7 @@ class ZewmRobcoClient:
         if status_code == 403:
             csrf = self._ensure_csrf()
             # In OAuth2 mode, we need auth headers for the CSRF token fetch
-            auth_hdrs = (
-                self._get_auth_headers(client)
-                if self._auth_mode == "oauth2"
-                else {}
-            )
+            auth_hdrs = self._get_auth_headers(client) if self._auth_mode == "oauth2" else {}
             try:
                 token, cookies = csrf.fetch_new(
                     client,
@@ -587,10 +585,7 @@ class ZewmRobcoClient:
             except Exception as exc:
                 # If CSRF fetch fails (e.g., due to OAuth2 token fetch failure),
                 # propagate the exception so retry can fail gracefully
-                logger.error(
-                    "Failed to fetch new CSRF token for 403 retry: %s",
-                    exc
-                )
+                logger.error("Failed to fetch new CSRF token for 403 retry: %s", exc)
                 raise
 
         # For 401 (OAuth2) or 429 — get fresh headers including CSRF token
@@ -632,10 +627,7 @@ class ZewmRobcoClient:
             )
 
             retries = 0
-            while (
-                resp.status_code in (401, 403, 429)
-                and retries < _MAX_HTTP_RETRIES
-            ):
+            while resp.status_code in (401, 403, 429) and retries < _MAX_HTTP_RETRIES:
                 # Pre-retry actions based on status code
                 if resp.status_code == 403:
                     logger.info("CSRF token expired, refreshing...")
@@ -659,12 +651,14 @@ class ZewmRobcoClient:
                 # Prepare headers for retry (with exception handling)
                 try:
                     headers = self._prepare_retry_headers(
-                        resp.status_code, client,
+                        resp.status_code,
+                        client,
                     )
                 except Exception as exc:
                     logger.error(
                         "Retry header preparation failed (status=%d): %s",
-                        resp.status_code, exc,
+                        resp.status_code,
+                        exc,
                     )
                     # Break instead of raise to let _handle_error_response
                     # produce a meaningful typed exception for the caller.
@@ -683,7 +677,8 @@ class ZewmRobcoClient:
                 if retries >= _MAX_HTTP_RETRIES and resp.status_code in (401, 403, 429):
                     logger.error(
                         "Max retries (%d) reached for status %d, giving up",
-                        _MAX_HTTP_RETRIES, resp.status_code,
+                        _MAX_HTTP_RETRIES,
+                        resp.status_code,
                     )
                     break
 
@@ -720,11 +715,7 @@ class ZewmRobcoClient:
         """
         self._throttle()
 
-        full_url = (
-            f"{self._base_url}{path}"
-            if not path.startswith("http")
-            else path
-        )
+        full_url = f"{self._base_url}{path}" if not path.startswith("http") else path
 
         resp = self._execute_with_retry(method, full_url, body)
 
@@ -1066,8 +1057,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "get_new_robotgroup_who is a P2 stub — "
-            "see plan §2.5 for batch reservation design",
+            "get_new_robotgroup_who is a P2 stub — see plan §2.5 for batch reservation design",
         )
 
     def unset_who_in_process(self) -> None:
@@ -1079,8 +1069,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "unset_who_in_process is a P2 stub — "
-            "see plan §2.5 for process reversion design",
+            "unset_who_in_process is a P2 stub — see plan §2.5 for process reversion design",
         )
 
     def send_conf_error(self) -> None:
@@ -1092,8 +1081,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "send_conf_error is a P2 stub — "
-            "see plan §2.5 for error alert design",
+            "send_conf_error is a P2 stub — see plan §2.5 for error alert design",
         )
 
     def move_who_to_error_queue(self) -> None:
@@ -1105,8 +1093,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "move_who_to_error_queue is a P2 stub — "
-            "requires SAP OData function import exposure; see plan §2.5",
+            "move_who_to_error_queue is a P2 stub — requires SAP OData function import exposure; see plan §2.5",
         )
 
     # ═══════════════════════════════════════════════════════════════════
@@ -1202,7 +1189,8 @@ class ZewmRobcoClient:
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
             logger.info(
-                "base_url may be default (%s) — verify config", DEFAULT_BASE_URL,
+                "base_url may be default (%s) — verify config",
+                DEFAULT_BASE_URL,
             )
 
         client_val = config.get("client", "")

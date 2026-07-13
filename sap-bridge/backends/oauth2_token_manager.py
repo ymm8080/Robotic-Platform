@@ -23,7 +23,6 @@ Credentials follow iron rule #5 — Docker Secrets only.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 
@@ -101,12 +100,8 @@ class OAuth2TokenManager:
         )
 
         if resp.status_code != 200:
-            logger.error(
-                f"OAuth2 token request failed: {resp.status_code} {resp.text[:200]}"
-            )
-            raise RuntimeError(
-                f"OAuth2 token endpoint returned {resp.status_code}"
-            )
+            logger.error(f"OAuth2 token request failed: {resp.status_code} {resp.text[:200]}")
+            raise RuntimeError(f"OAuth2 token endpoint returned {resp.status_code}")
 
         body = resp.json()
         access_token = body.get("access_token")
@@ -121,10 +116,7 @@ class OAuth2TokenManager:
         self._redis.set("sap:oauth2:last_refresh", str(time.time()))
 
         token_type = body.get("token_type", "Bearer")
-        logger.info(
-            f"Fetched new OAuth2 token (expires_in={expires_in}s, "
-            f"cached_ttl={cache_ttl}s, type={token_type})"
-        )
+        logger.info(f"Fetched new OAuth2 token (expires_in={expires_in}s, cached_ttl={cache_ttl}s, type={token_type})")
         return access_token
 
     def get_valid_token(self, client: httpx.Client) -> str:
@@ -143,6 +135,8 @@ class OAuth2TokenManager:
         logger.info("OAuth2 token invalidated — will refresh on next request")
 
     def close(self) -> None:
-        """Close Redis connection."""
-        with contextlib.suppress(Exception):
-            self._redis.close()
+        """Close Redis connection.
+
+        No-op: Redis connection is owned by the caller.
+        """
+        logger.debug("OAuth2TokenManager.close() is a no-op")

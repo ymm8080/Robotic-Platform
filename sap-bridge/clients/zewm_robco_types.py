@@ -17,6 +17,7 @@ class RobotType(StrEnum):
 
     Maps to /SCWM/TRSRC_TYP entries configured in SM30.
     """
+
     MIR = "MIR"
     KUKA = "KUKA"
     GEEKPLUS = "GEEKPLUS"
@@ -31,6 +32,7 @@ class ConfirmationStep(StrEnum):
     a warehouse task: resource assignment (step 1) and
     quantity / bin / HU / exception code (step 2).
     """
+
     FIRST = "FIRST_CONF"
     SECOND = "SECOND_CONF"
 
@@ -41,27 +43,28 @@ class ExceptionCode(StrEnum):
     These map to /SCWM/DE_EXCCODE domain values. Robot errors
     are translated to these codes before calling confirm_task().
     """
-    DAMAGED = "DAMG"          # Goods damaged (sensor failure, gripper fault)
-    EMPTY = "EMPT"            # Source bin empty (short pick)
-    WRONG_PRODUCT = "WRNG"    # Wrong product in bin
-    QUANTITY_DIFF = "DIFF"    # Quantity difference vs expected
-    BLOCKED = "BLKD"          # Bin or robot blocked (navigation, E-stop)
+
+    DAMAGED = "DAMG"  # Goods damaged (sensor failure, gripper fault)
+    EMPTY = "EMPT"  # Source bin empty (short pick)
+    WRONG_PRODUCT = "WRNG"  # Wrong product in bin
+    QUANTITY_DIFF = "DIFF"  # Quantity difference vs expected
+    BLOCKED = "BLKD"  # Bin or robot blocked (navigation, E-stop)
 
 
 # ── Robot Error to SAP Exception Code Mapping ──────────────────────────
 ROBOT_ERROR_TO_SAP_EXCCODE: dict[str, str] = {
     # Quicktron-specific errors
-    "ERR_QT_LIDAR_ANOMALY:E001":         ExceptionCode.DAMAGED,
-    "ERR_QT_MOTOR_FAULT:E002":           ExceptionCode.BLOCKED,
-    "ERR_QT_BATTERY_LOW:E003":           ExceptionCode.BLOCKED,
-    "ERR_QT_OBSTACLE_DETECTED:E005":     ExceptionCode.BLOCKED,
-    "ERR_QT_NAVIGATION_FAILURE:E006":    ExceptionCode.BLOCKED,
-    "ERR_QT_EMERGENCY_STOP:E007":        ExceptionCode.BLOCKED,
-    "ERR_QT_BIN_MECHANISM_FAULT:E008":   ExceptionCode.DAMAGED,
+    "ERR_QT_LIDAR_ANOMALY:E001": ExceptionCode.DAMAGED,
+    "ERR_QT_MOTOR_FAULT:E002": ExceptionCode.BLOCKED,
+    "ERR_QT_BATTERY_LOW:E003": ExceptionCode.BLOCKED,
+    "ERR_QT_OBSTACLE_DETECTED:E005": ExceptionCode.BLOCKED,
+    "ERR_QT_NAVIGATION_FAILURE:E006": ExceptionCode.BLOCKED,
+    "ERR_QT_EMERGENCY_STOP:E007": ExceptionCode.BLOCKED,
+    "ERR_QT_BIN_MECHANISM_FAULT:E008": ExceptionCode.DAMAGED,
     # Platform-generated errors
-    "ERR_SCS_TIMEOUT":                   ExceptionCode.BLOCKED,
-    "ERR_TRAFFIC_VIOLATION":             ExceptionCode.BLOCKED,
-    "ERR_SENSOR_DEGRADED":               ExceptionCode.DAMAGED,
+    "ERR_SCS_TIMEOUT": ExceptionCode.BLOCKED,
+    "ERR_TRAFFIC_VIOLATION": ExceptionCode.BLOCKED,
+    "ERR_SENSOR_DEGRADED": ExceptionCode.DAMAGED,
 }
 
 

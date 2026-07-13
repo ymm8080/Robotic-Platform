@@ -33,8 +33,10 @@ def _expand_env_vars(obj):
     if isinstance(obj, list):
         return [_expand_env_vars(v) for v in obj]
     if isinstance(obj, str):
+
         def _repl(match):
             return os.environ.get(match.group("name"), match.group("default") or "")
+
         return _ENV_PLACEHOLDER.sub(_repl, obj)
     return obj
 
@@ -102,17 +104,11 @@ class WarehouseBackendFactory:
             backend_type = wh_config.get("backend", "ewm")
             backend = self._registry.instantiate(backend_type, wh_config)
             if backend is None:
-                logger.error(
-                    f"Failed to create backend '{backend_type}' "
-                    f"for warehouse '{warehouse_id}'"
-                )
+                logger.error(f"Failed to create backend '{backend_type}' for warehouse '{warehouse_id}'")
                 return None
 
             self._warehouses[warehouse_id] = backend
-            logger.info(
-                f"Warehouse '{warehouse_id}' → {backend.display_name} "
-                f"(type={backend_type})"
-            )
+            logger.info(f"Warehouse '{warehouse_id}' → {backend.display_name} (type={backend_type})")
             return backend
 
     def list_warehouses(self) -> list[str]:
