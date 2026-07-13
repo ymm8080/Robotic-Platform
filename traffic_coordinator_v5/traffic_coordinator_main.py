@@ -195,29 +195,32 @@ def _background_tick(stop_event: threading.Event) -> None:
     snap_executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=1, thread_name_prefix="snapshot",
     )
-    while not stop_event.is_set():
-        now = time.monotonic()
-        result = COORDINATOR.tick(now)
-        _publish_tick_result(result)
-        if now - last_snapshot >= SNAPSHOT_INTERVAL:
-            # submit() raises RuntimeError if the executor is shut down.
-            # COORDINATOR.snapshot() is called inside _save_snapshot (in
-            # the worker thread) to avoid blocking the tick loop.
-            # last_snapshot is updated on submit success, not on save
-            # completion — a failed save should not trigger rapid retries.
-            try:
-                snap_executor.submit(_save_snapshot)
-                last_snapshot = now
-            except RuntimeError:
-                _logger.warning("[snapshot] submit failed")
-        stop_event.wait(TICK_INTERVAL)
-    # wait=True ensures pending snapshot tasks complete before exit,
-    # preventing data loss. Since _save_snapshot calls STATE_STORE.set
-    # (a synchronous blocking write), shutdown may block briefly until
-    # the in-flight snapshot finishes — acceptable for a single-worker
-    # executor. Do not change to wait=False without ensuring an
-    # alternative flush mechanism.
-    snap_executor.shutdown(wait=True)
+    try:
+        while not stop_event.is_set():
+            now = time.monotonic()
+            result = COORDINATOR.tick(now)
+            _publish_tick_result(result)
+            if now - last_snapshot >= SNAPSHOT_INTERVAL:
+                # submit() raises RuntimeError if the executor is shut down.
+                # COORDINATOR.snapshot() is called inside _save_snapshot (in
+                # the worker thread) to avoid blocking the tick loop.
+                # last_snapshot is updated on submit success, not on save
+                # completion — a failed save should not trigger rapid retries.
+                try:
+                    snap_executor.submit(_save_snapshot)
+                    last_snapshot = now
+                except RuntimeError:
+                    _logger.warning("[snapshot] submit failed")
+            stop_event.wait(TICK_INTERVAL)
+    finally:
+        # wait=True ensures pending snapshot tasks complete before exit,
+        # preventing data loss. try/finally guarantees shutdown even if
+        # the tick loop raises unexpectedly. Since _save_snapshot calls
+        # STATE_STORE.set (a synchronous blocking write), shutdown may
+        # block briefly until the in-flight snapshot finishes — acceptable
+        # for a single-worker executor. Do not change to wait=False
+        # without ensuring an alternative flush mechanism.
+        snap_executor.shutdown(wait=True)
 
 
 def _save_snapshot() -> None:
