@@ -225,11 +225,28 @@ REGISTERED_ADAPTERS = bootstrap_adapters(COORDINATOR)
 # Restore coordinator state from previous run (crash recovery)
 _saved = STATE_STORE.get(SNAPSHOT_KEY)
 if _saved is not None:
-    try:
-        COORDINATOR.restore(_saved)
-        _logger.info("[snapshot] restored coordinator state from snapshot")
-    except Exception as exc:
-        _logger.warning("[snapshot] restore failed: %s", exc)
+    # Validate snapshot data before attempting restore to avoid
+    # crashing on corrupted or incompatible data.
+    if not isinstance(_saved, dict):
+        _logger.warning(
+            "[snapshot] ignoring invalid snapshot (type=%s, expected dict)",
+            type(_saved).__name__,
+        )
+    else:
+        try:
+            COORDINATOR.restore(_saved)
+            _logger.info("[snapshot] restored coordinator state from snapshot")
+        except (KeyError, ValueError, TypeError) as exc:
+            # Expected errors from incompatible or corrupted snapshots —
+            # log and gracefully degrade by starting fresh.
+            _logger.warning(
+                "[snapshot] restore failed (will start fresh): %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+        except Exception as exc:
+            # Unexpected errors — log with full traceback for debugging.
+            _logger.exception("[snapshot] unexpected restore failure: %s", exc)
 else:
     _logger.info("[snapshot] no prior snapshot found — starting fresh")
 
