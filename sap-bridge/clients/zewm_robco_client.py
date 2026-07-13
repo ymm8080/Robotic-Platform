@@ -490,8 +490,8 @@ class ZewmRobcoClient:
             if "results" in d:
                 results = d["results"]
                 if isinstance(results, list):
-                    # Normal collection response
-                    return results
+                    # Preserve the results as dict, not list
+                    return {"results": results}
                 elif isinstance(results, dict):
                     # Single-item collection wrapped in a dict
                     # Wrap it in a list for consistent return type
@@ -541,7 +541,7 @@ class ZewmRobcoClient:
             error_code = raw_code.split("/")[0]
             detail = err.get("message", {}).get("value", "")
             raise_for_error_code(error_code, detail)
-        except KeyError:
+        except (KeyError, AttributeError):
             raise RobcoInternalError(
                 f"HTTP {resp.status_code}: unexpected error format: {body}",
             )
