@@ -46,12 +46,14 @@ logger = logging.getLogger(__name__)
 # ── Defaults ───────────────────────────────────────────────────────────
 
 DEFAULT_BASE_URL = os.getenv(
-    "SAP_EWM_BASE_URL", os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"),
+    "SAP_EWM_BASE_URL",
+    os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"),
 )
 DEFAULT_CLIENT = os.getenv("SAP_CLIENT", "100")
 DEFAULT_USER = os.getenv("SAP_USER", "")
 DEFAULT_PASSWORD_FILE = os.getenv(
-    "SAP_PASSWORD_FILE", "/run/secrets/sap_password",
+    "SAP_PASSWORD_FILE",
+    "/run/secrets/sap_password",
 )
 DEFAULT_REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
@@ -69,6 +71,7 @@ CONFIRM_RETRY_BACKOFF_CAP = 30.0
 
 # Max HTTP retries for 401/403/429 in a single _request() call
 _MAX_HTTP_RETRIES = 3
+
 
 def _read_password(password_file: str) -> str:
     """Read password from a Docker secret file."""
@@ -370,13 +373,11 @@ class ZewmRobcoClient:
         if cached:
             token, cookies = cached
             return self._get_full_headers(token, cookies, client)
-        auth_hdrs = (
-            self._get_auth_headers(client)
-            if self._auth_mode == "oauth2"
-            else {}
-        )
+        auth_hdrs = self._get_auth_headers(client) if self._auth_mode == "oauth2" else {}
         token, cookies = csrf.fetch_new(
-            client, self._base_url, self._odata_service,
+            client,
+            self._base_url,
+            self._odata_service,
             auth_headers=auth_hdrs,
         )
         return self._get_full_headers(token, cookies, client)
@@ -407,14 +408,11 @@ class ZewmRobcoClient:
         base = f"{self._base_url}{self._odata_service}/{name}"
         if not params:
             return base
-        qs = "&".join(
-            f"{k}='{v}'" for k, v in params.items() if v is not None
-        )
+        qs = "&".join(f"{k}='{v}'" for k, v in params.items() if v is not None)
         return f"{base}?{qs}"
 
     # ── Response parsing ──────────────────────────────────────────────
 
-    @staticmethod
     @staticmethod
     def parse_response(resp: httpx.Response) -> dict[str, Any] | list[dict[str, Any]] | None:
         """Unwrap SAP OData V2 ``{"d": {...}}`` envelope.
@@ -481,7 +479,9 @@ class ZewmRobcoClient:
             )
 
     def _prepare_retry_headers(
-        self, status_code: int, client: httpx.Client,
+        self,
+        status_code: int,
+        client: httpx.Client,
     ) -> dict[str, str]:
         """Build fresh headers for a retry after a transient failure.
 
@@ -496,13 +496,11 @@ class ZewmRobcoClient:
         """
         if status_code == 403:
             csrf = self._ensure_csrf()
-            auth_hdrs = (
-                self._get_auth_headers(client)
-                if self._auth_mode == "oauth2"
-                else {}
-            )
+            auth_hdrs = self._get_auth_headers(client) if self._auth_mode == "oauth2" else {}
             token, cookies = csrf.fetch_new(
-                client, self._base_url, self._odata_service,
+                client,
+                self._base_url,
+                self._odata_service,
                 auth_headers=auth_hdrs,
             )
             return self._get_full_headers(token, cookies, client)
@@ -537,11 +535,7 @@ class ZewmRobcoClient:
 
         with self._get_client() as client:
             headers = self._get_csrf_headers(client)
-            full_url = (
-                f"{self._base_url}{path}"
-                if not path.startswith("http")
-                else path
-            )
+            full_url = f"{self._base_url}{path}" if not path.startswith("http") else path
 
             resp = client.request(
                 method=method,
@@ -913,8 +907,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "get_new_robotgroup_who is a P2 stub — "
-            "see plan §2.5 for batch reservation design",
+            "get_new_robotgroup_who is a P2 stub — see plan §2.5 for batch reservation design",
         )
 
     def unset_who_in_process(self) -> None:
@@ -926,8 +919,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "unset_who_in_process is a P2 stub — "
-            "see plan §2.5 for process reversion design",
+            "unset_who_in_process is a P2 stub — see plan §2.5 for process reversion design",
         )
 
     def send_conf_error(self) -> None:
@@ -939,8 +931,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "send_conf_error is a P2 stub — "
-            "see plan §2.5 for error alert design",
+            "send_conf_error is a P2 stub — see plan §2.5 for error alert design",
         )
 
     def move_who_to_error_queue(self) -> None:
@@ -952,8 +943,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "move_who_to_error_queue is a P2 stub — "
-            "requires SAP OData function import exposure; see plan §2.5",
+            "move_who_to_error_queue is a P2 stub — requires SAP OData function import exposure; see plan §2.5",
         )
 
     # ═══════════════════════════════════════════════════════════════════
@@ -1049,7 +1039,7 @@ class ZewmRobcoClient:
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
             errors.append(
-                "base_url may be default (%s) — check config" % DEFAULT_BASE_URL,
+                f"base_url may be default ({DEFAULT_BASE_URL}) — check config",
             )
 
         client_val = config.get("client", "")
