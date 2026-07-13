@@ -265,7 +265,9 @@ class FleetSimulator:
         elif name == "charger":
             lane_map.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
             lane_map.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
-            lane_map.add_lane(Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True))
+            lane_map.add_lane(
+                Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True)
+            )
             # battery=19.9: below the 20% force_lock_threshold to trigger automatic charger dispatch.
             # 5 robots vs 2 charger bays: intentional stress test for charger reservation logic.
             for i in range(1, 6):
@@ -278,8 +280,12 @@ class FleetSimulator:
             self.add_robot("R-001", "L_A_B")
             robot_ids.append("R-001")
         elif name == "deadlock":
-            lane_map.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
-            lane_map.add_lane(Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
+            lane_map.add_lane(
+                Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0)
+            )
+            lane_map.add_lane(
+                Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1)
+            )
             self.add_robot("R-001", "L_A_B")
             self.add_robot("R-002", "L_B_A")
             robot_ids.extend(["R-001", "R-002"])
