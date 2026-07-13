@@ -80,12 +80,18 @@ class FleetSimulator:
             try:
                 self._mqtt.connect()
             except (OSError, ConnectionError) as exc:
-                logger.exception("FleetSimulator: MQTT connection failed — running without MQTT: %s", exc)
+                logger.exception(
+                    "FleetSimulator: MQTT connection failed"
+                    " — running without MQTT: %s", exc
+                )
                 # Don't start tick thread if MQTT connection fails
                 self._mqtt = None
                 return
             except Exception as exc:
-                logger.exception("FleetSimulator: Unexpected error during MQTT connection — running without MQTT: %s", exc)
+                logger.exception(
+                    "FleetSimulator: Unexpected error during MQTT connection"
+                    " — running without MQTT: %s", exc
+                )
                 self._mqtt = None
                 return
         self._running = True
@@ -183,7 +189,10 @@ class FleetSimulator:
     @staticmethod
     def _apply_action(robot: SimulatedRobot, action: dict) -> None:
         action_type = str(action.get("actionType", "")).upper()
-        params = {p.get("key", ""): p.get("value") for p in action.get("actionParameters", []) or []}
+        params = {
+            p.get("key", ""): p.get("value")
+            for p in action.get("actionParameters", []) or []
+        }
 
         if action_type == "STOPPAUSE" or action_type == "HOLD":
             robot.hold()
@@ -234,7 +243,8 @@ class FleetSimulator:
         :param name: Scenario name. One of: intersection, charger, fault,
                      deadlock, safe_distance.
         :returns: List of created robot IDs.
-        :raises RuntimeError: If called on a fleet that already has robots or a lane graph that already has lanes (prevents accidental double-loading).
+        :raises RuntimeError: If called on a fleet that already has robots
+        or a lane graph that already has lanes (prevents accidental double-loading).
         :raises ValueError: If *name* is not a recognised scenario.
 
         Supported scenarios:
@@ -253,9 +263,27 @@ class FleetSimulator:
         lane_map = self.lane_graph.fmap
         if name == "intersection":
             # Different lengths simulate robots arriving from varying distances.
-            lane_map.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
-            lane_map.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
-            lane_map.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
+            lane_map.add_lane(
+                Lane(
+                    "L_A_B", "A", "B",
+                    length=2.0, max_speed=1.5,
+                    intersection_id="X1", direction=0,
+                )
+            )
+            lane_map.add_lane(
+                Lane(
+                    "L_X_B", "X", "B",
+                    length=20.0, max_speed=1.5,
+                    intersection_id="X1", direction=0,
+                )
+            )
+            lane_map.add_lane(
+                Lane(
+                    "L_Y_B", "Y", "B",
+                    length=30.0, max_speed=1.5,
+                    intersection_id="X1", direction=1,
+                )
+            )
             lane_map.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
             lane_map.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
             lane_map.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
@@ -264,11 +292,14 @@ class FleetSimulator:
                 robot_ids.append(rid)
         elif name == "charger":
             lane_map.add_lane(Lane("L_A_B", "A", "B", length=5.0, max_speed=1.5))
-            lane_map.add_lane(Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True))
+            lane_map.add_lane(
+                Lane("L_B_CHG1", "B", "CHG1", length=5.0, max_speed=1.5, charger=True)
+            )
             lane_map.add_lane(
                 Lane("L_B_CHG2", "B", "CHG2", length=5.0, max_speed=1.5, charger=True)
             )
-            # battery=19.9: below the 20% force_lock_threshold to trigger automatic charger dispatch.
+            # battery=19.9: below the 20% force_lock_threshold
+            # to trigger automatic charger dispatch.
             # 5 robots vs 2 charger bays: intentional stress test for charger reservation logic.
             for i in range(1, 6):
                 rid = f"R-{i:03d}"
@@ -281,10 +312,18 @@ class FleetSimulator:
             robot_ids.append("R-001")
         elif name == "deadlock":
             lane_map.add_lane(
-                Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0)
+                Lane(
+                    "L_A_B", "A", "B",
+                    length=10.0, max_speed=1.5,
+                    intersection_id="X1", direction=0,
+                )
             )
             lane_map.add_lane(
-                Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1)
+                Lane(
+                    "L_B_A", "B", "A",
+                    length=10.0, max_speed=1.5,
+                    intersection_id="X1", direction=1,
+                )
             )
             self.add_robot("R-001", "L_A_B")
             self.add_robot("R-002", "L_B_A")
