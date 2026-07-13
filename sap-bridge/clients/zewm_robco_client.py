@@ -615,8 +615,7 @@ class ZewmRobcoClient:
         Returns:
             HTTP response.
         """
-        client = self._get_client()
-        try:
+        with self._get_client() as client:
             headers = initial_headers or self._get_csrf_headers(client)
             resp = client.request(
                 method=method,
@@ -683,9 +682,8 @@ class ZewmRobcoClient:
                     break
 
             return resp
-        except httpx.HTTPError as exc:
-            logger.error("HTTP request failed: %s", exc)
-            raise
+
+    # ── Core request method ───────────────────────────────────────────
 
     def _request(
         self,
@@ -963,10 +961,10 @@ class ZewmRobcoClient:
         """Unwrap a parse_response result into a list of dicts.
 
         Handles three cases:
-        - ``None`` → empty list
-        - ``list`` → returned as-is
-        - ``dict`` with ``results`` key → extracts the list
-        - ``dict`` (single entity) → wrapped in a single-element list
+        - ``None`` -> empty list
+        - ``list`` -> returned as-is
+        - ``dict`` with ``results`` key -> extracts the list
+        - ``dict`` (single entity) -> wrapped in a single-element list
 
         Args:
             result: The return value of :meth:`parse_response`.
@@ -1188,14 +1186,18 @@ class ZewmRobcoClient:
 
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
-            logger.info(
-                "base_url may be default (%s) — verify config",
+            logger.warning(
+                "base_url may be default (%s) — verify config "
+                "(non-blocking: service stays disabled until explicitly enabled)",
                 DEFAULT_BASE_URL,
             )
 
         client_val = config.get("client", "")
         if not client_val or client_val == "100":
-            logger.info("SAP client may be default (100) — verify tenant")
+            logger.warning(
+                "SAP client may be default (100) — verify tenant "
+                "(non-blocking: service stays disabled until explicitly enabled)"
+            )
 
         return errors
 
