@@ -129,6 +129,9 @@ class RobotPlatformCoordinator:
         self._task_retries: dict[str, int] = {}
         self._active_assignments: dict[str, TaskAssignment] = {}
         self._robot_lane: dict[str, str] = {}  # robot_id -> current lane
+        # Robots assigned in the current tick to prevent double assignment
+        # before _active_assignments is updated. Reset at the start of each tick.
+        self._assigned_in_tick: set[str] = set()
         # Recently completed / failed task IDs with timestamps, so downstream
         # consumers (e.g. SAP bridge) can distinguish success from failure
         # instead of guessing from the absence in the active list.
@@ -202,6 +205,10 @@ class RobotPlatformCoordinator:
     def tick(self, now: float) -> TickResult:
         """Advance one platform tick: safety, traffic, allocation, resources."""
         result = TickResult()
+        
+        # Reset the set of robots assigned in this tick to prevent double assignment
+        # before _active_assignments is updated.
+        self._assigned_in_tick.clear()
 
         # 1. liveness + failover
         transitions = self.failover.tick(now)
@@ -270,13 +277,9 @@ class RobotPlatformCoordinator:
         tasks = sorted(self._task_queue, key=lambda t: (-t.priority, t.created_at))
         self._task_queue.clear()
 
-        # Track robots assigned during *this* tick to prevent double-assignment
-        # before _active_assignments is updated (which happens after successful dispatch).
-        assigned_robots: set[str] = set()
-
         # Pre-compute eligible robots once per tick (static snapshot).
-        # ``assigned_robots`` is a dynamic set that prevents double-assignment
-        # within the same tick as tasks are dispatched.
+        # ``self._assigned_in_tick`` is a dynamic set that prevents double-assignment
+        # within the same tick as tasks are dispatched (reset at the start of each tick).
         base_candidates = [
             r for r in self._robot_states.values()
             if r.robot_id not in self._active_assignments
@@ -291,7 +294,7 @@ class RobotPlatformCoordinator:
             if self._is_expired_or_exhausted(task, now):
                 continue
 
-            candidates = [r for r in base_candidates if r.robot_id not in assigned_robots]
+            candidates = [r for r in base_candidates if r.robot_id not in self._assigned_in_tick]
             result = self.allocator.allocate(task, candidates)
             if not result.assigned:
                 if self._requeue_task(task, now, result.reason):
@@ -328,7 +331,7 @@ class RobotPlatformCoordinator:
             # same tick.
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
-                assigned_robots.add(robot.robot_id)
+                self._assigned_in_tick.add(robot.robot_id)
                 self._active_assignments[robot.robot_id] = assignment
             except Exception as exc:
                 try:
