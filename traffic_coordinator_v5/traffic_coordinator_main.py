@@ -190,7 +190,9 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
-    _snap_executor = concurrent.futures.ThreadPoolExecutor(
+    # Local executor — no underscore prefix since this is a function-local
+    # variable, not a module-level private name.
+    snap_executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=1, thread_name_prefix="snapshot",
     )
     while not stop_event.is_set():
@@ -198,13 +200,19 @@ def _background_tick(stop_event: threading.Event) -> None:
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
+            # Guard against submit-level failures (e.g. executor shut down
+            # or rejected execution). Internal errors within _save_snapshot
+            # are already caught and logged there as warnings.
             try:
-                _snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
+                snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
                 last_snapshot = now
             except Exception:
-                _logger.exception("[snapshot] save failed")
+                _logger.warning("[snapshot] submit failed")
         stop_event.wait(TICK_INTERVAL)
-    _snap_executor.shutdown(wait=True)
+    # wait=True ensures pending snapshot tasks complete before exit,
+    # preventing data loss. Do not change to wait=False without ensuring
+    # an alternative flush mechanism.
+    snap_executor.shutdown(wait=True)
 
 
 def _save_snapshot(snapshot_data: dict) -> None:
