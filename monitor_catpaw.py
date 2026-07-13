@@ -77,10 +77,17 @@ class CatPawMonitor:
             try:
                 with open(config_path, 'r') as f:
                     user_config = json.load(f)
-                # Merge with defaults
-                merged = default_config.copy()
-                merged.update(user_config)
-                return merged
+                # Deep merge: recursively merge user config over defaults
+                # so that missing keys in user config are filled from defaults
+                def _deep_merge(base: dict, override: dict) -> dict:
+                    result = base.copy()
+                    for key, val in override.items():
+                        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+                            result[key] = _deep_merge(result[key], val)
+                        else:
+                            result[key] = val
+                    return result
+                return _deep_merge(default_config, user_config)
             except Exception as e:
                 print(f"Error loading config: {e}, using defaults")
                 return default_config
