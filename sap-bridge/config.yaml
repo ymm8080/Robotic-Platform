@@ -141,6 +141,8 @@ sap:
   # ── ZEWM_ROBCO_SRV OData service (robot control) ──
   # Restored after PR #44 reverted the C3 config; the zewm_robco_client reads
   # its settings from this block. Disabled until the ABAP side is installed.
+  # The SapCoordinatorBridge (§3.4 wiring) consumes enabled +
+  # confirm_retry_{max,backoff_base,backoff_cap} from this block.
   zewm_robco:
     enabled: false  # set to true when ABAP side is installed and tested
     base_url: "https://sap-host.example.com:443"

@@ -154,6 +154,27 @@ class TestScenarios:
         assert state.mode.name == "IDLE"
         assert len(harness.coordinator._active_assignments) == 0
 
+    def test_state_exposes_recently_completed(self, demo_map):
+        """Phase 1: /state surfaces recently_completed as [task_id, ts] pairs.
+
+        After a task completes, ``_recently_completed`` must hold ``(task_id,
+        timestamp)`` tuples that the HTTP ``/state`` handler serializes as
+        ``[task_id, timestamp]`` for downstream consumers (the SAP bridge).
+        """
+        harness = CoordinatorHarness(demo_map)
+        harness.add_robot("R-001", "L_A_B")
+        harness.submit_order("o1", "L_A_B", "L_B_C")
+        harness.tick(60)
+
+        completed = list(harness.coordinator._recently_completed)
+        assert completed, "expected at least one recently completed task"
+        task_id, ts = completed[-1]
+        assert isinstance(task_id, str) and task_id
+        assert isinstance(ts, float)
+        # Exact serialization shape used by the /state handler.
+        serialized = [[tid, t] for tid, t in completed]
+        assert serialized[-1][0] == task_id
+
     def test_intersection_conflict(self):
         """3 robots converge at a single intersection; traffic light gates entry."""
         fmap = FixedLaneMap()
