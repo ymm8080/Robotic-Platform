@@ -163,6 +163,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
         self._connections: dict[str, RobotConnection] = {}
         self._lock = threading.Lock()
         self._running = False
+        self._connect_event = threading.Event()
 
     # ── lifecycle ────────────────────────────────────────────
 
@@ -252,11 +253,21 @@ class MqttGateway(InboundGateway, OutboundGateway):
         )
 
         try:
+            self._connect_event.clear()
             self._client.connect(self._broker_host, self._broker_port, keepalive=10)
             self._client.loop_start()
-            logger.info(
-                "MqttGateway connected to %s:%s", self._broker_host, self._broker_port
-            )
+            # Wait for on_connect callback to confirm connection (max 5s)
+            if not self._connect_event.wait(timeout=5):
+                logger.warning(
+                    "MqttGateway connect to %s:%s — callback not received in 5s, "
+                    "connection may still be in progress",
+                    self._broker_host, self._broker_port,
+                )
+            else:
+                logger.info(
+                    "MqttGateway connected to %s:%s",
+                    self._broker_host, self._broker_port,
+                )
             return True
         except Exception:
             logger.exception("MqttGateway failed to connect to MQTT broker")
@@ -278,6 +289,8 @@ class MqttGateway(InboundGateway, OutboundGateway):
             logger.info("MqttGateway subscribed to VDA5050 topics")
         else:
             logger.error("MqttGateway connection failed, rc=%s", reason_code)
+        # Signal connection attempt completed (success or failure)
+        self._connect_event.set()
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if self._running:

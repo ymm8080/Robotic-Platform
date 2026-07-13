@@ -47,6 +47,8 @@ class RobotConfig:
     battery_charge_per_second: float = 5.0  # % per second while CHARGING
     charger_threshold: float = 20.0     # % — coordinator force-lock boundary
     charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)
+    tick_guard_multiplier: int = 2      # multiplier for path-length-based guard limit
+    tick_guard_floor: int = 1000        # minimum guard limit for tick loop
 
 
 @dataclass
