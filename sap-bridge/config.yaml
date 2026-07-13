@@ -168,6 +168,29 @@ sap.zewm_robco:
   #   scope: ""  # optional; S/4HANA usually does not require scope
 
 
+# ── ZEWM ROBCO Custom OData Service ────────────────────────────────────────
+sap.zewm_robco:
+  enabled: true
+  base_url: "${SAP_EWM_BASE_URL:-http://sap-ewm:8000}"
+  client: "${SAP_CLIENT:-100}"
+  odata_service: "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
+  auth_mode: basic  # "basic" (default, legacy) or "oauth2" (S/4HANA 2023+)
+  user: "${SAP_USER:-}"
+  password_file: "${SAP_PASSWORD_FILE:-/run/secrets/sap_password}"
+  rate_limit: 80  # requests per minute - ZEWM_ROBCO service specific limit
+  connection_timeout: 30
+  confirm_retry_max: 5
+  confirm_retry_backoff_base: 1  # seconds (exponential backoff)
+  confirm_retry_backoff_cap: 30  # maximum backoff in seconds
+  # ── OAuth2 mode (uncomment auth_mode and oauth2 section for S/4HANA) ──
+  # auth_mode: oauth2
+  # oauth2:
+  #   token_url: "${SAP_OAUTH_TOKEN_URL:-https://sap-s4hana:44300/sap/bc/sec/oauth2/token}"
+  #   client_id: "${SAP_OAUTH_CLIENT_ID:-}"
+  #   client_secret_file: "${SAP_OAUTH_CLIENT_SECRET_FILE:-/run/secrets/sap_oauth_client_secret}"
+  #   scope: ""  # optional; S/4HANA usually does not require scope
+
+
 # ── Order Lifecycle ─────────────────────────────────────────────────────────
 order:
   allowed_transitions:
