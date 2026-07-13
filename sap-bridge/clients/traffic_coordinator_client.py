@@ -13,6 +13,7 @@ The synchronous methods below are safe for use outside an async event loop.
 Inside the async SAP Bridge app, use the ``*_async`` variants to avoid
 blocking the event loop on network I/O.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -108,9 +109,7 @@ class TrafficCoordinatorClient:
     def _post(self, path: str, body: dict | None, auth: bool = True) -> ClientResult:
         return self._request("POST", path, body=body, auth=auth)
 
-    def _request(
-        self, method: str, path: str, body: dict | None, auth: bool
-    ) -> ClientResult:
+    def _request(self, method: str, path: str, body: dict | None, auth: bool) -> ClientResult:
         url = f"{self.base_url}{path}"
         data = json.dumps(body).encode() if body is not None else None
 
@@ -136,7 +135,10 @@ class TrafficCoordinatorClient:
                 error_data = None
             logger.warning(
                 "coordinator HTTP %s %s → %s: %s",
-                method, path, exc.code, error_data or exc.reason,
+                method,
+                path,
+                exc.code,
+                error_data or exc.reason,
             )
             return ClientResult(
                 ok=False,

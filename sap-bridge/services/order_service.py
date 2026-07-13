@@ -5,6 +5,7 @@ create → assign → execute → complete / fail / cancel / suspend
 
 v4.1: PostgreSQL-only. All data in PostgreSQL.
 """
+
 import json
 import logging
 
@@ -43,13 +44,21 @@ class OrderService:
             cur = conn.execute(
                 sql,
                 (
-                    order.order_no, order.type.value, order.priority,
-                    order.source, order.robot_brand, order.robot_serial,
+                    order.order_no,
+                    order.type.value,
+                    order.priority,
+                    order.source,
+                    order.robot_brand,
+                    order.robot_serial,
                     order.status.value,
                     json.dumps(order.payload) if order.payload else None,
-                    order.zone_id, order.location, order.weight,
-                    order.env_tag, order.expected_qty,
-                    order.created_at, order.updated_at,
+                    order.zone_id,
+                    order.location,
+                    order.weight,
+                    order.env_tag,
+                    order.expected_qty,
+                    order.created_at,
+                    order.updated_at,
                 ),
             )
             conn.commit()
@@ -63,9 +72,7 @@ class OrderService:
         """Get order by order number."""
         conn = self._connect()
         try:
-            row = conn.execute(
-                "SELECT * FROM orders WHERE order_no = ?", (order_no,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM orders WHERE order_no = ?", (order_no,)).fetchone()
             if row is None:
                 return None
             return self._row_to_order(row)
@@ -76,9 +83,7 @@ class OrderService:
         """Get order by database ID."""
         conn = self._connect()
         try:
-            row = conn.execute(
-                "SELECT * FROM orders WHERE id = ?", (order_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
             if row is None:
                 return None
             return self._row_to_order(row)
@@ -237,24 +242,27 @@ class OrderService:
                    updated_at=?, completed_at=?, version=?
                    WHERE order_no=? AND version=?""",
                 (
-                    order.status.value, order.robot_brand, order.robot_serial,
+                    order.status.value,
+                    order.robot_brand,
+                    order.robot_serial,
                     json.dumps(order.payload) if order.payload else None,
-                    order.zone_id, order.location, order.weight,
-                    order.expected_qty, order.assigned_rule_id,
+                    order.zone_id,
+                    order.location,
+                    order.weight,
+                    order.expected_qty,
+                    order.assigned_rule_id,
                     order.error_message,
-                    order.updated_at, order.completed_at, new_version,
-                    order.order_no, order.version,
+                    order.updated_at,
+                    order.completed_at,
+                    new_version,
+                    order.order_no,
+                    order.version,
                 ),
             )
             conn.commit()
             if cur.rowcount == 0:
-                logger.error(
-                    f"Optimistic lock failed for {order.order_no} — "
-                    f"concurrent modification detected"
-                )
-                raise RuntimeError(
-                    f"Order {order.order_no} was modified concurrently"
-                )
+                logger.error(f"Optimistic lock failed for {order.order_no} — concurrent modification detected")
+                raise RuntimeError(f"Order {order.order_no} was modified concurrently")
             order.version = new_version
             logger.info(f"Order updated: {order.order_no} → {order.status.value} (v{order.version})")
         finally:

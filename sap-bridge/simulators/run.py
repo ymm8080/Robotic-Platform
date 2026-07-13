@@ -11,6 +11,7 @@ Usage:
     python simulators/run.py --brand OTTO --broker localhost --interval 1.0
     python simulators/run.py --all  # Start one of each brand
 """
+
 import argparse
 import logging
 import signal

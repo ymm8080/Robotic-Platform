@@ -1,4 +1,5 @@
 """Tests for Metrics module — metric registration, labels, response."""
+
 import importlib
 
 import pytest
@@ -26,6 +27,7 @@ class TestMetricsRegistry:
             sap_connected,
             uptime,
         )
+
         assert "sap_bridge_orders_created" in str(orders_created._name)
         assert "sap_bridge_orders_completed" in str(orders_completed._name)
         assert "sap_bridge_orders_failed" in str(orders_failed._name)
@@ -39,6 +41,7 @@ class TestMetricsRegistry:
 
     def test_orders_created_labels_inc(self):
         from metrics import orders_created
+
         before = orders_created.labels(type="PICK")._value.get()
         orders_created.labels(type="PICK").inc()
         orders_created.labels(type="MOVE").inc(3)
@@ -46,15 +49,18 @@ class TestMetricsRegistry:
 
     def test_orders_failed_labels_inc(self):
         from metrics import orders_failed
+
         before = orders_failed.labels(reason="timeout")._value.get()
         orders_failed.labels(reason="timeout").inc(2)
         assert orders_failed.labels(reason="timeout")._value.get() >= before + 2
+
 
 class TestMetricsMiddleware:
     """Middleware tests — skipped without starlette."""
 
     def test_http_requests_labels_inc(self):
         from metrics import http_requests
+
         before = http_requests.labels(method="POST", path="/orders", status="200")._value.get()
         http_requests.labels(method="POST", path="/orders", status="200").inc()
         http_requests.labels(method="GET", path="/health", status="200").inc(5)
@@ -62,6 +68,7 @@ class TestMetricsMiddleware:
 
     def test_gauges_set_values(self):
         from metrics import deadletter_unresolved, mqtt_connected, queue_depth, redis_connected, sap_connected
+
         mqtt_connected.set(1)
         assert mqtt_connected._value.get() == 1
         redis_connected.set(0)
@@ -72,6 +79,7 @@ class TestMetricsMiddleware:
 
     def test_uptime_counter(self):
         from metrics import uptime
+
         before = uptime._value.get()
         uptime.inc(100)
         after = uptime._value.get()
@@ -83,12 +91,14 @@ class TestMetricsResponse:
 
     def test_metrics_response_headers(self):
         from metrics import metrics_response
+
         resp = metrics_response()
         assert resp.media_type.startswith("text/plain")
         assert resp.headers.get("Cache-Control") == "no-cache"
 
     def test_metrics_response_contains_metric_names(self):
         from metrics import metrics_response
+
         resp = metrics_response()
         body = resp.body.decode()
         assert "sap_bridge_" in body
@@ -97,6 +107,7 @@ class TestMetricsResponse:
 
     def test_metrics_response_includes_gauge_values(self):
         from metrics import metrics_response, mqtt_connected
+
         mqtt_connected.set(1)
         resp = metrics_response()
         body = resp.body.decode()

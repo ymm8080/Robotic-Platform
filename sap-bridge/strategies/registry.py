@@ -5,6 +5,7 @@ Strategies are registered by brand name and can be looked up at runtime.
 v4.1: Added get_or_raise() for strict brand lookup (501 on unknown)
       and version compatibility verification.
 """
+
 import logging
 
 from .base import MIN_VDA5050_VERSION, BaseStrategy
@@ -48,8 +49,12 @@ class StrategyRegistry:
     def _register_builtin(self):
         """Register all built-in brand strategies."""
         for strategy in [
-            KukaStrategy(), MirStrategy(), OttoStrategy(),
-            GeekPlusStrategy(), HaiRoboticsStrategy(), QuicktronStrategy(),
+            KukaStrategy(),
+            MirStrategy(),
+            OttoStrategy(),
+            GeekPlusStrategy(),
+            HaiRoboticsStrategy(),
+            QuicktronStrategy(),
         ]:
             self._strategies[strategy.brand.upper()] = strategy
             logger.info(f"Registered strategy: {strategy}")
@@ -111,8 +116,7 @@ class StrategyRegistry:
         compatible = strategy.check_version_compatibility(min_version)
         if not compatible:
             logger.warning(
-                f"Brand '{brand}' does not support VDA5050 >= {min_version} "
-                f"(supports: {strategy.supported_versions})"
+                f"Brand '{brand}' does not support VDA5050 >= {min_version} (supports: {strategy.supported_versions})"
             )
         return compatible
 

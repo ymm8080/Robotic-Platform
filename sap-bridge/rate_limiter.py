@@ -8,6 +8,7 @@ Tiers (per AGENTS.md rate limits):
 
 Exempt paths: /health, /ready, /live, /metrics
 """
+
 from __future__ import annotations
 
 import logging
@@ -82,9 +83,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window_key = f"{_REDIS_PREFIX}:{ip}:{request.method}:{int(time.time()) // _WINDOW_SECONDS}"
 
         try:
-            count = int(
-                self._redis.eval(_INCR_SCRIPT, 1, window_key, limit, _WINDOW_SECONDS)
-            )
+            count = int(self._redis.eval(_INCR_SCRIPT, 1, window_key, limit, _WINDOW_SECONDS))
         except Exception as exc:
             logger.warning("rate limiter Redis error (fail-open): %s", exc)
             return await call_next(request)
@@ -93,7 +92,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             retry_after = _WINDOW_SECONDS - (int(time.time()) % _WINDOW_SECONDS)
             logger.warning(
                 "rate limit exceeded: ip=%s method=%s path=%s count=%d/%d",
-                ip, request.method, path, count, limit,
+                ip,
+                request.method,
+                path,
+                count,
+                limit,
             )
             return JSONResponse(
                 status_code=429,

@@ -1,4 +1,5 @@
 """Tests for Hai Robotics robot strategy — HAIQ-ESS REST + VDA5050."""
+
 import pytest
 
 from strategies.hairobotics import HaiRoboticsStrategy

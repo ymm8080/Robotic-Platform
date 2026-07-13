@@ -1,4 +1,5 @@
 """Tests for priority queue, deadletter handler, and worker."""
+
 import json
 import time
 from unittest.mock import patch
@@ -18,9 +19,10 @@ def _make_mock_redis():
         Supports: zadd, zcard, zrange, zrem, delete, bzpopmin, hset, hgetall,
         hdel, expire, ping, pipeline.
         """
+
         def __init__(self):
             self._zsets: dict[str, dict[str, float]] = {}  # key → {member: score}
-            self._hsets: dict[str, dict[str, str]] = {}    # key → {field: value}
+            self._hsets: dict[str, dict[str, str]] = {}  # key → {field: value}
             self._pipe = None
 
         def zadd(self, key, mapping):
@@ -32,7 +34,7 @@ def _make_mock_redis():
 
         def zrange(self, key, start, end, withscores=False, desc=False):
             items = sorted(self._zsets.get(key, {}).items(), key=lambda x: x[1])
-            sliced = items[start:end + 1 if end >= 0 else None]
+            sliced = items[start : end + 1 if end >= 0 else None]
             if withscores:
                 return sliced
             return [m for m, _ in sliced]
@@ -99,13 +101,13 @@ def _make_mock_redis():
             self._commands = []
 
         def zadd(self, key, mapping):
-            self._commands.append(('zadd', key, mapping))
+            self._commands.append(("zadd", key, mapping))
             return self
 
         def execute(self):
             results = []
             for cmd in self._commands:
-                if cmd[0] == 'zadd':
+                if cmd[0] == "zadd":
                     results.append(self._redis.zadd(cmd[1], cmd[2]))
             self._commands = []
             return results
@@ -214,6 +216,7 @@ class TestPriorityQueue:
     def test_recover_stale_recent(self, q):
         """Recent processing items should not be reclaimed."""
         from dispatch_queue.priority_queue import PROCESSING_KEY
+
         item = json.dumps({"order_no": "FRESH", "popped_at": time.time(), "score": 0})
         q._redis.hset(PROCESSING_KEY, "FRESH", item)
         q._redis.expire(PROCESSING_KEY, 3600)
@@ -265,6 +268,7 @@ class TestPriorityQueueEdgeCases:
     @pytest.fixture
     def q(self):
         from dispatch_queue.priority_queue import PriorityQueue
+
         with patch("dispatch_queue.priority_queue.redis_from_url") as mock_ru:
             mock_ru.return_value = _make_mock_redis()
             yield PriorityQueue()
@@ -297,6 +301,7 @@ class TestDeadLetterHandler:
     def dl(self):
         """DeadLetterHandler connected to test PostgreSQL."""
         from db import init_schema
+
         init_schema()
         handler = DeadLetterHandler()
         yield handler

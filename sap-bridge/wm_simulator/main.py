@@ -38,6 +38,7 @@ def _gen_tanum() -> str:
 
 # ── Data models ─────────────────────────────────────────────────
 
+
 class ToHeader(BaseModel):
     TANUM: str = ""
     STATUS: str = "0"
@@ -104,6 +105,7 @@ class LToCancelRequest(BaseModel):
 
 # ── RFC Endpoints ───────────────────────────────────────────────
 
+
 @app.post("/rfc/ping")
 async def rfc_ping():
     """RFC_PING equivalent — connection test."""
@@ -126,45 +128,66 @@ async def l_to_read(req: LToReadRequest):
             # Return some default mock data for known test numbers
             if req.I_TANUM == "1000001":
                 to_data = {
-                    "tanum": "1000001", "status": "0", "bwlvs": "201", "trart": "A",
-                    "matnr": "MAT-A", "vlpla": "AA-01", "nlpla": "BB-02",
-                    "anfme": 5.0, "altme": "EA", "charg": "BATCH01",
-                    "werks": "1000", "lgort": "0001", "lgnum": req.I_LGNUM,
+                    "tanum": "1000001",
+                    "status": "0",
+                    "bwlvs": "201",
+                    "trart": "A",
+                    "matnr": "MAT-A",
+                    "vlpla": "AA-01",
+                    "nlpla": "BB-02",
+                    "anfme": 5.0,
+                    "altme": "EA",
+                    "charg": "BATCH01",
+                    "werks": "1000",
+                    "lgort": "0001",
+                    "lgnum": req.I_LGNUM,
                     "items": [
-                        {"tapos": "0001", "matnr": "MAT-A", "anfme": 5.0,
-                         "altme": "EA", "vlpla": "AA-01", "nlpla": "BB-02",
-                         "bwlvs": "201", "charg": "BATCH01"},
+                        {
+                            "tapos": "0001",
+                            "matnr": "MAT-A",
+                            "anfme": 5.0,
+                            "altme": "EA",
+                            "vlpla": "AA-01",
+                            "nlpla": "BB-02",
+                            "bwlvs": "201",
+                            "charg": "BATCH01",
+                        },
                     ],
                 }
             else:
                 return {"T_HEADERS": [], "T_ITEMS": []}
 
         # Build response
-        headers = [{
-            "TANUM": to_data["tanum"],
-            "STATUS": to_data["status"],
-            "BWLVS": to_data["bwlvs"],
-            "TRART": to_data["trart"],
-            "MATNR": to_data["matnr"],
-            "VLPLA": to_data["vlpla"],
-            "NLPLA": to_data["nlpla"],
-            "ANFME": to_data["anfme"],
-            "ALTME": to_data["altme"],
-            "CHARG": to_data.get("charg", ""),
-            "WERKS": to_data.get("werks", "1000"),
-            "LGORT": to_data.get("lgort", "0001"),
-        }]
-        items = [{
-            "TANUM": to_data["tanum"],
-            "TAPOS": it["tapos"],
-            "MATNR": it["matnr"],
-            "ANFME": it["anfme"],
-            "ALTME": it.get("altme", "EA"),
-            "VLPLA": it.get("vlpla", ""),
-            "NLPLA": it.get("nlpla", ""),
-            "BWLVS": it.get("bwlvs", "999"),
-            "CHARG": it.get("charg", ""),
-        } for it in to_data.get("items", [])]
+        headers = [
+            {
+                "TANUM": to_data["tanum"],
+                "STATUS": to_data["status"],
+                "BWLVS": to_data["bwlvs"],
+                "TRART": to_data["trart"],
+                "MATNR": to_data["matnr"],
+                "VLPLA": to_data["vlpla"],
+                "NLPLA": to_data["nlpla"],
+                "ANFME": to_data["anfme"],
+                "ALTME": to_data["altme"],
+                "CHARG": to_data.get("charg", ""),
+                "WERKS": to_data.get("werks", "1000"),
+                "LGORT": to_data.get("lgort", "0001"),
+            }
+        ]
+        items = [
+            {
+                "TANUM": to_data["tanum"],
+                "TAPOS": it["tapos"],
+                "MATNR": it["matnr"],
+                "ANFME": it["anfme"],
+                "ALTME": it.get("altme", "EA"),
+                "VLPLA": it.get("vlpla", ""),
+                "NLPLA": it.get("nlpla", ""),
+                "BWLVS": it.get("bwlvs", "999"),
+                "CHARG": it.get("charg", ""),
+            }
+            for it in to_data.get("items", [])
+        ]
         return {"T_HEADERS": headers, "T_ITEMS": items}
 
     else:
@@ -178,47 +201,94 @@ async def l_to_read(req: LToReadRequest):
         if not matching:
             matching = [
                 {
-                    "tanum": "3000001", "status": "0", "bwlvs": "201", "trart": "A",
-                    "matnr": "MAT-A", "vlpla": "AA-01", "nlpla": "BB-02",
-                    "anfme": 5.0, "altme": "EA", "charg": "BATCH01",
-                    "werks": "1000", "lgort": "0001", "lgnum": req.I_LGNUM,
+                    "tanum": "3000001",
+                    "status": "0",
+                    "bwlvs": "201",
+                    "trart": "A",
+                    "matnr": "MAT-A",
+                    "vlpla": "AA-01",
+                    "nlpla": "BB-02",
+                    "anfme": 5.0,
+                    "altme": "EA",
+                    "charg": "BATCH01",
+                    "werks": "1000",
+                    "lgort": "0001",
+                    "lgnum": req.I_LGNUM,
                     "items": [
-                        {"tapos": "0001", "matnr": "MAT-A", "anfme": 5.0,
-                         "altme": "EA", "vlpla": "AA-01", "nlpla": "BB-02",
-                         "bwlvs": "201", "charg": "BATCH01"},
+                        {
+                            "tapos": "0001",
+                            "matnr": "MAT-A",
+                            "anfme": 5.0,
+                            "altme": "EA",
+                            "vlpla": "AA-01",
+                            "nlpla": "BB-02",
+                            "bwlvs": "201",
+                            "charg": "BATCH01",
+                        },
                     ],
                 },
                 {
-                    "tanum": "3000002", "status": "0", "bwlvs": "101", "trart": "E",
-                    "matnr": "MAT-B", "vlpla": "CC-01", "nlpla": "DD-02",
-                    "anfme": 3.0, "altme": "EA", "charg": "",
-                    "werks": "1000", "lgort": "0001", "lgnum": req.I_LGNUM,
+                    "tanum": "3000002",
+                    "status": "0",
+                    "bwlvs": "101",
+                    "trart": "E",
+                    "matnr": "MAT-B",
+                    "vlpla": "CC-01",
+                    "nlpla": "DD-02",
+                    "anfme": 3.0,
+                    "altme": "EA",
+                    "charg": "",
+                    "werks": "1000",
+                    "lgort": "0001",
+                    "lgnum": req.I_LGNUM,
                     "items": [
-                        {"tapos": "0001", "matnr": "MAT-B", "anfme": 3.0,
-                         "altme": "EA", "vlpla": "CC-01", "nlpla": "DD-02",
-                         "bwlvs": "101", "charg": ""},
+                        {
+                            "tapos": "0001",
+                            "matnr": "MAT-B",
+                            "anfme": 3.0,
+                            "altme": "EA",
+                            "vlpla": "CC-01",
+                            "nlpla": "DD-02",
+                            "bwlvs": "101",
+                            "charg": "",
+                        },
                     ],
                 },
             ]
 
-        headers = [{
-            "TANUM": td["tanum"], "STATUS": td["status"],
-            "BWLVS": td["bwlvs"], "TRART": td["trart"],
-            "MATNR": td["matnr"], "VLPLA": td["vlpla"],
-            "NLPLA": td["nlpla"], "ANFME": td["anfme"],
-            "ALTME": td["altme"], "CHARG": td.get("charg", ""),
-            "WERKS": td.get("werks", "1000"), "LGORT": td.get("lgort", "0001"),
-        } for td in matching]
+        headers = [
+            {
+                "TANUM": td["tanum"],
+                "STATUS": td["status"],
+                "BWLVS": td["bwlvs"],
+                "TRART": td["trart"],
+                "MATNR": td["matnr"],
+                "VLPLA": td["vlpla"],
+                "NLPLA": td["nlpla"],
+                "ANFME": td["anfme"],
+                "ALTME": td["altme"],
+                "CHARG": td.get("charg", ""),
+                "WERKS": td.get("werks", "1000"),
+                "LGORT": td.get("lgort", "0001"),
+            }
+            for td in matching
+        ]
         items = []
         for td in matching:
             for it in td.get("items", []):
-                items.append({
-                    "TANUM": td["tanum"], "TAPOS": it["tapos"],
-                    "MATNR": it["matnr"], "ANFME": it["anfme"],
-                    "ALTME": it.get("altme", "EA"),
-                    "VLPLA": it.get("vlpla", ""), "NLPLA": it.get("nlpla", ""),
-                    "BWLVS": it.get("bwlvs", "999"), "CHARG": it.get("charg", ""),
-                })
+                items.append(
+                    {
+                        "TANUM": td["tanum"],
+                        "TAPOS": it["tapos"],
+                        "MATNR": it["matnr"],
+                        "ANFME": it["anfme"],
+                        "ALTME": it.get("altme", "EA"),
+                        "VLPLA": it.get("vlpla", ""),
+                        "NLPLA": it.get("nlpla", ""),
+                        "BWLVS": it.get("bwlvs", "999"),
+                        "CHARG": it.get("charg", ""),
+                    }
+                )
 
         return {"T_HEADERS": headers, "T_ITEMS": items}
 
@@ -243,12 +313,18 @@ async def l_to_create_single(req: LToCreateSingleRequest):
         "werks": req.I_WERKS,
         "lgort": req.I_LGORT,
         "lgnum": req.I_LGNUM,
-        "items": [{
-            "tapos": "0001", "matnr": req.I_MATNR,
-            "anfme": req.I_ANFME, "altme": req.I_ALTME,
-            "vlpla": req.I_VLPLA, "nlpla": req.I_NLPLA,
-            "bwlvs": req.I_BWLVS, "charg": req.I_CHARG,
-        }],
+        "items": [
+            {
+                "tapos": "0001",
+                "matnr": req.I_MATNR,
+                "anfme": req.I_ANFME,
+                "altme": req.I_ALTME,
+                "vlpla": req.I_VLPLA,
+                "nlpla": req.I_NLPLA,
+                "bwlvs": req.I_BWLVS,
+                "charg": req.I_CHARG,
+            }
+        ],
         "created_at": datetime.now(UTC).isoformat(),
     }
     _tos[tanum] = to_data
@@ -328,4 +404,5 @@ _start_time = time.time()
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8001)

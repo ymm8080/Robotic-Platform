@@ -1,4 +1,5 @@
 """Shared Redis connection helper with TLS detection."""
+
 import os
 
 import redis

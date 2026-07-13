@@ -6,6 +6,7 @@ v4.1: Added dispatch() method for strategy-pattern order routing.
 v5.0: Added to_fleet_state() and to_capability_vector() to bridge
       strategy layer → core coordinator FleetState.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -22,6 +23,7 @@ MIN_VDA5050_VERSION = "1.1.0"
 @dataclass
 class DispatchResult:
     """Result of dispatching an order to a robot via brand strategy."""
+
     success: bool
     order_id: str
     protocol: str = "vda5050"  # vda5050 | iop | haiq | rest
@@ -32,6 +34,7 @@ class DispatchResult:
 @dataclass
 class BatteryInfo:
     """Normalized battery state."""
+
     percent: float
     voltage: float | None = None
     health: float | None = None
@@ -41,9 +44,10 @@ class BatteryInfo:
 @dataclass
 class RobotState:
     """Normalized robot state (brand-agnostic)."""
-    status: str          # IDLE, MOVING, EXECUTING, CHARGING, ERROR, UNAVAILABLE
+
+    status: str  # IDLE, MOVING, EXECUTING, CHARGING, ERROR, UNAVAILABLE
     battery: BatteryInfo
-    position: dict       # {x, y, theta, lastNodeId}
+    position: dict  # {x, y, theta, lastNodeId}
     errors: list = field(default_factory=list)
     order_id: str | None = None
     operating_mode: str = "AUTOMATIC"
@@ -56,6 +60,7 @@ class RobotState:
 @dataclass
 class BrandQuirk:
     """Documented brand-specific behavior deviation."""
+
     name: str
     description: str
     severity: str = "INFO"  # INFO, WARN, BLOCKER
@@ -111,10 +116,7 @@ class BaseStrategy(ABC):
 
         v4.1 verification matrix item 3: All brands must support >= v1.1.0.
         """
-        return any(
-            _compare_versions(supported, version) >= 0
-            for supported in self.supported_versions
-        )
+        return any(_compare_versions(supported, version) >= 0 for supported in self.supported_versions)
 
     def get_quirks(self) -> list[BrandQuirk]:
         """Return documented brand quirks. Override in subclasses."""
@@ -213,8 +215,7 @@ class BaseStrategy(ABC):
         for e in robot_state.errors:
             if isinstance(e, dict):
                 error_strings.append(
-                    f"{e.get('errorType', 'UNKNOWN')}:{e.get('errorLevel', 'WARN')}:"
-                    f"{e.get('errorDescription', '')}"
+                    f"{e.get('errorType', 'UNKNOWN')}:{e.get('errorLevel', 'WARN')}:{e.get('errorDescription', '')}"
                 )
             else:
                 error_strings.append(str(e))

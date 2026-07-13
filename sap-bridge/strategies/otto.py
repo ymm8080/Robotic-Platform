@@ -3,6 +3,7 @@ OTTO 1500 strategy.
 VDA5050 v2.0.0 — battery in millivolts, custom charging state.
 Reference: REFERENCE/05_reference/protocols/vda5050/vda5050-state-machine.md
 """
+
 import math
 
 from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
