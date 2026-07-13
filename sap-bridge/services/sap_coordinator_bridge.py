@@ -38,7 +38,10 @@ AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
 # Number of consecutive polls a task must be inactive before auto-confirming.
 # Configurable via SAP_TC_GRACE_POLLS (default 2) — raise for flaky links,
 # lower for faster confirmation.
-GRACE_POLLS = int(os.getenv("SAP_TC_GRACE_POLLS", "2"))
+try:
+    GRACE_POLLS = int(os.getenv("SAP_TC_GRACE_POLLS", "2"))
+except ValueError:
+    GRACE_POLLS = 2
 
 # Maximum confirmed task IDs to retain in memory.
 MAX_CONFIRMED_RETENTION = 500
