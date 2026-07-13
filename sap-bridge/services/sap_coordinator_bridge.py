@@ -34,6 +34,8 @@ WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
 # confirmation.  Set to "1" for automatic confirmation (risky).
 AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
+# Number of consecutive polls a task must be inactive before auto-confirming.
+GRACE_POLLS = 2
 
 # Maximum confirmed task IDs to retain in memory.
 MAX_CONFIRMED_RETENTION = 500
@@ -219,7 +221,7 @@ class SapCoordinatorBridge:
 
             # Check explicit failure
             if tid in failed_task_ids:
-                logger.warning(
+                logger.error(
                     "SAP-TC bridge: task %s marked FAILED by coordinator — "
                     "skipping SAP confirm, requires manual review", tid,
                 )
@@ -228,10 +230,9 @@ class SapCoordinatorBridge:
                 continue
 
             # Not in any explicit list — use grace-period fallback
-            GRACE_POLLS = 2
             if tid not in self._inactive_since:
                 self._inactive_since[tid] = self._poll_count
-                logger.info(
+                logger.debug(
                     "SAP-TC bridge: order %s inactive, "
                     "waiting %d polls before confirming",
                     order_id, GRACE_POLLS,

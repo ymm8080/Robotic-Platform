@@ -1,0 +1,99 @@
+{
+  "processes": [
+    {
+      "name": "catpaw_main",
+      "command": "python -m catpaw.main",
+      "working_dir": "D:\\EWM Robot\\Robotic Platform Codes",
+      "health_check_url": "http://localhost:8080/health",
+      "health_check_timeout": 5,
+      "restart_delay": 10,
+      "max_restarts_per_hour": 5,
+      "environment": {
+        "PYTHONPATH": "D:\\EWM Robot\\Robotic Platform Codes",
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    {
+      "name": "sap_bridge",
+      "command": "python -m sap_bridge.main",
+      "working_dir": "D:\\EWM Robot\\Robotic Platform Codes\\sap-bridge",
+      "health_check_url": "http://localhost:8000/health",
+      "health_check_timeout": 5,
+      "restart_delay": 15,
+      "max_restarts_per_hour": 3,
+      "environment": {
+        "PYTHONPATH": "D:\\EWM Robot\\Robotic Platform Codes",
+        "SAP_VERIFY_SSL": "true"
+      }
+    },
+    {
+      "name": "node_red",
+      "command": "node-red --userDir .node-red",
+      "working_dir": "D:\\EWM Robot\\Robotic Platform Codes\\nodered",
+      "health_check_url": "http://localhost:1880/health",
+      "health_check_timeout": 5,
+      "restart_delay": 20,
+      "max_restarts_per_hour": 3,
+      "environment": {
+        "NODE_ENV": "production"
+      }
+    },
+    {
+      "name": "redis",
+      "command": "redis-server",
+      "working_dir": "D:\\EWM Robot\\Robotic Platform Codes",
+      "health_check_command": "redis-cli ping",
+      "health_check_timeout": 5,
+      "restart_delay": 5,
+      "max_restarts_per_hour": 10,
+      "environment": {}
+    },
+    {
+      "name": "postgres",
+      "command": "docker run --name postgres-ewm -e POSTGRES_PASSWORD=your_password -p 5432:5432 -d postgres:15",
+      "working_dir": "D:\\EWM Robot\\Robotic Platform Codes",
+      "health_check_url": "postgresql://postgres:your_password@localhost:5432/postgres",
+      "health_check_timeout": 5,
+      "restart_delay": 30,
+      "max_restarts_per_hour": 2,
+      "environment": {}
+    }
+  ],
+  "monitoring": {
+    "check_interval": 30,
+    "log_level": "INFO",
+    "log_file": "catpaw_monitor.log",
+    "max_log_size_mb": 10,
+    "backup_count": 5,
+    "enable_http_check": true,
+    "enable_process_check": true,
+    "enable_email_alerts": false,
+    "email_recipients": ["admin@example.com"],
+    "smtp_server": "smtp.example.com",
+    "smtp_port": 587,
+    "smtp_username": "your_email@example.com",
+    "smtp_password_file": "/run/secrets/smtp_password",
+    "alert_on_critical": true,
+    "critical_restart_threshold": 10
+  },
+  "notifications": {
+    "slack_webhook_url": "",
+    "teams_webhook_url": "",
+    "discord_webhook_url": "",
+    "enable_console_alerts": true,
+    "enable_file_alerts": true,
+    "alert_file": "catpaw_alerts.log"
+  },
+  "advanced": {
+    "heartbeat_interval": 60,
+    "heartbeat_file": "catpaw_heartbeat.txt",
+    "enable_metrics": true,
+    "metrics_port": 9099,
+    "enable_web_interface": false,
+    "web_port": 8081,
+    "auto_update_config": true,
+    "config_check_interval": 300,
+    "enable_remote_monitoring": false,
+    "remote_monitoring_url": ""
+  }
+}

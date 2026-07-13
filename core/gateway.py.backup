@@ -485,16 +485,9 @@ class MqttGateway(InboundGateway, OutboundGateway):
         if password_file:
             try:
                 with open(password_file, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                    if not content:
-                        logger.warning("MQTT password file is empty: %s", password_file)
-                    return content
-            except FileNotFoundError:
-                logger.error("MQTT password file not found: %s", password_file)
-            except PermissionError:
-                logger.error("Permission denied reading MQTT password file: %s", password_file)
-            except OSError as e:
-                logger.error("Cannot read MQTT password file %s: %s", password_file, e)
+                    return f.read().strip()
+            except OSError:
+                logger.error("Cannot read MQTT password file: %s", password_file)
         return ""
 
     def _publish(self, topic: str, payload: dict) -> None:
