@@ -25,6 +25,7 @@ MQTT topics:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -51,6 +52,18 @@ from traffic_coordinator_v5.maps.loader import load_facility_map
 _logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
+
+# Configure root logger. force=True ensures our config takes effect even if
+# another module already called basicConfig — this is the application entry
+# point, so we own the logging configuration.
+_LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" else "INFO")
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S.%f%z",
+    force=True,
+)
+
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
 WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
@@ -177,17 +190,29 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
+    _snap_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="snapshot",
+    )
     while not stop_event.is_set():
         now = time.monotonic()
         result = COORDINATOR.tick(now)
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             try:
-                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+                _snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
                 last_snapshot = now
-            except Exception as exc:
-                _logger.warning("[snapshot] save failed: %s", exc)
+            except Exception:
+                _logger.exception("[snapshot] save failed")
         stop_event.wait(TICK_INTERVAL)
+    _snap_executor.shutdown(wait=True)
+
+
+def _save_snapshot(snapshot_data: dict) -> None:
+    """Save snapshot in a background thread to avoid blocking the tick loop."""
+    try:
+        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
+    except Exception as exc:
+        _logger.warning("[snapshot] save failed: %s", exc)
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
