@@ -221,7 +221,7 @@ class SapCoordinatorBridge:
 
             # Check explicit failure
             if tid in failed_task_ids:
-                logger.warning(
+                logger.error(
                     "SAP-TC bridge: task %s marked FAILED by coordinator — "
                     "skipping SAP confirm, requires manual review", tid,
                 )

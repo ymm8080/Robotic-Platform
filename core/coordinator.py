@@ -328,6 +328,8 @@ class RobotPlatformCoordinator:
             # same tick.
             try:
                 adapter.dispatch(robot.robot_id, assignment, now)
+                assigned_robots.add(robot.robot_id)
+                self._active_assignments[robot.robot_id] = assignment
             except Exception as exc:
                 try:
                     self._release_lifts_for_assignment(robot, assignment)
@@ -343,9 +345,6 @@ class RobotPlatformCoordinator:
                     {"task_id": task.task_id, "dispatch_error": str(exc)},
                 )
                 continue
-
-            assigned_robots.add(robot.robot_id)
-            self._active_assignments[robot.robot_id] = assignment
             self._update_occupancy(robot.robot_id, assignment.path[0])
             assigned.append((robot.robot_id, assignment))
             self.metrics.inc("tasks_allocated")
@@ -1075,13 +1074,21 @@ class RobotPlatformCoordinator:
         self._recently_completed.clear()
         for item in data.get("recently_completed", []):
             if isinstance(item, (list, tuple)) and len(item) == 2:
-                self._recently_completed.append((item[0], float(item[1])))
+                try:
+                    self._recently_completed.append((str(item[0]), float(item[1])))
+                except (ValueError, TypeError):
+                    logger.warning("Failed to convert timestamp for completed task: %s", item)
+                    self._recently_completed.append((str(item[0]) if item[0] else "unknown", 0.0))
             else:
                 self._recently_completed.append((item, 0.0))
         self._recently_failed.clear()
         for item in data.get("recently_failed", []):
             if isinstance(item, (list, tuple)) and len(item) == 2:
-                self._recently_failed.append((item[0], float(item[1])))
+                try:
+                    self._recently_failed.append((str(item[0]), float(item[1])))
+                except (ValueError, TypeError):
+                    logger.warning("Failed to convert timestamp for failed task: %s", item)
+                    self._recently_failed.append((str(item[0]) if item[0] else "unknown", 0.0))
             else:
                 self._recently_failed.append((item, 0.0))
 

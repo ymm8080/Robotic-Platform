@@ -59,7 +59,9 @@ class DashboardPage extends BasePage {
 
   async isAuthenticated() {
     try {
-      await this.title.waitFor({ state: 'visible', timeout: 3000 });
+      // Reduced from 5000ms to 2000ms for faster test feedback
+      // If CI network latency causes false positives, consider increasing back to 3000-5000ms
+      await this.title.waitFor({ state: 'visible', timeout: 2000 });
       return true;
     } catch {
       return false;
