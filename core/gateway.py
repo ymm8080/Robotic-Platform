@@ -183,7 +183,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
 
     def _connect(self) -> bool:
         """Connect to MQTT broker and subscribe to VDA5050 topics.
-        
+
         Returns:
             True if connection was established or is in progress,
             False if connection failed due to missing dependencies or configuration.
@@ -497,7 +497,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
         password_file = os.environ.get("MQTT_PASSWORD_FILE", "")
         if password_file:
             try:
-                with open(password_file, "r", encoding="utf-8") as f:
+                with open(password_file, encoding="utf-8") as f:
                     content = f.read().strip()
                     if not content:
                         logger.warning("MQTT password file is empty: %s", password_file)
@@ -513,7 +513,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
     def _publish(self, topic: str, payload: dict) -> None:
         """Publish message to MQTT topic with null-guard and error logging."""
         if self._client is None:
-            logger.warning("Cannot publish to %s: MQTT client not initialized", topic)
+            logger.error("Cannot publish to %s: MQTT client not initialized", topic)
             return
         try:
             self._client.publish(topic, json.dumps(payload), qos=self._qos)
