@@ -1,4 +1,5 @@
 """Tests for SAP IDoc listener — XML parse, task extraction, enqueue."""
+
 import os
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
@@ -42,6 +43,7 @@ def _patch_redis():
     """Patch redis.from_url globally so IdocListener + PriorityQueue use mocks."""
     with patch("redis.from_url", return_value=_MOCK_REDIS):
         yield
+
 
 # ── Sample IDoc payloads ──────────────────────────────
 
@@ -116,6 +118,7 @@ NOT_IDOC = """{"status": "healthy"}"""
 
 # ── Unit: EDI_DC40 extraction ────────────────────────
 
+
 class TestExtractEdiDc40:
     def test_extracts_control_record(self):
         root = ET.fromstring(SAMPLE_IDOC_WM)
@@ -139,6 +142,7 @@ class TestExtractEdiDc40:
 
 # ── Unit: Segment extraction ─────────────────────────
 
+
 class TestExtractSegments:
     def test_extracts_wm_segments(self):
         root = ET.fromstring(SAMPLE_IDOC_WM)
@@ -156,6 +160,7 @@ class TestExtractSegments:
 
 
 # ── Unit: Segment → WarehouseTask ────────────────────
+
 
 class TestSegmentToWarehouseTask:
     def test_wm_segment_conversion(self):
@@ -194,6 +199,7 @@ class TestSegmentToWarehouseTask:
 
 
 # ── Integration: IdocListener ────────────────────────
+
 
 class TestIdocListener:
     def test_process_wm_idoc(self):

@@ -3,6 +3,7 @@ SAP EWM / WM Robot Dispatch Platform — SAP Bridge Main Application
 Python FastAPI + pyrfc service for multi-warehouse SAP integration.
 Supports both SAP EWM (OData) and SAP Classic WM (RFC) via backend abstraction.
 """
+
 import logging
 import os
 import re
@@ -112,15 +113,14 @@ def _validate_robot_id_parts(manufacturer: str, serial_number: str) -> str | Non
 # App lifespan
 # ──────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: connect MQTT + start queue worker + heartbeat monitor. Shutdown: stop gracefully."""
     # Security: refuse to start in production without API key (skip in tests)
     _is_test = "pytest" in sys.modules
     if not _is_test and os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not API_KEY:
-        raise RuntimeError(
-            "FATAL: SAP_BRIDGE_API_KEY is not configured in PRODUCTION mode."
-        )
+        raise RuntimeError("FATAL: SAP_BRIDGE_API_KEY is not configured in PRODUCTION mode.")
 
     publisher = get_publisher()
     publisher.connect()
@@ -130,6 +130,7 @@ async def lifespan(app: FastAPI):
     heartbeat = None
     try:
         from heartbeat_monitor import HeartbeatMonitor
+
         heartbeat = HeartbeatMonitor()
         heartbeat.start()
         app.state.heartbeat = heartbeat
@@ -146,6 +147,7 @@ async def lifespan(app: FastAPI):
     if ENABLE_V5:
         try:
             from clients.traffic_coordinator_client import TrafficCoordinatorClient
+
             tc = TrafficCoordinatorClient()
             health = tc.health()
             if health.ok:
@@ -162,6 +164,7 @@ async def lifespan(app: FastAPI):
     if bridge_en and getattr(app.state, "tc_client", None) is not None:
         try:
             from services.sap_coordinator_bridge import SapCoordinatorBridge
+
             _bridge = SapCoordinatorBridge(
                 tc_client=app.state.tc_client,
                 backend_provider=get_backend_for,
@@ -203,9 +206,7 @@ async def api_key_middleware(request: Request, call_next):
     Watchdog can scrape them without authentication.
     """
     path = request.url.path
-    if API_KEY and path.startswith("/api/v1/") and not any(
-        path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES
-    ):
+    if API_KEY and path.startswith("/api/v1/") and not any(path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES):
         provided = request.headers.get("x-api-key", "")
         if not provided or not secrets.compare_digest(API_KEY, provided):
             logger.warning("API key auth failed for %s %s", request.method, path)
@@ -220,6 +221,7 @@ async def api_key_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     """Log full traceback server-side, return generic error to client."""
     import traceback
+
     tb = traceback.format_exc()
     logger.error(f"Unhandled error on {request.method} {request.url.path}:\n{tb}")
     return JSONResponse(
@@ -231,6 +233,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ──────────────────────────────────────────────
 # Health endpoints
 # ──────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health():
@@ -273,6 +276,7 @@ async def metrics():
 # Robot status endpoint
 # ──────────────────────────────────────────────
 
+
 @app.get("/api/v1/robots/status")
 async def robot_status():
     """Return all connected robots' status from Redis, normalized by brand strategy."""
@@ -301,13 +305,15 @@ async def robot_status():
             state = data.get("state", "UNKNOWN")
             battery = data.get("battery", "")
 
-        robots.append({
-            "id": robot_id,
-            "brand": brand,
-            "state": state,
-            "lastSeen": data.get("lastSeen", ""),
-            "battery": battery,
-        })
+        robots.append(
+            {
+                "id": robot_id,
+                "brand": brand,
+                "state": state,
+                "lastSeen": data.get("lastSeen", ""),
+                "battery": battery,
+            }
+        )
     return {"robots": robots, "count": len(robots)}
 
 
@@ -318,14 +324,16 @@ async def list_strategies():
     brands = []
     for name in registry.list_brands():
         strategy = registry.get(name)
-        brands.append({
-            "brand": strategy.brand,
-            "supportedVersions": strategy.supported_versions,
-            "quirks": [
-                {"name": q.name, "description": q.description, "severity": q.severity}
-                for q in strategy.get_quirks()
-            ],
-        })
+        brands.append(
+            {
+                "brand": strategy.brand,
+                "supportedVersions": strategy.supported_versions,
+                "quirks": [
+                    {"name": q.name, "description": q.description, "severity": q.severity}
+                    for q in strategy.get_quirks()
+                ],
+            }
+        )
     return {"strategies": brands, "count": len(brands)}
 
 
@@ -340,18 +348,19 @@ class DispatchRequest(BaseModel):
     v4.1: Routes order through the brand strategy pattern to build
     the correct protocol payload (VDA5050 / IOP / HAIQ / REST).
     """
-    brand: str                          # Robot brand (e.g., "KUKA", "MiR")
-    serialNumber: str                   # Robot serial number
-    orderId: str                        # Unique order ID
-    orderUpdateId: int = 0              # VDA5050 order update ID
-    nodes: list = Field(default_factory=list)                    # VDA5050 nodes
-    edges: list = Field(default_factory=list)                    # VDA5050 edges
-    robotModel: str = ""                # For dual-protocol brands (Geek+, Hai)
-    robotType: str = ""                 # For Hai ACR vs HaiPort
-    protocol: str = ""                  # For Quicktron proprietary fallback
-    taskType: str = "MOVE"              # IOP/HAIQ task type
-    target: str = ""                    # Target location (IOP/HAIQ/proprietary)
-    source: str = ""                    # Source location
+
+    brand: str  # Robot brand (e.g., "KUKA", "MiR")
+    serialNumber: str  # Robot serial number
+    orderId: str  # Unique order ID
+    orderUpdateId: int = 0  # VDA5050 order update ID
+    nodes: list = Field(default_factory=list)  # VDA5050 nodes
+    edges: list = Field(default_factory=list)  # VDA5050 edges
+    robotModel: str = ""  # For dual-protocol brands (Geek+, Hai)
+    robotType: str = ""  # For Hai ACR vs HaiPort
+    protocol: str = ""  # For Quicktron proprietary fallback
+    taskType: str = "MOVE"  # IOP/HAIQ task type
+    target: str = ""  # Target location (IOP/HAIQ/proprietary)
+    source: str = ""  # Source location
     priority: int = 3
 
 
@@ -442,10 +451,7 @@ async def dispatch_order(req: DispatchRequest, request: Request):
         return JSONResponse(status_code=502, content={"error": "mqtt_publish_failed"})
 
     orders_created.labels(type="DISPATCH").inc()
-    logger.info(
-        f"Dispatch {req.orderId} → {req.brand}/{req.serialNumber} "
-        f"protocol={result.protocol} mid={mid}"
-    )
+    logger.info(f"Dispatch {req.orderId} → {req.brand}/{req.serialNumber} protocol={result.protocol} mid={mid}")
 
     # ── v5.0: forward to traffic coordinator ──────────────────
     v5_response = None
@@ -698,6 +704,7 @@ async def outbox_pending(limit: int = 20):
         ).fetchall()
         # Parse payload JSON for each row
         import json as _json
+
         events = []
         for row in rows:
             d = dict(row) if not isinstance(row, dict) else row
@@ -715,6 +722,7 @@ async def outbox_pending(limit: int = 20):
 
 class OutboxUpdateRequest(BaseModel):
     """Update outbox event status after SAP HTTP response."""
+
     status: str = "SENT"  # SENT | FAILED
     retry_count: int | None = None
     last_error: str = ""
@@ -768,6 +776,7 @@ async def outbox_update(event_id: int, req: OutboxUpdateRequest):
 
 class OutboxDeadletterRequest(BaseModel):
     """Move an outbox event to dead letter queue."""
+
     error_type: str = "OUTBOX_RETRY_EXCEEDED"
     error_message: str = ""
     payload: dict | None = None
@@ -839,6 +848,7 @@ async def outbox_create(order_id: int, event_type: str, payload: dict | None = N
 def _now_iso() -> str:
     """Current UTC timestamp in ISO format."""
     from datetime import UTC, datetime
+
     return datetime.now(UTC).isoformat()
 
 
@@ -958,7 +968,6 @@ async def batch_metrics():
 # ──────────────────────────────────────────────
 # SAP EWM integration endpoints
 # SAP integration endpoints (multi-warehouse via backend abstraction)
-
 
 
 from backends.factory import get_backend_for, get_factory
@@ -1216,15 +1225,19 @@ async def system_health():
     watchdog_metrics = {}
     try:
         import asyncio
+
         wd_url = "http://watchdog:9090/metrics"
+
         # Run sync HTTP in thread pool to avoid blocking FastAPI event loop
         def _fetch_watchdog():
             import urllib.request
+
             req = urllib.request.Request(wd_url)
             if WATCHDOG_API_KEY:
                 req.add_header("X-API-Key", WATCHDOG_API_KEY)
             with urllib.request.urlopen(req, timeout=3) as resp:
                 return json_mod.loads(resp.read().decode())
+
         wd_data = await asyncio.to_thread(_fetch_watchdog)
         watchdog_ok = True
         watchdog_metrics = {

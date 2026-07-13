@@ -1,4 +1,5 @@
 """Tests for MQTT publisher module."""
+
 import json
 from unittest.mock import MagicMock, patch
 

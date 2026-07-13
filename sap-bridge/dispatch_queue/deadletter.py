@@ -4,6 +4,7 @@ Stores in dead_letter_queue with full error context.
 
 v4.1: PostgreSQL-only. All data in PostgreSQL.
 """
+
 import json
 import logging
 from datetime import UTC, datetime
@@ -100,9 +101,7 @@ class DeadLetterHandler:
         """Retrieve a deadletter item for retry. Returns payload or None."""
         conn = connect()
         try:
-            row = conn.execute(
-                "SELECT * FROM dead_letter_queue WHERE id = ?", (dl_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM dead_letter_queue WHERE id = ?", (dl_id,)).fetchone()
             if row is None:
                 return None
             data = dict(row)
@@ -120,9 +119,7 @@ class DeadLetterHandler:
         """Count unresolved deadletter items."""
         conn = connect()
         try:
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM dead_letter_queue WHERE status = 'UNRESOLVED'"
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) as cnt FROM dead_letter_queue WHERE status = 'UNRESOLVED'").fetchone()
             if row is None:
                 return 0
             return row.get("cnt", 0) if isinstance(row, dict) else row[0]

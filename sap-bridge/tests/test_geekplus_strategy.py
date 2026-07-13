@@ -1,4 +1,5 @@
 """Tests for Geek+ robot strategy — dual protocol (IOP REST + VDA5050)."""
+
 import pytest
 
 from strategies.geekplus import GeekPlusStrategy

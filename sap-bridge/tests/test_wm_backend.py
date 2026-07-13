@@ -14,15 +14,18 @@ def backend():
     Patches _create_connection to avoid pyrfc dependency.
     """
     from backends.wm_backend import WmBackend as _WmBackend
+
     with patch.object(_WmBackend, "_create_connection") as mock_create:
         mock_create.return_value = MagicMock()
-        yield _WmBackend(config={
-            "rfc_ashost": "mock-host",
-            "rfc_sysnr": "00",
-            "rfc_client": "800",
-            "rfc_user": "testuser",
-            "password": "testpass",
-        })
+        yield _WmBackend(
+            config={
+                "rfc_ashost": "mock-host",
+                "rfc_sysnr": "00",
+                "rfc_client": "800",
+                "rfc_user": "testuser",
+                "password": "testpass",
+            }
+        )
 
 
 @pytest.fixture
@@ -70,6 +73,7 @@ class TestWmBackend:
     def test_check_connection_pyrfc_not_installed(self):
         """If pyrfc ImportError, check_connection should report not connected."""
         from backends.wm_backend import WmBackend
+
         bk = WmBackend(config={"rfc_user": "u", "password": "p", "rfc_ashost": "h"})
         with patch.object(bk, "_create_connection") as mock_create:
             mock_create.side_effect = ImportError("No module named pyrfc")
@@ -80,6 +84,7 @@ class TestWmBackend:
     def test_check_connection_pyrfc_connection_error(self):
         """If pyrfc connection fails, check_connection should handle gracefully."""
         from backends.wm_backend import WmBackend
+
         bk = WmBackend(config={"rfc_user": "u", "password": "p", "rfc_ashost": "h"})
         with patch.object(bk, "_create_connection") as mock_create:
             mock_create.side_effect = RuntimeError("connection refused")
@@ -96,20 +101,32 @@ class TestWmBackend:
 
     def test_list_tasks_with_headers(self, backend):
         """list_tasks should parse TO headers from mock RFC response."""
-        backend._call_rfc = MagicMock(side_effect=[
-            # First call: L_TO_READ returns headers
-            {
-                "T_HEADERS": [
-                    {"TANUM": "1000001", "STATUS": "0", "BWLVS": "201", "TRART": "A",
-                     "MATNR": "MAT-A", "VLPLA": "001-AA-01", "NLPLA": "002-BB-02",
-                     "ANFME": 5.0, "ALTME": "EA", "CHARG": "BATCH01",
-                     "WERKS": "1000", "LGORT": "0001"},
-                ],
-                "T_ITEMS": [],
-            },
-            # Second call: get TO items for 1000001 (no items)
-            {"T_ITEMS": [], "T_HEADERS": []},
-        ])
+        backend._call_rfc = MagicMock(
+            side_effect=[
+                # First call: L_TO_READ returns headers
+                {
+                    "T_HEADERS": [
+                        {
+                            "TANUM": "1000001",
+                            "STATUS": "0",
+                            "BWLVS": "201",
+                            "TRART": "A",
+                            "MATNR": "MAT-A",
+                            "VLPLA": "001-AA-01",
+                            "NLPLA": "002-BB-02",
+                            "ANFME": 5.0,
+                            "ALTME": "EA",
+                            "CHARG": "BATCH01",
+                            "WERKS": "1000",
+                            "LGORT": "0001",
+                        },
+                    ],
+                    "T_ITEMS": [],
+                },
+                # Second call: get TO items for 1000001 (no items)
+                {"T_ITEMS": [], "T_HEADERS": []},
+            ]
+        )
         tasks = backend.list_tasks(warehouse="001", status="0", top=10)
         assert len(tasks) == 1
         t = tasks[0]
@@ -125,17 +142,27 @@ class TestWmBackend:
     def test_get_task_found(self, backend):
         """get_task should return WarehouseTask for existing TO."""
         # Items need BWLVS too for task_type mapping
-        backend._call_rfc = MagicMock(return_value={
-            "T_HEADERS": [
-                {"TANUM": "1000001", "STATUS": "0", "BWLVS": "201",
-                 "VLPLA": "001-AA-01", "NLPLA": "002-BB-02", "MATNR": "MAT-A",
-                 "ANFME": 5.0, "ALTME": "EA", "WERKS": "1000", "LGORT": "0001"},
-            ],
-            "T_ITEMS": [
-                {"TANUM": "1000001", "TAPOS": "0001", "MATNR": "MAT-A",
-                 "BWLVS": "201", "ANFME": 5.0},
-            ],
-        })
+        backend._call_rfc = MagicMock(
+            return_value={
+                "T_HEADERS": [
+                    {
+                        "TANUM": "1000001",
+                        "STATUS": "0",
+                        "BWLVS": "201",
+                        "VLPLA": "001-AA-01",
+                        "NLPLA": "002-BB-02",
+                        "MATNR": "MAT-A",
+                        "ANFME": 5.0,
+                        "ALTME": "EA",
+                        "WERKS": "1000",
+                        "LGORT": "0001",
+                    },
+                ],
+                "T_ITEMS": [
+                    {"TANUM": "1000001", "TAPOS": "0001", "MATNR": "MAT-A", "BWLVS": "201", "ANFME": 5.0},
+                ],
+            }
+        )
         task = backend.get_task("001", "1000001")
         assert task is not None
         assert task.external_id == "1000001"
@@ -188,6 +215,7 @@ class TestWmBackend:
     def test_validate_config_missing_fields(self):
         """validate_config should report missing RFC connection params."""
         from backends.wm_backend import WmBackend
+
         bk = WmBackend(config={})  # No config
         errors = bk.validate_config()
         assert len(errors) >= 3
@@ -206,7 +234,9 @@ class TestWmBackend:
         # handles all exceptions from _call_rfc gracefully.
         backend._call_rfc = MagicMock(side_effect=RuntimeError("RFC error"))
         task = WarehouseTask(
-            source_system="WM", warehouse="001", external_id="T1",
+            source_system="WM",
+            warehouse="001",
+            external_id="T1",
             target_qty=1.0,
         )
         result = backend.create_task(task)
@@ -215,17 +245,20 @@ class TestWmBackend:
     def test_extract_table_list(self, backend):
         """_extract_table should handle list format."""
         from backends.wm_backend import WmBackend as _W
+
         result = _W._extract_table({"items": [1, 2, 3]}, "items", [])
         assert result == [1, 2, 3]
 
     def test_extract_table_missing(self, backend):
         """_extract_table should return default for missing key."""
         from backends.wm_backend import WmBackend as _W
+
         result = _W._extract_table({}, "nonexistent", [])
         assert result == []
 
     def test_derive_transfer_type(self, backend):
         from backends.wm_backend import WmBackend as _W
+
         assert _W._derive_transfer_type("PICK") == "A"
         assert _W._derive_transfer_type("PUT") == "E"
         assert _W._derive_transfer_type("MOVE") == "U"
@@ -234,6 +267,7 @@ class TestWmBackend:
 
     def test_get_source_type_prefix(self, backend):
         from backends.wm_backend import WmBackend as _W
+
         assert _W._get_source_type_prefix("001-AA-01") == "001"
         assert _W._get_source_type_prefix("AB") == "001"  # too short
         assert _W._get_source_type_prefix(None) == "001"
@@ -245,6 +279,7 @@ class TestWmBackend:
         backend._last_conn_time = 0  # Force expiry
         backend._conn_ttl = 300
         import time
+
         backend._last_conn_time = time.time() - 600  # 10 min ago → expired
         backend._create_connection = MagicMock(return_value=MagicMock())
         conn = backend._get_connection()
@@ -254,6 +289,7 @@ class TestWmBackend:
     def test_build_conn_params_from_file(self, backend):
         """_build_conn_params should read password from file if not in config."""
         from backends.wm_backend import WmBackend
+
         bk = WmBackend(config={"password_file": "/nonexistent/pw"})
         params = bk._build_conn_params()
         assert "passwd" in params
@@ -272,11 +308,16 @@ class TestWmBackendHttpMode:
     @pytest.fixture
     def http_backend(self):
         from backends.wm_backend import WmBackend
-        bk = WmBackend(config={
-            "mode": "http",
-            "simulator_url": "http://mock-simulator:8001",
-            "rfc_ashost": "", "rfc_sysnr": "", "rfc_client": "",
-        })
+
+        bk = WmBackend(
+            config={
+                "mode": "http",
+                "simulator_url": "http://mock-simulator:8001",
+                "rfc_ashost": "",
+                "rfc_sysnr": "",
+                "rfc_client": "",
+            }
+        )
         return bk
 
     def test_backend_type(self, http_backend):
@@ -317,10 +358,20 @@ class TestWmBackendHttpMode:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "T_HEADERS": [
-                {"TANUM": "5000001", "STATUS": "0", "BWLVS": "201", "TRART": "A",
-                 "MATNR": "MAT-HTTP", "VLPLA": "X1-01", "NLPLA": "Y2-02",
-                 "ANFME": 7.0, "ALTME": "EA", "CHARG": "B-001",
-                 "WERKS": "1000", "LGORT": "0001"},
+                {
+                    "TANUM": "5000001",
+                    "STATUS": "0",
+                    "BWLVS": "201",
+                    "TRART": "A",
+                    "MATNR": "MAT-HTTP",
+                    "VLPLA": "X1-01",
+                    "NLPLA": "Y2-02",
+                    "ANFME": 7.0,
+                    "ALTME": "EA",
+                    "CHARG": "B-001",
+                    "WERKS": "1000",
+                    "LGORT": "0001",
+                },
             ],
             "T_ITEMS": [],
         }
@@ -357,10 +408,14 @@ class TestWmBackendHttpMode:
             ]
 
             task = WarehouseTask(
-                source_system="WM", warehouse="001",
-                external_id="", task_type="PUT",
-                source_bin="A1", dest_bin="B2",
-                product="MAT-C", target_qty=2.0,
+                source_system="WM",
+                warehouse="001",
+                external_id="",
+                task_type="PUT",
+                source_bin="A1",
+                dest_bin="B2",
+                product="MAT-C",
+                target_qty=2.0,
             )
             created = http_backend.create_task(task)
             assert created is not None

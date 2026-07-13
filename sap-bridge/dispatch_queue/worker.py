@@ -7,6 +7,7 @@ Features:
 - Max 5 retries, then deadletter
 - Crash recovery via processing set
 """
+
 import logging
 import os
 import threading
@@ -205,7 +206,9 @@ class QueueWorker:
             cursor = 0
             while True:
                 cursor, keys = self._redis.scan(
-                    cursor, match="robot:connection:*", count=50,
+                    cursor,
+                    match="robot:connection:*",
+                    count=50,
                 )
                 for key in keys:
                     data = self._redis.hgetall(key)

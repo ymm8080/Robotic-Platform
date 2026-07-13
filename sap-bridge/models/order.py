@@ -1,4 +1,5 @@
 """Order data models for the robot dispatch platform."""
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -20,7 +21,7 @@ class OrderStatus(StrEnum):
     CANCELLED = "CANCELLED"
     SUSPENDED = "SUSPENDED"
     DIFF_SUSPENDED = "DIFF_SUSPENDED"
-    SAP_PENDING = "SAP_PENDING"      # COMPLETED on platform, awaiting SAP confirmation
+    SAP_PENDING = "SAP_PENDING"  # COMPLETED on platform, awaiting SAP confirmation
     SAP_CONFIRMED = "SAP_CONFIRMED"  # Fully confirmed in SAP EWM/WM
 
 
@@ -34,14 +35,15 @@ class WarehouseOrder:
 
     Maps to the orders table in PostgreSQL.
     """
+
     order_no: str
     type: OrderType = OrderType.MOVE
     priority: OrderPriority = 3
-    source: str | None = None          # SAP warehouse task ID
+    source: str | None = None  # SAP warehouse task ID
     robot_brand: str | None = None
     robot_serial: str | None = None
     status: OrderStatus = OrderStatus.CREATED
-    payload: dict | None = None        # VDA5050 order payload
+    payload: dict | None = None  # VDA5050 order payload
     zone_id: str | None = None
     location: str | None = None
     weight: float | None = None

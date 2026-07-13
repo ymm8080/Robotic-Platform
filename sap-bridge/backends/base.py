@@ -21,8 +21,8 @@ class WarehouseBackend(ABC):
     """
 
     # ── Class-level identifiers (no instantiation needed) ──
-    backend_type_name: str = ""       # Override in subclass
-    display_name_str: str = ""        # Override in subclass
+    backend_type_name: str = ""  # Override in subclass
+    display_name_str: str = ""  # Override in subclass
 
     @property
     def backend_type(self) -> str:
@@ -38,8 +38,11 @@ class WarehouseBackend(ABC):
 
     @abstractmethod
     def list_tasks(
-        self, warehouse: str, status: str = "0",
-        top: int = 100, skip: int = 0,
+        self,
+        warehouse: str,
+        status: str = "0",
+        top: int = 100,
+        skip: int = 0,
     ) -> list[WarehouseTask]:
         """Fetch open warehouse tasks from the backend.
 
@@ -49,7 +52,10 @@ class WarehouseBackend(ABC):
 
     @abstractmethod
     def get_task(
-        self, warehouse: str, task_id: str, item_no: str = "0001",
+        self,
+        warehouse: str,
+        task_id: str,
+        item_no: str = "0001",
     ) -> WarehouseTask | None:
         """Get a single warehouse task by ID. Returns None if not found."""
         ...
@@ -64,7 +70,10 @@ class WarehouseBackend(ABC):
 
     @abstractmethod
     def confirm_task(
-        self, warehouse: str, task_id: str, qty: float,
+        self,
+        warehouse: str,
+        task_id: str,
+        qty: float,
         item_no: str = "0001",
     ) -> bool:
         """Confirm task completion in the backend system."""
@@ -72,7 +81,10 @@ class WarehouseBackend(ABC):
 
     @abstractmethod
     def cancel_task(
-        self, warehouse: str, task_id: str, item_no: str = "0001",
+        self,
+        warehouse: str,
+        task_id: str,
+        item_no: str = "0001",
     ) -> bool:
         """Cancel a warehouse task."""
         ...

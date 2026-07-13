@@ -10,7 +10,6 @@ References:
   REFERENCE/05_reference/robots/quicktron-strategy.md
 """
 
-
 from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 
@@ -73,10 +72,7 @@ class QuicktronStrategy(BaseStrategy):
         elif driving:
             status = "MOVING"
         elif state.get("actionStates"):
-            running = [
-                a for a in state["actionStates"]
-                if a.get("actionStatus") in ("RUNNING", "INITIALIZING")
-            ]
+            running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
             status = "EXECUTING" if running else "IDLE"
         else:
             status = "IDLE"
@@ -258,8 +254,7 @@ class QuicktronStrategy(BaseStrategy):
             BrandQuirk(
                 name="chinese-topic-prefix",
                 description=(
-                    "[GUESS] May use 'uagv/v2/' MQTT topic prefix. "
-                    "Verify topic structure during integration testing."
+                    "[GUESS] May use 'uagv/v2/' MQTT topic prefix. Verify topic structure during integration testing."
                 ),
                 severity="INFO",
             ),

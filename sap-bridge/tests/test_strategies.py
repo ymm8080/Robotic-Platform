@@ -1,4 +1,5 @@
 """Tests for robot brand strategies."""
+
 import pytest
 
 from strategies.base import BaseStrategy, BatteryInfo, RobotState
@@ -27,7 +28,7 @@ class TestBaseStrategy:
     def test_validate_state_transition_invalid(self):
         """Invalid state transitions — and one valid (ERROR from IDLE is allowed)."""
         strategy = KukaStrategy()
-        assert strategy.validate_state_transition("IDLE", "ERROR") is True   # ERROR from IDLE is valid
+        assert strategy.validate_state_transition("IDLE", "ERROR") is True  # ERROR from IDLE is valid
         assert strategy.validate_state_transition("IDLE", "EXECUTING") is False  # Must go MOVING first
         assert strategy.validate_state_transition("MOVING", "CHARGING") is False
         assert strategy.validate_state_transition("IDLE", "PAUSED") is False
@@ -87,7 +88,9 @@ class TestKukaStrategy:
 
     def test_handle_paused_state(self, strategy):
         state = {
-            "driving": False, "paused": True, "operatingMode": "AUTOMATIC",
+            "driving": False,
+            "paused": True,
+            "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryCharge": 75.0},
             "agvPosition": {"x": 0, "y": 0, "theta": 0, "lastNodeId": "", "positionInitialized": False},
             "errors": [],
@@ -97,7 +100,9 @@ class TestKukaStrategy:
 
     def test_handle_fatal_error(self, strategy):
         state = {
-            "driving": False, "paused": False, "operatingMode": "AUTOMATIC",
+            "driving": False,
+            "paused": False,
+            "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryCharge": 50.0},
             "agvPosition": {"x": 0, "y": 0, "theta": 0, "lastNodeId": "", "positionInitialized": False},
             "errors": [{"errorType": "DRIVE_FAILURE", "errorLevel": "FATAL", "errorDescription": "Motor stall"}],
@@ -109,7 +114,9 @@ class TestKukaStrategy:
 
     def test_handle_executing_state(self, strategy):
         state = {
-            "driving": False, "paused": False, "operatingMode": "AUTOMATIC",
+            "driving": False,
+            "paused": False,
+            "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryCharge": 70.0},
             "agvPosition": {"x": 0, "y": 0, "theta": 0, "lastNodeId": "", "positionInitialized": False},
             "errors": [],
@@ -138,7 +145,9 @@ class TestMirStrategy:
     def test_driving_state_mapped_to_moving(self, strategy):
         """MiR reports DRIVING, we map to MOVING."""
         state = {
-            "driving": True, "paused": False, "operatingMode": "AUTOMATIC",
+            "driving": True,
+            "paused": False,
+            "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryCharge": 80.0, "batteryVoltage": 48.0},
             "agvPosition": {"x": 5.0, "y": 5.0, "theta": 0.0, "lastNodeId": "HOME", "positionInitialized": True},
             "errors": [],
@@ -150,7 +159,9 @@ class TestMirStrategy:
     def test_waiting_before_idle(self, strategy):
         """MiR sends WAITING before IDLE — grace counter."""
         state_wa = {
-            "driving": False, "paused": False, "operatingMode": "AUTOMATIC",
+            "driving": False,
+            "paused": False,
+            "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryCharge": 60.0},
             "agvPosition": {"x": 10.0, "y": 10.0, "theta": 0.0, "lastNodeId": "NODE-05", "positionInitialized": True},
             "errors": [],
@@ -223,7 +234,9 @@ class TestOttoStrategy:
     def test_otto_charging_state(self, strategy):
         """OTTO reports CHARGING via battery flag."""
         state = {
-            "driving": False, "paused": False, "operatingMode": "AUTOMATIC",
+            "driving": False,
+            "paused": False,
+            "operatingMode": "AUTOMATIC",
             "batteryState": {"batteryVoltage": 54000, "charging": True},
             "agvPosition": {"x": 0, "y": 0, "theta": 0, "lastNodeId": "", "positionInitialized": False},
             "errors": [],
@@ -239,7 +252,6 @@ class TestOttoStrategy:
 
 
 class TestStrategyRegistry:
-
     @pytest.fixture
     def registry(self):
         return StrategyRegistry()
@@ -279,17 +291,27 @@ class TestStrategyRegistry:
 
         class CustomStrategy(BaseStrategy):
             @property
-            def brand(self): return "CUSTOM"
+            def brand(self):
+                return "CUSTOM"
+
             @property
-            def supported_versions(self): return ["2.0.0"]
+            def supported_versions(self):
+                return ["2.0.0"]
+
             def handle_state(self, state):
                 return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
-            def normalize_battery(self, raw): return BatteryInfo(percent=100)
+
+            def normalize_battery(self, raw):
+                return BatteryInfo(percent=100)
+
             def dispatch(self, order):
                 from strategies.base import DispatchResult
+
                 return DispatchResult(
-                    success=True, order_id=order.get("orderId", ""),
-                    protocol="vda5050", payload=order,
+                    success=True,
+                    order_id=order.get("orderId", ""),
+                    protocol="vda5050",
+                    payload=order,
                 )
 
         registry.register(CustomStrategy())
@@ -306,20 +328,32 @@ class TestStrategyRegistry:
     def test_double_register_same_brand(self, registry):
         count = registry.count()
         from strategies.base import BaseStrategy
+
         class DupStrategy(BaseStrategy):
             @property
-            def brand(self): return "KUKA"
+            def brand(self):
+                return "KUKA"
+
             @property
-            def supported_versions(self): return ["2.0.0"]
+            def supported_versions(self):
+                return ["2.0.0"]
+
             def handle_state(self, state):
                 return RobotState(status="IDLE", battery=BatteryInfo(percent=100), position={})
-            def normalize_battery(self, raw): return BatteryInfo(percent=100)
+
+            def normalize_battery(self, raw):
+                return BatteryInfo(percent=100)
+
             def dispatch(self, order):
                 from strategies.base import DispatchResult
+
                 return DispatchResult(
-                    success=True, order_id=order.get("orderId", ""),
-                    protocol="vda5050", payload=order,
+                    success=True,
+                    order_id=order.get("orderId", ""),
+                    protocol="vda5050",
+                    payload=order,
                 )
+
         registry.register(DupStrategy())
         assert registry.count() == count
 
@@ -330,6 +364,7 @@ class TestBaseStrategyUtils:
     @pytest.fixture
     def kuka(self):
         from strategies.kuka import KukaStrategy
+
         return KukaStrategy()
 
     def test_connection_state_online(self, kuka):
@@ -363,12 +398,17 @@ class TestBaseStrategyUtils:
         assert kuka.validate_state_transition("INIT", "MOVING") is False
 
     def test_extract_position_normal(self, kuka):
-        pos = kuka.extract_position({
-            "agvPosition": {
-                "x": 1.0, "y": 2.0, "theta": 3.0,
-                "lastNodeId": "N1", "positionInitialized": True,
-            },
-        })
+        pos = kuka.extract_position(
+            {
+                "agvPosition": {
+                    "x": 1.0,
+                    "y": 2.0,
+                    "theta": 3.0,
+                    "lastNodeId": "N1",
+                    "positionInitialized": True,
+                },
+            }
+        )
         assert pos["x"] == 1.0
 
     def test_extract_position_empty(self, kuka):

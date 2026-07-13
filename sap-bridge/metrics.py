@@ -14,6 +14,7 @@ Metrics:
   sap_bridge_sap_connected           — SAP EWM connected (gauge)
   sap_bridge_uptime_seconds          — Process uptime (counter)
 """
+
 import time
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
@@ -81,6 +82,7 @@ uptime = Counter(
 
 # ─── Middleware ────────────────────────────────────────────────────────────
 
+
 class MetricsMiddleware(BaseHTTPMiddleware):
     """Counts every HTTP request by method, path, and status code."""
 
@@ -100,6 +102,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 
 # ─── Endpoint Helper ───────────────────────────────────────────────────────
+
 
 def metrics_response() -> Response:
     """Generate a Prometheus-formatted metrics response."""

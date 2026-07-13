@@ -4,6 +4,7 @@ VDA5050 v2.0.0 — simulates:
 - Battery in millivolts (not percentage)
 - Custom CHARGING state via batteryState.charging flag
 """
+
 import random
 
 from .base_simulator import BaseRobotSimulator

@@ -1,4 +1,5 @@
 """Tests for QueueWorker — dispatch logic, retry, backoff, deadletter."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +36,7 @@ def _patch_redis():
 def db():
     """Schema is initialized by conftest.py. Return None for compatibility."""
     from db import init_schema
+
     init_schema()
     return None
 
@@ -44,6 +46,7 @@ class TestQueueWorkerLifecycle:
 
     def test_worker_starts_and_stops(self, db):
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             assert worker._running is False
@@ -54,16 +57,19 @@ class TestQueueWorkerLifecycle:
 
     def test_worker_recovers_stale_on_start(self, db):
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
-            with patch.object(worker._queue, 'recover_stale_processing',
-                              wraps=worker._queue.recover_stale_processing) as mock_rec:
+            with patch.object(
+                worker._queue, "recover_stale_processing", wraps=worker._queue.recover_stale_processing
+            ) as mock_rec:
                 worker.start()
                 mock_rec.assert_called_once()
                 worker.stop()
 
     def test_worker_metrics_property(self, db):
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             metrics = worker.metrics
@@ -72,6 +78,7 @@ class TestQueueWorkerLifecycle:
 
     def test_tick_on_empty_queue(self, db):
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             # _tick on empty queue should do nothing and return without error
@@ -88,12 +95,14 @@ class TestQueueWorkerDispatch:
     def _make_order(self, db, order_no, brand="KUKA", serial="KMR-001"):
         from models.order import WarehouseOrder
         from services.order_service import OrderService
+
         svc = OrderService()
         svc.create_order(WarehouseOrder(order_no=order_no, robot_brand=brand, robot_serial=serial))
         return svc.get_order(order_no)
 
     def test_dispatch_success(self, db):
         from dispatch_queue.worker import QueueWorker
+
         order = self._make_order(db, "DISPATCH-001")
         mock_pub = MagicMock()
         mock_pub.publish.return_value = 42
@@ -106,6 +115,7 @@ class TestQueueWorkerDispatch:
 
     def test_dispatch_mqtt_failure(self, db):
         from dispatch_queue.worker import QueueWorker
+
         order = self._make_order(db, "FAIL-001")
         mock_pub = MagicMock()
         mock_pub.publish.return_value = None
@@ -117,6 +127,7 @@ class TestQueueWorkerDispatch:
 
     def test_dispatch_callback_invoked(self, db):
         from dispatch_queue.worker import QueueWorker
+
         order = self._make_order(db, "CB-001")
         mock_pub = MagicMock()
         mock_pub.publish.return_value = 42
@@ -130,6 +141,7 @@ class TestQueueWorkerDispatch:
 
     def test_handle_failure_deadletters_at_max(self, db):
         from dispatch_queue.worker import MAX_RETRIES, QueueWorker
+
         order = self._make_order(db, "DL-001")
 
         with patch("dispatch_queue.worker.get_publisher"):
@@ -140,6 +152,7 @@ class TestQueueWorkerDispatch:
 
     def test_handle_failure_retries_before_max(self, db):
         from dispatch_queue.worker import QueueWorker
+
         order = self._make_order(db, "RETRY-001")
 
         with patch("dispatch_queue.worker.get_publisher"):
