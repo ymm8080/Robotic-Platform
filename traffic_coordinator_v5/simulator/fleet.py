@@ -79,7 +79,7 @@ class FleetSimulator:
         if self._mqtt is not None:
             try:
                 self._mqtt.connect()
-            except Exception as exc:
+            except Exception:
                 logger.exception("FleetSimulator: MQTT connection failed — running without MQTT")
         self._running = True
         self._stop_event.clear()

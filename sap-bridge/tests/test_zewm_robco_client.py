@@ -8,7 +8,7 @@ Test categories:
   5. Rate limit         — 429 -> backoff -> retry succeeds
   6. SAP error parsing  — "ROBOT_NOT_FOUND/001" splits to "ROBOT_NOT_FOUND"
   7. Config validation  — missing fields -> errors; valid config -> empty
-  8. _parse_response    — unwrap SAP ``{"d": {...}}`` envelope
+  8. parse_response    — unwrap SAP ``{"d": {...}}`` envelope
   9. P2 stubs           — all 4 stubs raise NotImplementedError
   10. map_robot_error_to_exccode — exact match, prefix fallback, no match
 """
@@ -553,30 +553,30 @@ class TestConfigValidation:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 8. _parse_response — unwrap SAP OData V2 ``{"d": {...}}`` envelope
+# 8. parse_response — unwrap SAP OData V2 ``{"d": {...}}`` envelope
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestParseResponse:
-    """_parse_response unwraps the SAP OData V2 envelope."""
+    """parse_response unwraps the SAP OData V2 envelope."""
 
     def test_unwraps_d_envelope(self):
         """``{"d": {"Who": "123"}}`` -> ``{"Who": "123"}``."""
         resp = MagicMock()
         resp.json.return_value = {"d": {"Who": "123"}}
-        assert ZewmRobcoClient._parse_response(resp) == {"Who": "123"}
+        assert ZewmRobcoClient.parse_response(resp) == {"Who": "123"}
 
     def test_no_d_key_passthrough(self):
         """Response without ``d`` key passes through unchanged."""
         resp = MagicMock()
         resp.json.return_value = {"Who": "123"}
-        assert ZewmRobcoClient._parse_response(resp) == {"Who": "123"}
+        assert ZewmRobcoClient.parse_response(resp) == {"Who": "123"}
 
     def test_collection_results(self):
         """``{"d": {"results": [...]}}`` -> ``{"results": [...]}``."""
         resp = MagicMock()
         resp.json.return_value = {"d": {"results": [{"Who": "W1"}, {"Who": "W2"}]}}
-        result = ZewmRobcoClient._parse_response(resp)
+        result = ZewmRobcoClient.parse_response(resp)
         assert "results" in result
         assert len(result["results"]) == 2
 
@@ -584,7 +584,7 @@ class TestParseResponse:
         """``{"d": None}`` -> ``None``."""
         resp = MagicMock()
         resp.json.return_value = {"d": None}
-        assert ZewmRobcoClient._parse_response(resp) is None
+        assert ZewmRobcoClient.parse_response(resp) is None
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -12,7 +12,7 @@ import threading
 from traffic_coordinator_v5.simulator.fleet import FleetSimulator
 from traffic_coordinator_v5.simulator.map import LaneGraph
 from traffic_coordinator_v5.simulator.mqtt_client import MqttVDAClient
-from traffic_coordinator_v5.simulator.robot import RobotConfig, SimulatedRobot
+from traffic_coordinator_v5.simulator.robot import RobotConfig
 
 logger = logging.getLogger(__name__)
 

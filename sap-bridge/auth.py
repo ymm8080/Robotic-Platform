@@ -118,7 +118,8 @@ class OAuth2TokenManager:
         if not access_token:
             raise RuntimeError("OAuth2 token response missing access_token")
 
-        expires_in = int(body.get("expires_in") or _DEFAULT_TOKEN_TTL_S)
+        expires_in_value = body.get("expires_in", _DEFAULT_TOKEN_TTL_S)
+        expires_in = int(expires_in_value) if expires_in_value is not None else _DEFAULT_TOKEN_TTL_S
         # Cache with safety margin to avoid using an expired token
         cache_ttl = max(expires_in - _TOKEN_SAFETY_MARGIN_S, 60)
 
