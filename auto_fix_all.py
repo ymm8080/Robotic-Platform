@@ -358,7 +358,7 @@ class AutoFixer:
                             and "{exc}" not in lines[j]
                         ):
                             # Fix the logging line
-                            if lines[j].endswith('")') or lines[j].endswith('")') or lines[j].endswith('")'):
+                            if lines[j].endswith('")'):
                                 lines[j] = lines[j][:-2] + ", exc)"
                             else:
                                 lines[j] = lines[j].replace('")', ", exc)")
@@ -511,7 +511,7 @@ class AutoFixer:
             pattern = r"# Not in any explicit list — use grace-period fallback\s+GRACE_POLLS = 2\s+if tid not in self\._inactive_since:\s+self\._inactive_since\[tid\] = self\._poll_count\s+logger\.info\("
             replacement = "# Not in any explicit list — use grace-period fallback\n            if tid not in self._inactive_since:\n                self._inactive_since[tid] = self._poll_count\n                logger.debug("
 
-            import re
+
 
             if re.search(pattern, content, re.MULTILINE):
                 content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
