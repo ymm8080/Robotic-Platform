@@ -1,0 +1,169 @@
+# =============================================================================
+# PR Supersession Check — blocks PRs that are already-on-master, carry merge
+# conflict markers, or are fully merged. Warns on behind-master, per-file
+# no-delta, and overlapping open PRs.
+#
+# Enforced as a REQUIRED STATUS CHECK via master branch protection. Unlike a
+# review-based block (which DeepSeek auto-dismisses on AUTOFIX:CLEAN), a failed
+# status check cannot be dismissed by a review — so the block is durable.
+#
+# Runs on every pull_request event, so it catches BOTH manually-created and
+# AI-generated PRs (there is no committed AI-PR-creation script in this repo,
+# so server-side is the only path that covers both).
+# =============================================================================
+name: PR Supersession Check
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-supersession:
+    name: Check for supersession / duplicates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head (tip, not merge ref)
+        uses: actions/checkout@v4
+        with:
+          # Check out the actual head commit so HEAD-to-master diffs and
+          # ancestry checks reflect the PR branch tip (not the merge commit).
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch master tip
+        run: git fetch origin master --depth=100
+
+      - name: Detect supersession signals
+        id: detect
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import subprocess, json, os, re, sys
+
+          PR = os.environ["PR_NUMBER"]
+          MASTER = "origin/master"
+
+          def git(*a):
+              return subprocess.run(["git", *a], capture_output=True, text=True)
+          def gh(*a):
+              return subprocess.run(["gh", *a], capture_output=True, text=True)
+
+          # Changed files vs master tip (two-dot = what the PR would actually change).
+          changed = [l for l in git("diff", "--name-only", MASTER, "HEAD").stdout.splitlines() if l.strip()]
+
+          hard_fail = []
+          warns = []
+
+          # 1. Empty diff vs master (fully superseded — content already on master).
+          if git("diff", "--quiet", MASTER, "HEAD").returncode == 0:
+              hard_fail.append("Empty diff vs master — this PR adds nothing against current master tip (changes likely already delivered via another PR).")
+
+          # 2. PR tip already an ancestor of master (fully merged).
+          if git("merge-base", "--is-ancestor", "HEAD", MASTER).returncode == 0:
+              hard_fail.append("Already on master — the PR branch tip is an ancestor of master (fully merged).")
+
+          # 3. Unresolved merge-conflict markers in changed files.
+          # Precise pattern: 7 markers + space/ref (or exactly 7 '='). Avoids
+          # false positives on legit '=======' in markdown/configs.
+          conflict_re = re.compile(r'^(<<<<<<< |>>>>>>> |=======$)')
+          conflict_hits = []
+          for f in changed:
+              blob = git("show", f"HEAD:{f}")
+              if blob.returncode != 0:
+                  continue
+              for i, line in enumerate(blob.stdout.splitlines(), 1):
+                  if conflict_re.match(line):
+                      conflict_hits.append(f"`{f}`:{i}")
+                      break
+          if conflict_hits:
+              hard_fail.append("Unresolved merge-conflict markers:\n" + "\n".join(f"  - {h}" for h in conflict_hits))
+
+          # 4. Per-file no-delta vs master (warn — file identical to master).
+          no_delta = [f for f in changed if git("diff", "--quiet", MASTER, "HEAD", "--", f).returncode == 0]
+          if no_delta:
+              warns.append("Files with no delta vs master (identical content already on master):\n" + "\n".join(f"  - `{f}`" for f in no_delta))
+
+          # 5. Behind master (warn).
+          behind = git("rev-list", "--count", "HEAD.." + MASTER).stdout.strip()
+          if behind and int(behind) > 0:
+              warns.append(f"Branch is {behind} commit(s) behind master — rebase to avoid merge conflicts.")
+
+          # 6. Overlapping open PRs (warn — same files, coordinate).
+          overlap_lines = []
+          lst = gh("pr", "list", "--state", "open", "--limit", "100",
+                   "--json", "number,title,files", "--jq",
+                   f".[] | select(.number != {PR}) | {{number,title,files:[.files[].path]}}")
+          if lst.returncode == 0 and lst.stdout.strip():
+              for line in lst.stdout.splitlines():
+                  line = line.strip().rstrip(",")
+                  if not line.startswith("{"):
+                      continue
+                  try:
+                      obj = json.loads(line)
+                  except Exception:
+                      continue
+                  shared = sorted(set(obj.get("files", [])) & set(changed))
+                  if shared:
+                      overlap_lines.append(f"  - #{obj['number']} {obj['title']} — shares: {', '.join('`'+s+'`' for s in shared)}")
+          if overlap_lines:
+              warns.append("Overlapping open PRs (same files — coordinate to avoid duplicate work):\n" + "\n".join(overlap_lines))
+
+          # Build markdown report.
+          lines = ["## 🔍 PR Supersession Check", ""]
+          if hard_fail:
+              lines.append("### 🚫 Blocked — supersession detected")
+              lines.append("")
+              for r in hard_fail:
+                  lines.append(f"- {r}")
+              lines.append("")
+              lines.append("**Action:** rebase on `master`, confirm your changes aren't already delivered by another PR, and remove any conflict markers. This check re-runs automatically on push.")
+          elif warns:
+              lines.append("### ⚠️ Advisory — merge not blocked")
+              lines.append("")
+              for w in warns:
+                  lines.append(w)
+                  lines.append("")
+          else:
+              lines.append("### ✅ No supersession signals — clean.")
+
+          report = "\n".join(lines)
+          with open("/tmp/report.md", "w") as f:
+              f.write(report)
+          # Export to subsequent steps via GITHUB_ENV.
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"HARD_FAIL={'1' if hard_fail else '0'}\n")
+              env.write(f"HAS_OUTPUT={'1' if (hard_fail or warns) else '0'}\n")
+          print(report)
+          PY
+
+      - name: Report (comment + label) and gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HARD_FAIL: ${{ env.HARD_FAIL }}
+          HAS_OUTPUT: ${{ env.HAS_OUTPUT }}
+        run: |
+          set -e
+          # Ensure the label exists (no-op if it already does).
+          gh label create superseded --color "D73A4A" --description "Superseded or duplicate — merge blocked" 2>/dev/null || true
+
+          if [ "$HAS_OUTPUT" = "1" ]; then
+            gh pr comment "$PR" --body-file /tmp/report.md
+          fi
+
+          if [ "$HARD_FAIL" = "1" ]; then
+            gh pr edit "$PR" --add-label "superseded" || true
+            echo "::error::Supersession detected — see comment. Merge blocked."
+            exit 1
+          else
+            # Clean or warn-only: clear any stale superseded label from a prior run.
+            gh pr edit "$PR" --remove-label "superseded" 2>/dev/null || true
+          fi

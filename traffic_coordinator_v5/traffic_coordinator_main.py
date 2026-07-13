@@ -25,6 +25,7 @@ MQTT topics:
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -51,6 +52,18 @@ from traffic_coordinator_v5.maps.loader import load_facility_map
 _logger = logging.getLogger(__name__)
 
 MODE = os.environ.get("MODE", "PRODUCTION")
+
+# Configure root logger. force=True ensures our config takes effect even if
+# another module already called basicConfig — this is the application entry
+# point, so we own the logging configuration.
+_LOG_LEVEL = os.environ.get("TC_LOG_LEVEL", "WARNING" if MODE == "PRODUCTION" else "INFO")
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S.%f%z",
+    force=True,
+)
+
 PORT = int(os.environ.get("TC_HTTP_PORT", "8000"))
 TC_API_KEY_FILE = os.environ.get("TC_API_KEY_FILE", "/run/secrets/tc_api_key")
 WORM_SINK_PATH = os.environ.get("WORM_SINK_PATH", "")
@@ -177,17 +190,49 @@ def _background_tick(stop_event: threading.Event) -> None:
     Also periodically snapshots coordinator state for crash recovery.
     """
     last_snapshot = 0.0
-    while not stop_event.is_set():
-        now = time.monotonic()
-        result = COORDINATOR.tick(now)
-        _publish_tick_result(result)
-        if now - last_snapshot >= SNAPSHOT_INTERVAL:
-            try:
-                STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
-                last_snapshot = now
-            except Exception as exc:
-                _logger.warning("[snapshot] save failed: %s", exc)
-        stop_event.wait(TICK_INTERVAL)
+    # Local executor — no underscore prefix since this is a function-local
+    # variable, not a module-level private name.
+    snap_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="snapshot",
+    )
+    try:
+        while not stop_event.is_set():
+            now = time.monotonic()
+            result = COORDINATOR.tick(now)
+            _publish_tick_result(result)
+            if now - last_snapshot >= SNAPSHOT_INTERVAL:
+                # submit() raises RuntimeError if the executor is shut down.
+                # COORDINATOR.snapshot() is called inside _save_snapshot (in
+                # the worker thread) to avoid blocking the tick loop.
+                # last_snapshot is updated on submit success, not on save
+                # completion — a failed save should not trigger rapid retries.
+                try:
+                    snap_executor.submit(_save_snapshot)
+                    last_snapshot = now
+                except RuntimeError:
+                    _logger.warning("[snapshot] submit failed")
+            stop_event.wait(TICK_INTERVAL)
+    finally:
+        # wait=True ensures pending snapshot tasks complete before exit,
+        # preventing data loss. try/finally guarantees shutdown even if
+        # the tick loop raises unexpectedly. Since _save_snapshot calls
+        # STATE_STORE.set (a synchronous blocking write), shutdown may
+        # block briefly until the in-flight snapshot finishes — acceptable
+        # for a single-worker executor. Do not change to wait=False
+        # without ensuring an alternative flush mechanism.
+        snap_executor.shutdown(wait=True)
+
+
+def _save_snapshot() -> None:
+    """Serialize + persist coordinator state in a background thread.
+
+    Both COORDINATOR.snapshot() and STATE_STORE.set() run here (in the
+    worker thread) to keep the tick loop non-blocking.
+    """
+    try:
+        STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
+    except Exception as exc:
+        _logger.warning("[snapshot] save failed: %s", exc)
 
 
 # ── Bootstrap: load facility map and register adapters ───────────
