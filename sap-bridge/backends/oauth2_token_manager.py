@@ -23,7 +23,6 @@ Credentials follow iron rule #5 — Docker Secrets only.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 

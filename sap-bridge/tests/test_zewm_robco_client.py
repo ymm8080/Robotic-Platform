@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clients.zewm_robco_client import DEFAULT_BASE_URL, ZewmRobcoClient
+from clients.zewm_robco_client import ZewmRobcoClient
 from clients.zewm_robco_exceptions import (
     NoErrorQueueError,
     NoOrderFoundError,
