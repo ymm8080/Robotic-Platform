@@ -1,6 +1,8 @@
 # =============================================================================
 # Prometheus Alert Rules — V5 Traffic Coordinator v5.x
 # =============================================================================
+# Note: Alert name changed from V5CoordinatorDown to tc_coordinator_down in PR #49
+# External integrations (PagerDuty, Slack) may need updating if they reference the old name
 groups:
   - name: v5_traffic_coordinator
     interval: 15s

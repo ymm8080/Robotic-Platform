@@ -6,8 +6,80 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  auto-fix:
+  auto-fix-lint:
+    name: Auto-Fix Lint Errors
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Setup git
+        run: |
+          git config user.name "CatPaw Auto-Fix"
+          git config user.email "auto-fix@catpaw.local"
+
+      - name: Run ruff format (sap-bridge only)
+        run: |
+          echo "=== Running ruff format (sap-bridge) ==="
+          ruff format sap-bridge/ || true
+
+      - name: Run ruff check --fix (sap-bridge)
+        run: |
+          echo "=== Running ruff check --fix (sap-bridge) ==="
+          cd sap-bridge
+          ruff check . --config ruff.toml --fix --unsafe-fixes || true
+          cd ..
+
+      - name: Run ruff check --fix (scripts only)
+        run: |
+          echo "=== Running ruff check --fix (scripts) ==="
+          ruff check scripts/ --fix --unsafe-fixes || true
+
+      - name: Check for changes and commit
+        id: check-changes
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if ! git diff --quiet; then
+            echo "Changes detected, committing..."
+            git add -A
+            git commit -m "fix: auto-fix lint errors [ci skip]"
+            # Switch from detached HEAD to PR branch before push
+            git checkout -B "$BRANCH"
+            git push origin "$BRANCH"
+            echo "pushed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No lint fixes needed."
+            echo "pushed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR (if changes pushed)
+        if: steps.check-changes.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          gh pr comment $PR_NUMBER --body "Auto-fix: applied ruff format + lint fixes"
+
+  auto-fix-full:
+    name: Full Auto-Fix (requires self-hosted runner)
+    runs-on: ubuntu-latest
+    if: false
     permissions:
       pull-requests: write
       contents: write
@@ -29,20 +101,17 @@ jobs:
           echo "Waiting 60s for DeepSeek review + CI checks to start..."
           sleep 60
 
-      - name: Run auto-fix loop
+      - name: Run auto-fix loop (CatPaw CLI required)
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           echo "=== Auto-Fix triggered for PR #${PR_NUMBER} ==="
 
-          # Install CatPaw CLI (if available) or use script directly
           if command -v claude &>/dev/null; then
             cat auto-fix.sh | claude --pr "${PR_NUMBER}"
           else
-            echo "CatPaw CLI not available on runner."
-            echo "Auto-fix.sh is designed for LOCAL execution:"
-            echo "  bash auto-fix.sh ${PR_NUMBER}"
-            echo "Workflow will exit. Run auto-fix locally."
+            echo "CatPaw CLI not available. Skipping full auto-fix."
+            echo "To enable: install CatPaw CLI on a self-hosted runner."
             exit 0
           fi

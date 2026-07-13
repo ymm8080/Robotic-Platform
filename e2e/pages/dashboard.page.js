@@ -59,7 +59,11 @@ class DashboardPage extends BasePage {
 
   async isAuthenticated() {
     try {
-      await this.title.waitFor({ state: 'visible', timeout: 3000 });
+      // Timeout is configurable via E2E_AUTH_TIMEOUT_MS env var.
+      // Default: 2000ms (fast feedback). In CI, set to 5000+ if network
+      // latency causes false negatives.
+      const timeout = parseInt(process.env.E2E_AUTH_TIMEOUT_MS || '2000', 10);
+      await this.title.waitFor({ state: 'visible', timeout });
       return true;
     } catch {
       return false;

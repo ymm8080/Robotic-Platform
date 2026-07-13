@@ -11,7 +11,7 @@ import urllib.request
 
 # Read diff from file (avoids env var size limits)
 try:
-    with open("pr_diff.txt") as f:
+    with open("pr_diff.txt", encoding="utf-8") as f:
         diff = f.read()
 except FileNotFoundError:
     print("No pr_diff.txt found, skipping review")
@@ -61,7 +61,7 @@ payload = json.dumps({
             "content": f"Review this diff carefully. Only report issues that actually exist in the code:\n\n{diff}",
         },
     ],
-    "max_tokens": 4096,
+    "max_tokens": 8192,
     "temperature": 0.1,
 }).encode("utf-8")
 
@@ -75,14 +75,26 @@ req = urllib.request.Request(
 )
 
 try:
-    resp = urllib.request.urlopen(req, timeout=120)
+    resp = urllib.request.urlopen(req, timeout=180)
     result = json.loads(resp.read().decode("utf-8"))
-    review = result["choices"][0]["message"]["content"]
 
-    # Append structured marker for auto-fix.sh to parse
+    # Guard against unexpected API response structure (KeyError protection)
+    choices = result.get("choices", [])
+    if not choices:
+        error_msg = result.get("error", {}).get("message", "Unknown error")
+        print(f"ERROR: API returned no choices. Message: {error_msg}")
+        sys.exit(1)
+
+    review = choices[0].get("message", {}).get("content", "")
+    if not review:
+        print("ERROR: API returned empty review content")
+        sys.exit(1)
+
+    # Append structured marker for auto-fix.sh to parse.
     # Check if the "必须修复" section has actual numbered items (e.g., "1. **...**").
     # The section header alone is not enough — the AI always includes it.
     # We look for numbered list items under a "必须修复" heading.
+    # Match "必须修复" section with at least one numbered item after it
     must_fix_pattern = r"必须修复[^#]*?\d+\.\s+\*\*"
     has_issues = bool(re.search(must_fix_pattern, review, re.DOTALL))
     marker = "<!--AUTOFIX:HAS_ISSUES-->" if has_issues else "<!--AUTOFIX:CLEAN-->"
@@ -93,9 +105,16 @@ try:
     print(f"Review generated successfully (marker: {marker})")
 except urllib.error.HTTPError as e:
     print(f"HTTP Error: {e.code} {e.reason}")
-    body = e.read().decode("utf-8")
-    print(f"Response: {body[:500]}")
+    # Read body but do NOT print full response — DeepSeek error responses
+    # may echo back parts of the request headers in some edge cases,
+    # which would leak the API key into CI logs.
+    body = e.read().decode("utf-8", errors="replace")
+    safe_preview = body[:200].replace("\n", " ")
+    print(f"Response (sanitized, first 200 chars): {safe_preview}")
+    sys.exit(1)
+except urllib.error.URLError as e:
+    print(f"Network Error: {e.reason}")
     sys.exit(1)
 except Exception as e:
-    print(f"Error: {e}")
+    print(f"Error: {type(e).__name__}: {e}")
     sys.exit(1)

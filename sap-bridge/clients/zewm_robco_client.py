@@ -24,10 +24,10 @@ Reference:
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import time
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -46,12 +46,14 @@ logger = logging.getLogger(__name__)
 # ── Defaults ───────────────────────────────────────────────────────────
 
 DEFAULT_BASE_URL = os.getenv(
-    "SAP_EWM_BASE_URL", os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"),
+    "SAP_EWM_BASE_URL",
+    os.getenv("SAP_BASE_URL", "http://sap-ewm:8000"),
 )
 DEFAULT_CLIENT = os.getenv("SAP_CLIENT", "100")
 DEFAULT_USER = os.getenv("SAP_USER", "")
 DEFAULT_PASSWORD_FILE = os.getenv(
-    "SAP_PASSWORD_FILE", "/run/secrets/sap_password",
+    "SAP_PASSWORD_FILE",
+    "/run/secrets/sap_password",
 )
 DEFAULT_REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
@@ -60,18 +62,20 @@ DEFAULT_ODATA_SERVICE = "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
 MAX_REQUESTS_PER_MINUTE = 80
 TOKEN_BUCKET_INTERVAL = 60.0 / MAX_REQUESTS_PER_MINUTE
 CSRF_REFRESH_INTERVAL = 1500  # 25 minutes
-CSRF_REDIS_KEY = "sap:zewm_robco:csrf_token"
-CSRF_REDIS_COOKIE_KEY = "sap:zewm_robco:csrf_cookies"
-CSRF_REDIS_REFRESH_KEY = "sap:zewm_robco:csrf_last_refresh"
-CONFIRM_RETRY_MAX = 5
-CONFIRM_RETRY_BACKOFF_BASE = 1.0
-CONFIRM_RETRY_BACKOFF_CAP = 30.0
+_CSRF_REDIS_KEY = "sap:zewm_robco:csrf_token"
+_CSRF_REDIS_COOKIE_KEY = "sap:zewm_robco:csrf_cookies"
+_CSRF_REDIS_REFRESH_KEY = "sap:zewm_robco:csrf_last_refresh"
+_CONFIRM_RETRY_MAX = 5
+_CONFIRM_RETRY_BACKOFF_BASE = 1.0
+_CONFIRM_RETRY_BACKOFF_CAP = 30.0
+# Max HTTP retries for 401/403/429 in a single _request() call
+_MAX_HTTP_RETRIES = 3
 
 
 def _read_password(password_file: str) -> str:
     """Read password from a Docker secret file."""
     try:
-        with open(password_file) as f:
+        with open(password_file, encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
         logger.error("Password file not found at configured path: %s", password_file)
@@ -92,16 +96,14 @@ class _ZewmCsrfManager:
         self,
         redis_client: rd.Redis,
         auth: tuple[str, str] | None = None,
-        auth_headers_fn: Callable[[httpx.Client], dict[str, str]] | None = None,
     ):
         self._redis = redis_client
         self._auth = auth
-        self._auth_headers_fn = auth_headers_fn or (lambda _client: {})
 
     def get_token(self) -> tuple[str, str] | None:
         """Return cached (token, cookies) or None."""
-        token = self._redis.get(CSRF_REDIS_KEY)
-        cookies = self._redis.get(CSRF_REDIS_COOKIE_KEY)
+        token = self._redis.get(_CSRF_REDIS_KEY)
+        cookies = self._redis.get(_CSRF_REDIS_COOKIE_KEY)
         if token and cookies:
             return (token, cookies)
         return None
@@ -109,9 +111,9 @@ class _ZewmCsrfManager:
     def set_token(self, token: str, cookies: str) -> None:
         """Cache CSRF token and cookies in Redis."""
         pipe = self._redis.pipeline()
-        pipe.setex(CSRF_REDIS_KEY, CSRF_REFRESH_INTERVAL, token)
-        pipe.setex(CSRF_REDIS_COOKIE_KEY, CSRF_REFRESH_INTERVAL, cookies)
-        pipe.set(CSRF_REDIS_REFRESH_KEY, str(time.time()))
+        pipe.setex(_CSRF_REDIS_KEY, CSRF_REFRESH_INTERVAL, token)
+        pipe.setex(_CSRF_REDIS_COOKIE_KEY, CSRF_REFRESH_INTERVAL, cookies)
+        pipe.set(_CSRF_REDIS_REFRESH_KEY, str(time.time()))
         pipe.execute()
 
     def fetch_new(
@@ -119,10 +121,20 @@ class _ZewmCsrfManager:
         client: httpx.Client,
         base_url: str,
         odata_service: str,
+        *,
+        auth_headers: dict[str, str] | None = None,
     ) -> tuple[str, str]:
-        """Fetch a fresh CSRF token from SAP via $metadata."""
+        """Fetch a fresh CSRF token from SAP via $metadata.
+
+        Args:
+            client: httpx client for the HTTP request.
+            base_url: SAP base URL.
+            odata_service: OData service path.
+            auth_headers: Optional auth headers (e.g. OAuth2 Bearer token).
+                For Basic auth, credentials are passed via ``self._auth``.
+        """
         url = f"{base_url}{odata_service}/$metadata"
-        headers = {"X-CSRF-Token": "Fetch", **self._auth_headers_fn(client)}
+        headers = {"X-CSRF-Token": "Fetch", **(auth_headers or {})}
         resp = client.get(url, headers=headers, auth=self._auth)
         resp.raise_for_status()
         token = resp.headers.get("X-CSRF-Token", "")
@@ -135,8 +147,14 @@ class _ZewmCsrfManager:
         logger.info("Fetched new ZEWM_ROBCO CSRF token")
         return token, cookies
 
+    def invalidate(self) -> None:
+        """Invalidate cached CSRF token and cookies."""
+        self._redis.delete(_CSRF_REDIS_KEY)
+        self._redis.delete(_CSRF_REDIS_COOKIE_KEY)
+        logger.info("CSRF token cache invalidated")
+
     def close(self) -> None:
-        """No-op — Redis connection is owned by the caller."""
+        """No-op — Redis connection is owned by the parent ZewmRobcoClient."""
         pass
 
 
@@ -183,13 +201,13 @@ class ZewmRobcoClient:
 
         # Confirm retry settings
         self._confirm_retry_max = int(
-            self._cfg.get("confirm_retry_max", CONFIRM_RETRY_MAX),
+            self._cfg.get("confirm_retry_max", _CONFIRM_RETRY_MAX),
         )
         self._confirm_retry_backoff_base = float(
-            self._cfg.get("confirm_retry_backoff_base", CONFIRM_RETRY_BACKOFF_BASE),
+            self._cfg.get("confirm_retry_backoff_base", _CONFIRM_RETRY_BACKOFF_BASE),
         )
         self._confirm_retry_backoff_cap = float(
-            self._cfg.get("confirm_retry_backoff_cap", CONFIRM_RETRY_BACKOFF_CAP),
+            self._cfg.get("confirm_retry_backoff_cap", _CONFIRM_RETRY_BACKOFF_CAP),
         )
 
         # Auth mode: "basic" (default) or "oauth2"
@@ -258,14 +276,15 @@ class ZewmRobcoClient:
     def _ensure_csrf(self) -> _ZewmCsrfManager:
         """Get or create CSRF token manager (lazy init).
 
-        Auth headers are fetched lazily via a callable to avoid creating
-        an unnecessary HTTP connection during initialization.
+        OAuth2 Bearer tokens are NOT fetched here — they are obtained
+        on demand when ``fetch_new`` or ``_get_headers`` is called.
+        This avoids storing stale tokens and unnecessary HTTP requests
+        at initialization time.
         """
         if self._csrf is None:
             self._csrf = _ZewmCsrfManager(
                 self._ensure_redis(),
                 auth=self._auth,
-                auth_headers_fn=self._get_auth_headers,
             )
         return self._csrf
 
@@ -281,8 +300,13 @@ class ZewmRobcoClient:
     # ── Rate limiting ─────────────────────────────────────────────────
 
     def _throttle(self) -> None:
-        """Token-bucket rate limiter (simple sleep-based)."""
+        """Token-bucket rate limiter (simple sleep-based).
+
+        Even when disabled, ``_last_request_time`` is updated so that if
+        the client is re-enabled later, the rate limit window is accurate.
+        """
         if not self._enabled:
+            self._last_request_time = time.time()
             return
         elapsed = time.time() - self._last_request_time
         if elapsed < self._token_interval:
@@ -317,12 +341,13 @@ class ZewmRobcoClient:
         token = oauth2.get_valid_token(client)
         return {"Authorization": f"Bearer {token}"}
 
-    def _get_headers(
-        self,
-        csrf_token: str | None = None,
-        client: httpx.Client | None = None,
-    ) -> dict[str, str]:
-        """Build standard HTTP headers for ZEWM_ROBCO_SRV requests."""
+    def _get_base_headers(self, csrf_token: str | None = None) -> dict[str, str]:
+        """Build base HTTP headers (no auth) for ZEWM_ROBCO_SRV requests.
+
+        Auth headers (OAuth2 Bearer token) are added separately by
+        ``_get_full_headers`` to avoid coupling header construction
+        with token retrieval.
+        """
         headers: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -330,7 +355,25 @@ class ZewmRobcoClient:
         }
         if csrf_token:
             headers["X-CSRF-Token"] = csrf_token
-        if client and self._auth_mode == "oauth2":
+        return headers
+
+    def _get_full_headers(
+        self,
+        csrf_token: str | None,
+        cookies: str | None,
+        client: httpx.Client,
+    ) -> dict[str, str]:
+        """Build complete headers: base + auth + CSRF cookie.
+
+        This is the single place where OAuth2 Bearer tokens are
+        injected into request headers, avoiding duplicate token
+        fetches that occurred when ``_get_headers`` was called
+        multiple times for the same request.
+        """
+        headers = self._get_base_headers(csrf_token)
+        if cookies:
+            headers["Cookie"] = cookies
+        if self._auth_mode == "oauth2":
             headers.update(self._get_auth_headers(client))
         return headers
 
@@ -338,14 +381,22 @@ class ZewmRobcoClient:
         """Get headers including a valid CSRF token.
 
         Uses cached token if available, otherwise fetches a new one.
+        Auth headers (OAuth2 Bearer token) are obtained on demand
+        and passed to ``fetch_new`` for the $metadata request.
         """
         csrf = self._ensure_csrf()
         cached = csrf.get_token()
         if cached:
             token, cookies = cached
-            return {**self._get_headers(token, client), "Cookie": cookies}
-        token, cookies = csrf.fetch_new(client, self._base_url, self._odata_service)
-        return {**self._get_headers(token, client), "Cookie": cookies}
+            return self._get_full_headers(token, cookies, client)
+        auth_hdrs = self._get_auth_headers(client) if self._auth_mode == "oauth2" else {}
+        token, cookies = csrf.fetch_new(
+            client,
+            self._base_url,
+            self._odata_service,
+            auth_headers=auth_hdrs,
+        )
+        return self._get_full_headers(token, cookies, client)
 
     # ── OData URL construction ────────────────────────────────────────
 
@@ -353,7 +404,8 @@ class ZewmRobcoClient:
         """Build a full OData function-import URL with query parameters.
 
         SAP ZEWM_ROBCO_SRV uses positional query-string parameters wrapped in
-        single quotes.
+        single quotes. According to SAP OData V2 specification, single quotes
+        within parameter values must be escaped by doubling them.
 
         Example::
 
@@ -362,6 +414,12 @@ class ZewmRobcoClient:
                 Lgnum="WH01", Rsrc="MIR_001", Who="123",
             )
             # → ".../AssignRobotWho?Lgnum='WH01'&Rsrc='MIR_001'&Who='123'"
+
+            _function_import_url(
+                "SomeFunction",
+                Name="O'Brien",
+            )
+            # → ".../SomeFunction?Name='O''Brien'"
 
         Args:
             name: Function import name (e.g. ``"AssignRobotWho"``).
@@ -373,35 +431,85 @@ class ZewmRobcoClient:
         base = f"{self._base_url}{self._odata_service}/{name}"
         if not params:
             return base
-        parts: list[str] = []
+        qs_parts = []
         for k, v in params.items():
             if v is not None:
-                escaped = str(v).replace("'", "''")
-                parts.append(f"{k}='{escaped}'")
-        if not parts:
-            return base
-        return f"{base}?{'&'.join(parts)}"
+                # Escape single quotes by doubling them (SAP OData V2 specification)
+                escaped_value = str(v).replace("'", "''")
+                qs_parts.append(f"{k}='{escaped_value}'")
+        qs = "&".join(qs_parts)
+        return f"{base}?{qs}"
 
     # ── Response parsing ──────────────────────────────────────────────
 
     @staticmethod
-    def _parse_response(resp: httpx.Response) -> dict[str, Any]:
+    def parse_response(resp: httpx.Response) -> dict[str, Any] | list[dict[str, Any]] | None:
         """Unwrap SAP OData V2 ``{"d": {...}}`` envelope.
 
-        SAP NetWeaver Gateway wraps entity responses in a ``d`` key.
-        Collection responses may use ``d.results``.  This method handles
-        both, returning the unwrapped dict.
+        SAP NetWeaver Gateway wraps responses in a ``d`` key:
+        - Single entity: ``{"d": {"Who": "123"}}`` → ``{"Who": "123"}``
+        - Collection: ``{"d": {"results": [...]}}`` → ``[...]``
+        - Single-item collection: ``{"d": {"results": {...}}}`` → ``[{...}]`` (wrapped in list)
+
+        When the ``d`` object contains a ``results`` key (SAP collection
+        convention), the method returns:
+        - ``list[dict]`` if ``results`` is a list
+        - ``[dict]`` (single-element list) if ``results`` is a dict
+        - raises ``RobcoInternalError`` for other types
+
+        Callers should check the return type (``list`` vs ``dict``) when
+        expecting collection responses.
 
         Args:
             resp: The httpx response object.
 
         Returns:
-            The unwrapped response body dict.
+            - ``dict`` for single-entity responses.
+            - ``list[dict]`` for collection responses (including single-item collections).
+            - ``None`` if ``d`` is null or response is empty.
+
+        Raises:
+            RobcoInternalError: If response format is unexpected (non-dict, non-list)
         """
-        body = resp.json()
-        if not isinstance(body, dict):
-            return body
-        return body.get("d", body)
+        if resp.status_code == 204 or not resp.text.strip():
+            return None
+        try:
+            body = resp.json()
+        except Exception as e:
+            from .zewm_robco_exceptions import RobcoInternalError
+
+            raise RobcoInternalError(f"Failed to parse response as JSON: {e}")
+
+        d = body.get("d", body)
+        if d is None:
+            return None
+
+        # Handle different response types
+        if isinstance(d, dict):
+            # SAP OData V2 collection convention: d.results contains collection data
+            if "results" in d:
+                results = d["results"]
+                if isinstance(results, list):
+                    # Preserve the results as dict, not list
+                    return {"results": results}
+                elif isinstance(results, dict):
+                    # Single-item collection wrapped in a dict
+                    # Wrap it in a list for consistent return type
+                    return [results]
+                else:
+                    # Unexpected results type (should not happen)
+                    from .zewm_robco_exceptions import RobcoInternalError
+
+                    raise RobcoInternalError(f"Unexpected 'results' type in response: {type(results).__name__}")
+            # Return the dict as-is (single entity response)
+            return d
+        elif isinstance(d, list):
+            # Handle case where 'd' is directly a list (non-standard but possible)
+            return d
+        else:
+            # d is a primitive type (string, number, boolean, etc.)
+            # Wrap it in a dict with a '_value' key for consistency
+            return {"_value": d}
 
     def _handle_error_response(self, resp: httpx.Response) -> None:
         """Parse SAP error JSON and raise the matching typed exception.
@@ -422,17 +530,158 @@ class ZewmRobcoClient:
         """
         try:
             body = resp.json()
+        except (json.JSONDecodeError, ValueError):
+            raise RobcoInternalError(
+                f"HTTP {resp.status_code}: non-JSON response: {resp.text[:200]}",
+            )
+        try:
             err = body.get("error", {})
             raw_code = err.get("code", "INTERNAL_ERROR")
             # Strip SAP's "/NNN" numeric suffix
             error_code = raw_code.split("/")[0]
             detail = err.get("message", {}).get("value", "")
             raise_for_error_code(error_code, detail)
-        except (ValueError, KeyError, AttributeError) as exc:
-            logger.debug("Failed to parse SAP error response: %s", exc)
+        except (KeyError, AttributeError):
             raise RobcoInternalError(
-                f"HTTP {resp.status_code}: {resp.text[:200]}",
+                f"HTTP {resp.status_code}: unexpected error format: {body}",
             )
+
+    def _prepare_retry_headers(
+        self,
+        status_code: int,
+        client: httpx.Client,
+    ) -> dict[str, str]:
+        """Build fresh headers for a retry after a transient failure.
+
+        Centralises the header preparation logic for 403/401/429 retries
+        to avoid code duplication between retry paths.
+
+        - **403**: CSRF token expired — fetch a new CSRF token.
+        - **401**: OAuth2 token expired — invalidated by caller; a fresh
+          token will be obtained via ``_get_csrf_headers``.
+        - **429**: Rate limited — CSRF was invalidated by caller; a fresh
+          token will be obtained via ``_get_csrf_headers``.
+
+        Args:
+            status_code: The HTTP status code that triggered the retry.
+            client: A fresh httpx.Client for any token fetch requests.
+
+        Returns:
+            Complete headers dict for the retry request.
+        """
+        # For 403, we need to fetch a new CSRF token
+        if status_code == 403:
+            csrf = self._ensure_csrf()
+            # In OAuth2 mode, we need auth headers for the CSRF token fetch
+            auth_hdrs = self._get_auth_headers(client) if self._auth_mode == "oauth2" else {}
+            try:
+                token, cookies = csrf.fetch_new(
+                    client,
+                    self._base_url,
+                    self._odata_service,
+                    auth_headers=auth_hdrs,
+                )
+                return self._get_full_headers(token, cookies, client)
+            except Exception as exc:
+                # If CSRF fetch fails (e.g., due to OAuth2 token fetch failure),
+                # propagate the exception so retry can fail gracefully
+                logger.error("Failed to fetch new CSRF token for 403 retry: %s", exc)
+                raise
+
+        # For 401 (OAuth2) or 429 — get fresh headers including CSRF token
+        # Note: OAuth2 token invalidation is done in _request before calling this
+        return self._get_csrf_headers(client)
+
+    # ── Request retry helper ──────────────────────────────────────────────
+
+    def _execute_with_retry(
+        self,
+        method: str,
+        url: str,
+        body: dict[str, Any] | None = None,
+        initial_headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        """Execute HTTP request with retry logic for transient failures.
+
+        Centralizes retry logic for 403 (CSRF expiry), 401 (OAuth2 expiry),
+        and 429 (rate limiting) responses.
+
+        Args:
+            method: HTTP method.
+            url: Full URL.
+            body: Optional request body.
+            initial_headers: Initial headers for first attempt.
+
+        Returns:
+            HTTP response.
+        """
+        with self._get_client() as client:
+            headers = initial_headers or self._get_csrf_headers(client)
+            resp = client.request(
+                method=method,
+                url=url,
+                json=body,
+                headers=headers,
+                auth=self._get_auth_for_request(),
+            )
+
+            retries = 0
+            while resp.status_code in (401, 403, 429) and retries < _MAX_HTTP_RETRIES:
+                # Pre-retry actions based on status code
+                if resp.status_code == 403:
+                    logger.info("CSRF token expired, refreshing...")
+                elif resp.status_code == 401 and self._auth_mode == "oauth2":
+                    logger.info("OAuth2 token may be expired, invalidating...")
+                    self._ensure_oauth2().invalidate()
+                elif resp.status_code == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 2))
+                    delay = min(retry_after, 30)
+                    logger.warning("SAP rate limited — backing off %ds", delay)
+                    time.sleep(delay)
+                    # Invalidate CSRF cache to force fresh token after backoff
+                    self._ensure_csrf().invalidate()
+                else:
+                    # 401 in basic mode — not retryable
+                    break
+
+                # Create a new client for retry to ensure clean connection state
+                client = self._get_client()
+
+                # Prepare headers for retry (with exception handling)
+                try:
+                    headers = self._prepare_retry_headers(
+                        resp.status_code,
+                        client,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Retry header preparation failed (status=%d): %s",
+                        resp.status_code,
+                        exc,
+                    )
+                    # Break instead of raise to let _handle_error_response
+                    # produce a meaningful typed exception for the caller.
+                    break
+
+                resp = client.request(
+                    method=method,
+                    url=url,
+                    json=body,
+                    headers=headers,
+                    auth=self._get_auth_for_request(),
+                )
+                retries += 1
+
+                # If we still have an error status after max retries, break to avoid infinite loop
+                if retries >= _MAX_HTTP_RETRIES and resp.status_code in (401, 403, 429):
+                    logger.error(
+                        "Max retries (%d) reached for status %d, giving up",
+                        _MAX_HTTP_RETRIES,
+                        resp.status_code,
+                    )
+                    break
+
+            return resp
 
     # ── Core request method ───────────────────────────────────────────
 
@@ -445,8 +694,11 @@ class ZewmRobcoClient:
         """Execute an HTTP request with CSRF retry and error handling.
 
         This is the central request dispatcher.  On CSRF expiry (403),
-        it fetches a fresh token and retries exactly once.  SAP error
-        responses are parsed via ``_handle_error_response()``.
+        OAuth2 token expiry (401), or rate limiting (429), it refreshes
+        credentials and retries up to ``_MAX_HTTP_RETRIES`` times.
+        A new ``httpx.Client`` is created for each retry to ensure clean
+        connection state.  SAP error responses are parsed via
+        ``_handle_error_response()``.
 
         Args:
             method: HTTP method (``"GET"``, ``"POST"``, etc.).
@@ -461,80 +713,20 @@ class ZewmRobcoClient:
         """
         self._throttle()
 
-        with self._get_client() as client:
-            headers = self._get_csrf_headers(client)
-            full_url = (
-                f"{self._base_url}{path}"
-                if not path.startswith("http")
-                else path
-            )
+        full_url = f"{self._base_url}{path}" if not path.startswith("http") else path
 
-            resp = client.request(
-                method=method,
-                url=full_url,
-                json=body,
-                headers=headers,
-                auth=self._get_auth_for_request(),
-            )
+        resp = self._execute_with_retry(method, full_url, body)
 
-            # CSRF token expired — refresh and retry once
-            if resp.status_code == 403:
-                logger.info("CSRF token expired, refreshing...")
-                csrf = self._ensure_csrf()
-                token, cookies = csrf.fetch_new(
-                    client, self._base_url, self._odata_service,
-                )
-                headers["X-CSRF-Token"] = token
-                headers["Cookie"] = cookies
-                resp = client.request(
-                    method=method,
-                    url=full_url,
-                    json=body,
-                    headers=headers,
-                    auth=self._get_auth_for_request(),
-                )
+        # Success paths
+        if resp.status_code in (200, 201, 204):
+            if resp.status_code == 204 or not resp.text.strip():
+                return {}
+            return self.parse_response(resp)
 
-            # OAuth2 token expired — invalidate and retry once
-            if resp.status_code == 401 and self._auth_mode == "oauth2":
-                logger.info("OAuth2 token may be expired, invalidating...")
-                self._ensure_oauth2().invalidate()
-                # Rebuild headers with fresh token
-                headers = self._get_csrf_headers(client)
-                resp = client.request(
-                    method=method,
-                    url=full_url,
-                    json=body,
-                    headers=headers,
-                    auth=self._get_auth_for_request(),
-                )
-                if resp.status_code == 401:
-                    logger.error("OAuth2 token refresh failed - still receiving 401")
-
-            # Rate-limited — backoff and retry once
-            if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 2))
-                delay = min(retry_after, 30)
-                logger.warning("SAP rate limited — backing off %ds", delay)
-                time.sleep(delay)
-                headers = self._get_csrf_headers(client)
-                resp = client.request(
-                    method=method,
-                    url=full_url,
-                    json=body,
-                    headers=headers,
-                    auth=self._get_auth_for_request(),
-                )
-
-            # Success paths
-            if resp.status_code in (200, 201, 204):
-                if resp.status_code == 204 or not resp.text.strip():
-                    return {}
-                return self._parse_response(resp)
-
-            # Error path
-            self._handle_error_response(resp)
-            # Should not reach here, but satisfy the type checker
-            return {}  # pragma: no cover
+        # Error path
+        self._handle_error_response(resp)
+        # Should not reach here, but satisfy the type checker
+        return {}  # pragma: no cover
 
     # ═══════════════════════════════════════════════════════════════════
     # P0 Methods — Critical for robot operation
@@ -760,6 +952,34 @@ class ZewmRobcoClient:
         )
         return self._request("POST", url)
 
+    # ── P1: Collection result helper ────────────────────────────────────
+
+    @staticmethod
+    def _unwrap_collection_result(
+        result: dict[str, Any] | list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]]:
+        """Unwrap a parse_response result into a list of dicts.
+
+        Handles three cases:
+        - ``None`` -> empty list
+        - ``list`` -> returned as-is
+        - ``dict`` with ``results`` key -> extracts the list
+        - ``dict`` (single entity) -> wrapped in a single-element list
+
+        Args:
+            result: The return value of :meth:`parse_response`.
+
+        Returns:
+            A list of result dicts.
+        """
+        if result is None:
+            return []
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict) and "results" in result and isinstance(result["results"], list):
+            return result["results"]
+        return [result]
+
     # ── P1: get_in_process_who ────────────────────────────────────────
 
     def get_in_process_who(
@@ -790,13 +1010,7 @@ class ZewmRobcoClient:
             Rsrctype=rsrctype,
         )
         result = self._request("GET", url)
-        # SAP may return a single object or a list under "results"
-        raw = result.get("results", result)
-        if isinstance(raw, dict):
-            return [raw]
-        if isinstance(raw, list):
-            return raw
-        return []
+        return self._unwrap_collection_result(result)
 
     # ── P1: get_assigned_robot_who ────────────────────────────────────
 
@@ -826,12 +1040,7 @@ class ZewmRobcoClient:
             Rsrc=rsrc,
         )
         result = self._request("GET", url)
-        raw = result.get("results", result)
-        if isinstance(raw, dict):
-            return [raw]
-        if isinstance(raw, list):
-            return raw
-        return []
+        return self._unwrap_collection_result(result)
 
     # ═══════════════════════════════════════════════════════════════════
     # P2 Stubs — Planned but not yet implemented
@@ -846,8 +1055,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "get_new_robotgroup_who is a P2 stub — "
-            "see plan §2.5 for batch reservation design",
+            "get_new_robotgroup_who is a P2 stub — see plan §2.5 for batch reservation design",
         )
 
     def unset_who_in_process(self) -> None:
@@ -859,8 +1067,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "unset_who_in_process is a P2 stub — "
-            "see plan §2.5 for process reversion design",
+            "unset_who_in_process is a P2 stub — see plan §2.5 for process reversion design",
         )
 
     def send_conf_error(self) -> None:
@@ -872,8 +1079,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "send_conf_error is a P2 stub — "
-            "see plan §2.5 for error alert design",
+            "send_conf_error is a P2 stub — see plan §2.5 for error alert design",
         )
 
     def move_who_to_error_queue(self) -> None:
@@ -885,8 +1091,7 @@ class ZewmRobcoClient:
         Reference: SAP ZEWM_ROBCO INTEGRATION - IMPLEMENTATION PLAN 20260711 §2.5
         """
         raise NotImplementedError(
-            "move_who_to_error_queue is a P2 stub — "
-            "requires SAP OData function import exposure; see plan §2.5",
+            "move_who_to_error_queue is a P2 stub — requires SAP OData function import exposure; see plan §2.5",
         )
 
     # ═══════════════════════════════════════════════════════════════════
@@ -904,7 +1109,7 @@ class ZewmRobcoClient:
         try:
             with self._get_client() as client:
                 url = f"{self._base_url}{self._odata_service}/$metadata"
-                headers = self._get_headers(client=client)
+                headers = self._get_csrf_headers(client)
                 resp = client.get(
                     url,
                     headers=headers,
@@ -932,16 +1137,16 @@ class ZewmRobcoClient:
     def close(self) -> None:
         """Release Redis and httpx connections.
 
-        Safe to call multiple times.
-
-        Note: _csrf.close() is a no-op and _oauth2.close() would close
-        the shared Redis connection, so we close Redis once here.
+        Safe to call multiple times.  The ZewmRobcoClient owns the Redis
+        connection; ``_ZewmCsrfManager`` and ``OAuth2TokenManager`` share
+        it but have been modified to be no-ops for close() to prevent
+        double-closing of the Redis connection.
         """
+        # Clear references to managers (their close() methods are no-ops)
         self._csrf = None
-        if self._oauth2 is not None:
-            with contextlib.suppress(Exception):
-                self._oauth2.close()
-            self._oauth2 = None
+        self._oauth2 = None
+
+        # Close the Redis connection (owned by this client)
         if self._redis is not None:
             with contextlib.suppress(Exception):
                 self._redis.close()
@@ -981,13 +1186,14 @@ class ZewmRobcoClient:
 
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
-            errors.append(
-                f"base_url may be default ({DEFAULT_BASE_URL}) — check config",
+            logger.warning(
+                "base_url may be default (%s) — verify config",
+                DEFAULT_BASE_URL,
             )
 
         client_val = config.get("client", "")
         if not client_val or client_val == "100":
-            errors.append("SAP client may be default (100) — verify tenant")
+            logger.warning("SAP client may be default (100) — verify tenant")
 
         return errors
 

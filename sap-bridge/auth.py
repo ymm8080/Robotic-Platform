@@ -24,6 +24,7 @@ Credentials follow iron rule #5 — Docker Secrets only.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 import httpx
@@ -70,6 +71,7 @@ class OAuth2TokenManager:
         self._client_secret = client_secret
         self._scope = scope
         self._cache_key = f"{_TOKEN_KEY_PREFIX}:{token_url}"
+        self._lock = threading.Lock()
 
     def get_token(self) -> str | None:
         """Return cached token if still valid, None otherwise."""
@@ -116,7 +118,8 @@ class OAuth2TokenManager:
         if not access_token:
             raise RuntimeError("OAuth2 token response missing access_token")
 
-        expires_in = int(body.get("expires_in") or _DEFAULT_TOKEN_TTL_S)
+        expires_in_value = body.get("expires_in", _DEFAULT_TOKEN_TTL_S)
+        expires_in = int(expires_in_value) if expires_in_value is not None else _DEFAULT_TOKEN_TTL_S
         # Cache with safety margin to avoid using an expired token
         cache_ttl = max(expires_in - _TOKEN_SAFETY_MARGIN_S, 60)
 
@@ -135,17 +138,19 @@ class OAuth2TokenManager:
     def get_valid_token(self, client: httpx.Client) -> str:
         """Return a valid token — from cache or fetch new.
 
-        This is the main entry point for callers.
+        Uses a lock to prevent multiple threads from fetching tokens
+        simultaneously (cache stampede protection).
         """
         token = self.get_token()
         if token:
             return token
-        try:
+        with self._lock:
+            # Double-check after acquiring lock — another thread may have
+            # already refreshed the token while we were waiting.
+            token = self.get_token()
+            if token:
+                return token
             return self.fetch_new(client)
-        except RuntimeError:
-            logger.error("Failed to fetch new OAuth2 token")
-            raise
-
     def invalidate(self) -> None:
         """Force token invalidation (e.g., after a 401 response)."""
         try:
