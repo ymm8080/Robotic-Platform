@@ -93,7 +93,7 @@ class CatPawMonitor:
                     return result
 
                 return _deep_merge(default_config, user_config)
-            except Exception as e:
+            except (json.JSONDecodeError, OSError, TypeError) as e:
                 print(f"Error loading config: {e}, using defaults")
                 return default_config
         else:
