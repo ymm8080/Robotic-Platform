@@ -201,10 +201,12 @@ def _background_tick(stop_event: threading.Event) -> None:
         _publish_tick_result(result)
         if now - last_snapshot >= SNAPSHOT_INTERVAL:
             # submit() raises RuntimeError if the executor is shut down.
-            # Internal errors within _save_snapshot are already caught
-            # and logged there as warnings.
+            # COORDINATOR.snapshot() is called inside _save_snapshot (in
+            # the worker thread) to avoid blocking the tick loop.
+            # last_snapshot is updated on submit success, not on save
+            # completion — a failed save should not trigger rapid retries.
             try:
-                snap_executor.submit(_save_snapshot, COORDINATOR.snapshot())
+                snap_executor.submit(_save_snapshot)
                 last_snapshot = now
             except RuntimeError:
                 _logger.warning("[snapshot] submit failed")
@@ -218,10 +220,14 @@ def _background_tick(stop_event: threading.Event) -> None:
     snap_executor.shutdown(wait=True)
 
 
-def _save_snapshot(snapshot_data: dict) -> None:
-    """Save snapshot in a background thread to avoid blocking the tick loop."""
+def _save_snapshot() -> None:
+    """Serialize + persist coordinator state in a background thread.
+
+    Both COORDINATOR.snapshot() and STATE_STORE.set() run here (in the
+    worker thread) to keep the tick loop non-blocking.
+    """
     try:
-        STATE_STORE.set(SNAPSHOT_KEY, snapshot_data)
+        STATE_STORE.set(SNAPSHOT_KEY, COORDINATOR.snapshot())
     except Exception as exc:
         _logger.warning("[snapshot] save failed: %s", exc)
 
