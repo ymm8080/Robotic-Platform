@@ -143,6 +143,8 @@ class OAuth2TokenManager:
         logger.info("OAuth2 token invalidated — will refresh on next request")
 
     def close(self) -> None:
-        """Close Redis connection."""
-        with contextlib.suppress(Exception):
-            self._redis.close()
+        """Close Redis connection.
+
+        No-op: Redis connection is owned by the caller.
+        """
+        logger.debug("OAuth2TokenManager.close() is a no-op")
