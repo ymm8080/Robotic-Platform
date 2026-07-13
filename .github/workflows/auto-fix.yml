@@ -3,7 +3,13 @@ name: Auto-Fix Loop
 on:
   pull_request:
     branches: ['**']
-    types: [opened, synchronize]
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to auto-fix'
+        required: true
+        type: string
 
 jobs:
   auto-fix-lint:
@@ -14,11 +20,32 @@ jobs:
       contents: write
 
     steps:
+      - name: Resolve PR info
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+          else
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          PR_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+          echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
+          echo "Resolved PR #$PR_NUMBER on branch $PR_BRANCH"
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Switch to PR branch (fix detached HEAD)
+        run: |
+          PR_BRANCH="${{ steps.pr-info.outputs.pr_branch }}"
+          echo "Switching to PR branch: $PR_BRANCH"
+          git checkout -B "$PR_BRANCH" "origin/$PR_BRANCH"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -53,14 +80,12 @@ jobs:
       - name: Check for changes and commit
         id: check-changes
         env:
-          BRANCH: ${{ github.event.pull_request.head.ref }}
+          BRANCH: ${{ steps.pr-info.outputs.pr_branch }}
         run: |
           if ! git diff --quiet; then
             echo "Changes detected, committing..."
             git add -A
             git commit -m "fix: auto-fix lint errors [ci skip]"
-            # Switch from detached HEAD to PR branch before push
-            git checkout -B "$BRANCH"
             git push origin "$BRANCH"
             echo "pushed=true" >> $GITHUB_OUTPUT
           else
@@ -73,7 +98,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_NUMBER=${{ steps.pr-info.outputs.pr_number }}
           gh pr comment $PR_NUMBER --body "Auto-fix: applied ruff format + lint fixes"
 
   auto-fix-full:
