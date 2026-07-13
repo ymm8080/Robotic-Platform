@@ -118,7 +118,7 @@ class OAuth2TokenManager:
         cache_ttl = max(expires_in - _TOKEN_SAFETY_MARGIN_S, 60)
 
         self._redis.setex(self._cache_key, cache_ttl, access_token)
-        self._redis.set("sap:oauth2:last_refresh", str(time.time()))
+        self._redis.setex("sap:oauth2:last_refresh", cache_ttl, str(time.time()))
 
         token_type = body.get("token_type", "Bearer")
         if token_type.lower() != "bearer":

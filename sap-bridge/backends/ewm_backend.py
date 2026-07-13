@@ -82,7 +82,7 @@ class CsrfTokenManager:
         pipe = self._redis.pipeline()
         pipe.setex("sap:csrf_token", CSRF_REFRESH_INTERVAL, token)
         pipe.setex("sap:csrf_cookies", CSRF_REFRESH_INTERVAL, cookies)
-        pipe.set("sap:csrf_last_refresh", str(time.time()))
+        pipe.setex("sap:csrf_last_refresh", CSRF_REFRESH_INTERVAL, str(time.time()))
         pipe.execute()
 
     def fetch_new(

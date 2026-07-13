@@ -887,7 +887,10 @@ class WatchdogEngine:
             redis_client.set('system:safe_mode', 'true', ex=3600)
             redis_client.set('system:safe_mode_reason', reason, ex=3600)
             redis_client.delete('system:throttle_mode')
-            redis_client.set('system:safe_mode_triggered_at', datetime.now(timezone.utc).isoformat())
+            redis_client.set(
+                'system:safe_mode_triggered_at',
+                datetime.now(timezone.utc).isoformat(), ex=3600
+            )
 
             logger.critical(f"🔴 致命熔断：进入安全模式，原因: {reason}")
 
@@ -918,7 +921,10 @@ class WatchdogEngine:
             self.safe_mode_reason = ''
 
             redis_client.delete('system:safe_mode', 'system:safe_mode_reason')
-            redis_client.set('system:safe_mode_cleared_at', datetime.now(timezone.utc).isoformat())
+            redis_client.set(
+                'system:safe_mode_cleared_at',
+                datetime.now(timezone.utc).isoformat(), ex=3600
+            )
 
             logger.info(f"🟢 安全模式已解除，原因: {reason}")
 
@@ -944,7 +950,10 @@ class WatchdogEngine:
 
             redis_client.set('system:throttle_mode', str(rate), ex=300)
             redis_client.set('system:throttle_severity', severity, ex=300)
-            redis_client.set('system:last_throttle_alert', datetime.now(timezone.utc).isoformat())
+            redis_client.set(
+                'system:last_throttle_alert',
+                datetime.now(timezone.utc).isoformat(), ex=300
+            )
 
             logger.warning(f"🟡 动态限流：限流至 {rate} 单/秒（严重度: {severity}）")
 

@@ -80,7 +80,7 @@ groups:
           description: "Redis at {{ $value | humanizePercentage }} for >1m"
 
       - alert: RedisMemoryWarning
-        expr: watchdog_redis_memory_ratio > 0.8
+        expr: watchdog_redis_memory_ratio > 0.75
         for: 5m
         labels: { severity: warning }
         annotations:

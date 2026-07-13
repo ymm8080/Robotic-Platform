@@ -110,7 +110,7 @@ class InventoryService:
     def mark_synced(self):
         """Mark sync completed."""
         self._last_sync = time.time()
-        self._redis.set("inventory:last_sync", str(self._last_sync))
+        self._redis.setex("inventory:last_sync", SYNC_INTERVAL, str(self._last_sync))
 
     def clear_cache(self, warehouse: str = "WM01"):
         """Clear all cached inventory for a warehouse. Uses SCAN to avoid blocking."""
