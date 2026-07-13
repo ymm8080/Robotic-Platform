@@ -1,4 +1,5 @@
 """Tests for order data models."""
+
 from models.order import OrderStatus, OrderType, WarehouseOrder
 
 
@@ -98,8 +99,14 @@ class TestWarehouseOrder:
 
     def test_order_status_values(self):
         statuses = [
-            "CREATED", "ASSIGNED", "IN_PROGRESS", "COMPLETED",
-            "FAILED", "CANCELLED", "SUSPENDED", "DIFF_SUSPENDED",
+            "CREATED",
+            "ASSIGNED",
+            "IN_PROGRESS",
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "SUSPENDED",
+            "DIFF_SUSPENDED",
         ]
         for s in statuses:
             assert OrderStatus(s).value == s

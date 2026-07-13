@@ -2,6 +2,7 @@
 KUKA KMR iiwa strategy.
 VDA5050 v2.0.0 — standard behavior with custom lift action.
 """
+
 from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 

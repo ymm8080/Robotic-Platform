@@ -18,11 +18,11 @@ class WarehouseTask:
     """
 
     # ── Core fields (every backend must populate) ──────────
-    source_system: str                    # "EWM" | "WM"
-    warehouse: str                        # Warehouse number
-    external_id: str                      # WT number (EWM) or TO number (WM)
-    item_no: str = "0001"                 # Item number within the task
-    task_type: str = "MOVE"               # PICK | PUT | MOVE | CHARGE (normalized)
+    source_system: str  # "EWM" | "WM"
+    warehouse: str  # Warehouse number
+    external_id: str  # WT number (EWM) or TO number (WM)
+    item_no: str = "0001"  # Item number within the task
+    task_type: str = "MOVE"  # PICK | PUT | MOVE | CHARGE (normalized)
     source_bin: str | None = None
     dest_bin: str | None = None
     product: str | None = None
@@ -30,7 +30,7 @@ class WarehouseTask:
     target_qty: float = 0.0
     actual_qty: float = 0.0
     uom: str = "EA"
-    status: str = "0"                     # 0=Open, 1=InProcess, 2=Confirmed, 3=Cancelled
+    status: str = "0"  # 0=Open, 1=InProcess, 2=Confirmed, 3=Cancelled
 
     # ── Vendor-specific data ──────────────────────────────
     vendor_data: dict = field(default_factory=dict)

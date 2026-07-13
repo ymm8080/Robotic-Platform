@@ -11,7 +11,6 @@ References:
   REFERENCE/05_reference/robots/geekplus-strategy.md
 """
 
-
 from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 # IOP status → normalized status mapping
@@ -155,10 +154,7 @@ class GeekPlusStrategy(BaseStrategy):
         elif driving:
             status = "MOVING"
         elif state.get("actionStates"):
-            running = [
-                a for a in state["actionStates"]
-                if a.get("actionStatus") in ("RUNNING", "INITIALIZING")
-            ]
+            running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
             status = "EXECUTING" if running else "IDLE"
         else:
             status = "IDLE"
@@ -240,10 +236,7 @@ class GeekPlusStrategy(BaseStrategy):
             ),
             BrandQuirk(
                 name="series-split",
-                description=(
-                    "P/S series use proprietary IOP REST API. "
-                    "M/R series support VDA5050 v2.0.0."
-                ),
+                description=("P/S series use proprietary IOP REST API. M/R series support VDA5050 v2.0.0."),
                 severity="WARN",
             ),
             BrandQuirk(

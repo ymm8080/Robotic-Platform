@@ -1,4 +1,5 @@
 """Coverage gap tests for VDA5050Publisher — lifecycle, callbacks, connect/disconnect, edge cases."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,6 +98,7 @@ class TestPublisherPublishEdgeCases:
         pub.client.publish.return_value.rc = 0
         pub.publish("KUKA", "KMR-001", "order", {"orderId": "123"})
         import json
+
         args, _ = pub.client.publish.call_args
         payload = json.loads(args[1])
         assert payload["timestamp"] is not None

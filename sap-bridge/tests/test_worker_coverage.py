@@ -1,4 +1,5 @@
 """Coverage gap tests for QueueWorker — _tick path, _dispatch error, lifecycle."""
+
 import contextlib
 import time
 from unittest.mock import MagicMock, patch
@@ -37,20 +38,24 @@ def _patch_redis():
 def db():
     """Schema is initialized by conftest.py. Return None for compatibility."""
     from db import init_schema
+
     init_schema()
     return None
 
 
 def _make_order(db, order_no, brand="KUKA", serial="KMR-001", status="CREATED"):
     from services.order_service import OrderService
+
     svc = OrderService()
-    svc.create_order(WarehouseOrder(
-        order_no=order_no,
-        robot_brand=brand,
-        robot_serial=serial,
-        priority=3,
-        status=OrderStatus(status),
-    ))
+    svc.create_order(
+        WarehouseOrder(
+            order_no=order_no,
+            robot_brand=brand,
+            robot_serial=serial,
+            priority=3,
+            status=OrderStatus(status),
+        )
+    )
     return svc.get_order(order_no)
 
 
@@ -63,6 +68,7 @@ class TestWorkerLifecycleEdgeCases:
     def test_start_when_already_running(self, db):
         """Line 59: start() twice -> second call returns early."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             worker.start()
@@ -74,6 +80,7 @@ class TestWorkerLifecycleEdgeCases:
     def test_stop_with_thread_join(self, db):
         """Lines 64-65: stop() calls thread.join()."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             worker.start()
@@ -85,6 +92,7 @@ class TestWorkerLifecycleEdgeCases:
         """Lines 93-94: exception in _tick is caught, loop continues.
         Use _run_one_tick to test the exception handling without infinite loop."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             # Manually invoke the exception handler pattern from _run_loop
@@ -108,6 +116,7 @@ class TestWorkerTickCoverage:
     def test_tick_item_without_order_no(self, db):
         """Line 103-105: queue item has no 'order_no' key."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             worker._queue.dequeue = MagicMock(return_value={"payload": {"test": 1}})
@@ -117,6 +126,7 @@ class TestWorkerTickCoverage:
     def test_tick_item_still_in_backoff(self, db):
         """Lines 107-112: order in backoff, time not expired."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             worker._backoff_until["ORDER-001"] = time.time() + 999
@@ -128,6 +138,7 @@ class TestWorkerTickCoverage:
     def test_tick_item_backoff_expired(self, db):
         """Lines 108, 113-114: backoff expired -> cleanup, continue."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             worker._backoff_until["ORDER-001"] = time.time() - 999
@@ -139,6 +150,7 @@ class TestWorkerTickCoverage:
     def test_tick_order_not_found_in_db(self, db):
         """Lines 117-120: order_no not in DB."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             worker = QueueWorker()
             worker._queue.dequeue = MagicMock(return_value={"order_no": "GHOST-001"})
@@ -149,6 +161,7 @@ class TestWorkerTickCoverage:
     def test_tick_order_status_not_created(self, db):
         """Lines 122-124: order already in progress."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             order = _make_order(db, "STATUS-001", status="IN_PROGRESS")
             worker = QueueWorker()
@@ -160,6 +173,7 @@ class TestWorkerTickCoverage:
     def test_tick_dispatch_success_path(self, db):
         """Lines 127-131: _dispatch returns True."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             order = _make_order(db, "DISP-TICK-001")
             worker = QueueWorker()
@@ -172,6 +186,7 @@ class TestWorkerTickCoverage:
     def test_tick_dispatch_failure_path(self, db):
         """Lines 127, 132-133: _dispatch returns False."""
         from dispatch_queue.worker import QueueWorker
+
         with patch("dispatch_queue.worker.get_publisher"):
             order = _make_order(db, "FAIL-TICK-001")
             worker = QueueWorker()
@@ -192,6 +207,7 @@ class TestWorkerDispatchEdgeCases:
     def test_dispatch_publish_raises_exception(self, db):
         """Lines 158-160: MQTT publish raises exception."""
         from dispatch_queue.worker import QueueWorker
+
         order = _make_order(db, "EXC-001")
         mock_pub = MagicMock()
         mock_pub.publish.side_effect = RuntimeError("Broker unreachable")
@@ -203,6 +219,7 @@ class TestWorkerDispatchEdgeCases:
     def test_dispatch_callback_raises_exception(self, db):
         """Lines 170-174: dispatch callback raises, caught."""
         from dispatch_queue.worker import QueueWorker
+
         order = _make_order(db, "CB-EXC-001")
         mock_pub = MagicMock()
         mock_pub.publish.return_value = 42
@@ -223,6 +240,7 @@ class TestWorkerFullCycle:
 
     def test_full_tick_dispatch_flow(self, db):
         from dispatch_queue.worker import QueueWorker
+
         _make_order(db, "FULL-001")
         mock_pub = MagicMock()
         mock_pub.publish.return_value = 99
@@ -234,6 +252,7 @@ class TestWorkerFullCycle:
 
     def test_full_tick_handle_failure(self, db):
         from dispatch_queue.worker import QueueWorker
+
         _make_order(db, "FULL-FAIL-001")
         mock_pub = MagicMock()
         mock_pub.publish.return_value = None

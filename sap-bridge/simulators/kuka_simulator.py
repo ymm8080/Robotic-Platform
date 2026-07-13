@@ -2,6 +2,7 @@
 KUKA KMR iiwa simulator.
 VDA5050 v2.0.0 — standard behavior with lift action simulation.
 """
+
 import random
 
 from .base_simulator import BaseRobotSimulator
@@ -36,16 +37,20 @@ class KukaSimulator(BaseRobotSimulator):
             # Simulate lift action occasionally
             if self._has_lift and random.random() < 0.1:
                 self._lift_height = random.choice([100, 200, 300])
-                self._state["actionStates"] = [{
-                    "actionId": f"lift-{self._header_id}",
-                    "actionType": "lift",
-                    "actionStatus": "RUNNING",
-                    "actionParameters": [{"key": "height", "value": str(self._lift_height)}],
-                }]
+                self._state["actionStates"] = [
+                    {
+                        "actionId": f"lift-{self._header_id}",
+                        "actionType": "lift",
+                        "actionStatus": "RUNNING",
+                        "actionParameters": [{"key": "height", "value": str(self._lift_height)}],
+                    }
+                ]
             elif self._lift_height > 0 and random.random() < 0.3:
                 self._lift_height = 0
-                self._state["actionStates"] = [{
-                    "actionId": f"lift-{self._header_id}",
-                    "actionType": "lift",
-                    "actionStatus": "FINISHED",
-                }]
+                self._state["actionStates"] = [
+                    {
+                        "actionId": f"lift-{self._header_id}",
+                        "actionType": "lift",
+                        "actionStatus": "FINISHED",
+                    }
+                ]

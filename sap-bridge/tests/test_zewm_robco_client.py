@@ -120,12 +120,14 @@ class TestImports:
 
     def test_client_class(self):
         from clients.zewm_robco_client import ZewmRobcoClient
+
         assert ZewmRobcoClient is not None
 
     def test_exception_base(self):
         from clients.zewm_robco_exceptions import (
             RobcoError,
         )
+
         assert issubclass(RobcoError, Exception)
         assert callable(raise_for_error_code)
 
@@ -149,25 +151,29 @@ class TestImports:
             WhtAssignedError,
             WhtNotConfirmedError,
         )
-        assert all(issubclass(e, RobcoError) for e in (
-            RobotNotFoundError,
-            RobotHasOrderError,
-            StatusNotSetError,
-            NoRobotResourceTypeError,
-            WhoNotFoundError,
-            WhoLockedError,
-            WhoAssignedError,
-            WhoInProcessError,
-            WhoNotUnassignedError,
-            NoOrderFoundError,
-            WarehouseOrderLockedError,
-            WhtAssignedError,
-            WhtNotConfirmedError,
-            WhtAlreadyConfirmedError,
-            NoErrorQueueError,
-            QueueNotChangedError,
-            RobcoInternalError,
-        ))
+
+        assert all(
+            issubclass(e, RobcoError)
+            for e in (
+                RobotNotFoundError,
+                RobotHasOrderError,
+                StatusNotSetError,
+                NoRobotResourceTypeError,
+                WhoNotFoundError,
+                WhoLockedError,
+                WhoAssignedError,
+                WhoInProcessError,
+                WhoNotUnassignedError,
+                NoOrderFoundError,
+                WarehouseOrderLockedError,
+                WhtAssignedError,
+                WhtNotConfirmedError,
+                WhtAlreadyConfirmedError,
+                NoErrorQueueError,
+                QueueNotChangedError,
+                RobcoInternalError,
+            )
+        )
 
     def test_types_module(self):
         from clients.zewm_robco_types import (
@@ -175,6 +181,7 @@ class TestImports:
             RobotType,
             map_robot_error_to_exccode,
         )
+
         assert RobotType.MIR == "MIR"
         assert ExceptionCode.DAMAGED == "DAMG"
         assert callable(map_robot_error_to_exccode)
@@ -207,8 +214,12 @@ class TestSuccessPaths:
         sap_json = {"d": {"tanum": "TAN001", "nista": "PICK", "confirmed": True}}
         mock_httpx.request.return_value = _mock_response(200, sap_json)
         result = client.confirm_task(
-            "WH01", "TAN001", "PICK", "MIR_001",
-            altme="BOX", conf_exc="DAMG",
+            "WH01",
+            "TAN001",
+            "PICK",
+            "MIR_001",
+            altme="BOX",
+            conf_exc="DAMG",
         )
         assert result == {"tanum": "TAN001", "nista": "PICK", "confirmed": True}
 
@@ -288,28 +299,32 @@ class TestExceptionMapping:
     """Each SAP error code raises the correct typed exception."""
 
     _ERROR_SCENARIOS: list[tuple[str, type[RobcoError]]] = [
-        ("ROBOT_NOT_FOUND",        RobotNotFoundError),
-        ("ROBOT_HAS_ORDER",        RobotHasOrderError),
-        ("ROBOT_STATUS_NOT_SET",   StatusNotSetError),
+        ("ROBOT_NOT_FOUND", RobotNotFoundError),
+        ("ROBOT_HAS_ORDER", RobotHasOrderError),
+        ("ROBOT_STATUS_NOT_SET", StatusNotSetError),
         ("NO_ROBOT_RESOURCE_TYPE", NoRobotResourceTypeError),
-        ("WHO_NOT_FOUND",          WhoNotFoundError),
-        ("WHO_LOCKED",             WhoLockedError),
-        ("WHO_ASSIGNED",           WhoAssignedError),
-        ("WHO_IN_PROCESS",         WhoInProcessError),
-        ("WHO_NOT_UNASSIGNED",     WhoNotUnassignedError),
-        ("NO_ORDER_FOUND",         NoOrderFoundError),
+        ("WHO_NOT_FOUND", WhoNotFoundError),
+        ("WHO_LOCKED", WhoLockedError),
+        ("WHO_ASSIGNED", WhoAssignedError),
+        ("WHO_IN_PROCESS", WhoInProcessError),
+        ("WHO_NOT_UNASSIGNED", WhoNotUnassignedError),
+        ("NO_ORDER_FOUND", NoOrderFoundError),
         ("WAREHOUSE_ORDER_LOCKED", WarehouseOrderLockedError),
-        ("WHT_ASSIGNED",           WhtAssignedError),
-        ("WHT_NOT_CONFIRMED",      WhtNotConfirmedError),
-        ("WHT_ALREADY_CONFIRMED",  WhtAlreadyConfirmedError),
-        ("NO_ERROR_QUEUE",         NoErrorQueueError),
-        ("QUEUE_NOT_CHANGED",      QueueNotChangedError),
-        ("INTERNAL_ERROR",         RobcoInternalError),
+        ("WHT_ASSIGNED", WhtAssignedError),
+        ("WHT_NOT_CONFIRMED", WhtNotConfirmedError),
+        ("WHT_ALREADY_CONFIRMED", WhtAlreadyConfirmedError),
+        ("NO_ERROR_QUEUE", NoErrorQueueError),
+        ("QUEUE_NOT_CHANGED", QueueNotChangedError),
+        ("INTERNAL_ERROR", RobcoInternalError),
     ]
 
     @pytest.mark.parametrize("error_code,expected_cls", _ERROR_SCENARIOS)
     def test_error_raises_correct_exception(
-        self, client, mock_httpx, error_code, expected_cls,
+        self,
+        client,
+        mock_httpx,
+        error_code,
+        expected_cls,
     ):
         """SAP error JSON -> corresponding RobcoError subclass."""
         sap_json = {
@@ -509,11 +524,13 @@ class TestConfigValidation:
 
     def test_missing_basic_auth_password(self):
         """Missing both password and password_file -> error."""
-        errs = ZewmRobcoClient.validate_config({
-            "base_url": "http://sap:8000",
-            "client": "200",
-            "user": "USER",
-        })
+        errs = ZewmRobcoClient.validate_config(
+            {
+                "base_url": "http://sap:8000",
+                "client": "200",
+                "user": "USER",
+            }
+        )
         assert any("password" in e.lower() for e in errs)
 
     def test_valid_config_returns_empty(self):
@@ -528,18 +545,22 @@ class TestConfigValidation:
 
     def test_oauth2_missing_token_url(self):
         """OAuth2 mode without token_url -> error."""
-        errs = ZewmRobcoClient.validate_config({
-            "auth_mode": "oauth2",
-            "oauth2": {"client_id": "c", "client_secret": "s"},
-        })
+        errs = ZewmRobcoClient.validate_config(
+            {
+                "auth_mode": "oauth2",
+                "oauth2": {"client_id": "c", "client_secret": "s"},
+            }
+        )
         assert any("token_url" in e.lower() for e in errs)
 
     def test_oauth2_missing_client_id(self):
         """OAuth2 mode without client_id -> error."""
-        errs = ZewmRobcoClient.validate_config({
-            "auth_mode": "oauth2",
-            "oauth2": {"token_url": "https://sap/token", "client_secret": "s"},
-        })
+        errs = ZewmRobcoClient.validate_config(
+            {
+                "auth_mode": "oauth2",
+                "oauth2": {"token_url": "https://sap/token", "client_secret": "s"},
+            }
+        )
         assert any("client_id" in e.lower() for e in errs)
 
     def test_default_base_url_warning(self):

@@ -7,6 +7,7 @@ Tests the full flow:
 Requires: pytest, pytest-asyncio, httpx
 Optional: Redis (tests skip if unavailable)
 """
+
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -30,6 +31,7 @@ def setup_db():
 # Test 1: Order Service — Full Lifecycle
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestOrderLifecycleE2E:
     """Full order lifecycle: create → assign → execute → complete (with edge cases)."""
 
@@ -41,16 +43,18 @@ class TestOrderLifecycleE2E:
         svc = OrderService()
 
         # Create
-        order = svc.create_order(WarehouseOrder(
-            order_no="E2E-001",
-            type=OrderType.PICK,
-            priority=0,
-            source="SAP-TASK-001",
-            robot_brand="KUKA",
-            location="A01-02-03",
-            weight=12.5,
-            expected_qty=5,
-        ))
+        order = svc.create_order(
+            WarehouseOrder(
+                order_no="E2E-001",
+                type=OrderType.PICK,
+                priority=0,
+                source="SAP-TASK-001",
+                robot_brand="KUKA",
+                location="A01-02-03",
+                weight=12.5,
+                expected_qty=5,
+            )
+        )
         assert order.id > 0
         assert order.status == OrderStatus.CREATED
         assert order.version == 1
@@ -89,6 +93,7 @@ class TestOrderLifecycleE2E:
         assert order1.id > 0
 
         import psycopg2
+
         with pytest.raises(psycopg2.errors.UniqueViolation):
             svc.create_order(WarehouseOrder(order_no="E2E-IDEMP-001"))
 
@@ -154,6 +159,7 @@ class TestOrderLifecycleE2E:
 
         # Simulate stale version write directly via psycopg2
         from db import connect as _connect
+
         _conn = _connect()
         _conn.execute(
             "UPDATE orders SET status='COMPLETED', version=version+1 WHERE order_no=?",
@@ -205,12 +211,14 @@ class TestOrderLifecycleE2E:
 # Test 2: MQTT Publisher — VDA5050 Compliance
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestMQTTPublisherE2E:
     """MQTT publisher with mocked broker (tests logic without real MQTT)."""
 
     @pytest.fixture
     def publisher(self):
         from mqtt_publisher import VDA5050Publisher
+
         mock_r = MagicMock()
         mock_r.incr.return_value = 1
         mock_r.expire.return_value = True
@@ -223,7 +231,8 @@ class TestMQTTPublisherE2E:
     def test_publish_vda5050_envelope(self, publisher):
         """Published message must contain VDA5050 header fields."""
         mid = publisher.publish(
-            manufacturer="KUKA", serial_number="KMR-001",
+            manufacturer="KUKA",
+            serial_number="KMR-001",
             topic_suffix="order",
             payload={"orderId": "ORD-001", "nodes": [], "edges": []},
         )
@@ -249,6 +258,7 @@ class TestMQTTPublisherE2E:
     def test_sequence_number_auto_increment(self):
         """Each publish gets auto-incrementing seq via Redis INCR."""
         from mqtt_publisher import VDA5050Publisher
+
         mock_r = MagicMock()
         mock_r.incr.side_effect = [10, 20, 30]
         mock_r.expire.return_value = True
@@ -276,6 +286,7 @@ class TestMQTTPublisherE2E:
 # ═══════════════════════════════════════════════════════════════════════════
 # Test 3: HTTP API — FastAPI TestClient (mocked MQTT)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestHTTPAPIE2E:
     """FastAPI HTTP endpoints with mocked dependencies."""
@@ -310,10 +321,9 @@ class TestHTTPAPIE2E:
         mock_pub.is_connected = True
         mock_pub.publish.return_value = 42
 
-        with patch("redis.from_url", return_value=mock_redis), \
-             patch("main.get_publisher", return_value=mock_pub):
-
+        with patch("redis.from_url", return_value=mock_redis), patch("main.get_publisher", return_value=mock_pub):
             from main import app
+
             with TestClient(app) as c:
                 yield c
 
@@ -325,16 +335,19 @@ class TestHTTPAPIE2E:
         assert data["version"] == "v4.1"
 
     def test_create_order_via_api(self, client):
-        resp = client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA",
-            "serialNumber": "KMR-001",
-            "orderId": "API-E2E-001",
-            "orderType": "PICK",
-            "priority": 0,
-            "nodes": [{"nodeId": "N1", "sequenceId": 1, "nodePosition": {"x": 10.0, "y": 20.0}}],
-            "edges": [{"edgeId": "E1", "sequenceId": 1, "edgePosition": {"startNodeId": "N1", "endNodeId": "N2"}}],
-            "source": "SAP-TEST-001",
-        })
+        resp = client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-E2E-001",
+                "orderType": "PICK",
+                "priority": 0,
+                "nodes": [{"nodeId": "N1", "sequenceId": 1, "nodePosition": {"x": 10.0, "y": 20.0}}],
+                "edges": [{"edgeId": "E1", "sequenceId": 1, "edgePosition": {"startNodeId": "N1", "endNodeId": "N2"}}],
+                "source": "SAP-TEST-001",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "accepted"
@@ -342,10 +355,15 @@ class TestHTTPAPIE2E:
         assert data["mqttMid"] == 42
 
     def test_get_order_via_api(self, client):
-        client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA", "serialNumber": "KMR-001",
-            "orderId": "API-GET-001", "orderType": "MOVE",
-        })
+        client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-GET-001",
+                "orderType": "MOVE",
+            },
+        )
         resp = client.get("/api/v1/orders/API-GET-001")
         assert resp.status_code == 200
         data = resp.json()
@@ -354,40 +372,57 @@ class TestHTTPAPIE2E:
         assert data["robotBrand"] == "KUKA"
 
     def test_list_orders_via_api(self, client):
-        client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA", "serialNumber": "KMR-001",
-            "orderId": "API-LIST-001", "orderType": "MOVE",
-        })
+        client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-LIST-001",
+                "orderType": "MOVE",
+            },
+        )
         resp = client.get("/api/v1/orders")
         assert resp.status_code == 200
         data = resp.json()
         assert data["count"] >= 1
 
     def test_complete_order_via_api(self, client):
-        client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA", "serialNumber": "KMR-001",
-            "orderId": "API-COMPLETE-001",
-        })
+        client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-COMPLETE-001",
+            },
+        )
         resp = client.post("/api/v1/orders/API-COMPLETE-001/complete")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "COMPLETED"
 
     def test_cancel_order_via_api(self, client):
-        client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA", "serialNumber": "KMR-001",
-            "orderId": "API-CANCEL-001",
-        })
+        client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-CANCEL-001",
+            },
+        )
         resp = client.post("/api/v1/orders/API-CANCEL-001/cancel")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "CANCELLED"
 
     def test_fail_order_via_api(self, client):
-        client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA", "serialNumber": "KMR-001",
-            "orderId": "API-FAIL-001",
-        })
+        client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-FAIL-001",
+            },
+        )
         resp = client.post(
             "/api/v1/orders/API-FAIL-001/fail",
             json={"status": "FAILED", "errorMessage": "Motor stall detected"},
@@ -397,10 +432,14 @@ class TestHTTPAPIE2E:
         assert "stall" in data["errorMessage"]
 
     def test_suspend_order_via_api(self, client):
-        client.post("/api/v1/orders", json={
-            "manufacturer": "KUKA", "serialNumber": "KMR-001",
-            "orderId": "API-SUSPEND-001",
-        })
+        client.post(
+            "/api/v1/orders",
+            json={
+                "manufacturer": "KUKA",
+                "serialNumber": "KMR-001",
+                "orderId": "API-SUSPEND-001",
+            },
+        )
         # Must start execution first — only IN_PROGRESS can be suspended
         # (per config.yaml order lifecycle: ASSIGNED → IN_PROGRESS → SUSPENDED)
         client.post(
@@ -432,11 +471,16 @@ class TestHTTPAPIE2E:
 
         with patch("main.get_publisher", return_value=mock_pub):
             from main import app
+
             with TestClient(app) as c:
-                resp = c.post("/api/v1/orders", json={
-                    "manufacturer": "KUKA", "serialNumber": "KMR-001",
-                    "orderId": "API-DISCONNECTED",
-                })
+                resp = c.post(
+                    "/api/v1/orders",
+                    json={
+                        "manufacturer": "KUKA",
+                        "serialNumber": "KMR-001",
+                        "orderId": "API-DISCONNECTED",
+                    },
+                )
                 assert resp.status_code == 503
                 assert "mqtt_disconnected" in resp.text
 
@@ -455,11 +499,13 @@ class TestHTTPAPIE2E:
 # Test 4: Strategy Engine — Multi-Brand Dispatching
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestStrategyEngineE2E:
     """Brand strategy registry, normalization, quirks."""
 
     def test_registry_lists_brands(self):
         from strategies import get_registry
+
         registry = get_registry()
         brands = registry.list_brands()
         assert "KUKA" in brands
@@ -468,16 +514,17 @@ class TestStrategyEngineE2E:
 
     def test_strategy_normalizes_state(self):
         from strategies import get_registry
+
         registry = get_registry()
 
         kuka = registry.get("KUKA")
         # KUKA with batteryCharge > 0 and no driving/paused → IDLE
-        result = kuka.handle_state({"drives": [{"state": "IDLE"}], "faults": [],
-            "batteryState": {"batteryCharge": 85}})
+        result = kuka.handle_state({"drives": [{"state": "IDLE"}], "faults": [], "batteryState": {"batteryCharge": 85}})
         assert result.status == "IDLE"
 
     def test_kuka_quirk_detection(self):
         from strategies import get_registry
+
         kuka = get_registry().get("KUKA")
         quirks = kuka.get_quirks()
         quirk_names = [q.name for q in quirks]
@@ -485,6 +532,7 @@ class TestStrategyEngineE2E:
 
     def test_mir_normalizes_state(self):
         from strategies import get_registry
+
         mir = get_registry().get("MIR")
         result = mir.handle_state({"mission": None, "mode": 3, "state": 2})
         # MiR mode 3 = idle
@@ -492,6 +540,7 @@ class TestStrategyEngineE2E:
 
     def test_otto_normalizes_to_executing(self):
         from strategies import get_registry
+
         otto = get_registry().get("OTTO")
         # OTTO with running actions → EXECUTING
         result = otto.handle_state({"actionStates": [{"actionStatus": "RUNNING"}]})
@@ -499,12 +548,14 @@ class TestStrategyEngineE2E:
 
     def test_unknown_brand_returns_none(self):
         from strategies import get_registry
+
         assert get_registry().get("DOES_NOT_EXIST") is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Test 5: Priority Queue & Dead Letter
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestQueueDeadLetterE2E:
     """Priority dispatch queue + dead letter handling."""
@@ -522,18 +573,21 @@ class TestQueueDeadLetterE2E:
 
     def test_priority_queue_depth(self, mock_redis_queue):
         from dispatch_queue import PriorityQueue
+
         q = PriorityQueue()
         assert q.depth() >= 0
         assert q.is_healthy is not None
 
     def test_queue_peek_returns_items(self):
         from dispatch_queue import PriorityQueue
+
         q = PriorityQueue()
         items = q.peek(5)
         assert isinstance(items, list)
 
     def test_deadletter_list(self):
         from dispatch_queue import DeadLetterHandler
+
         dl = DeadLetterHandler()
         items = dl.list_all()
         assert isinstance(items, list)
@@ -543,6 +597,7 @@ class TestQueueDeadLetterE2E:
 # ═══════════════════════════════════════════════════════════════════════════
 # Test 6: Inventory Service
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestInventoryServiceE2E:
     """Inventory cache with mocked Redis."""
@@ -556,6 +611,7 @@ class TestInventoryServiceE2E:
 
     def test_get_stock_miss_returns_none(self):
         from services.inventory_service import InventoryService
+
         with patch("redis.from_url") as mock_ru:
             mock_ru.return_value = MagicMock()
             mock_ru.return_value.get.return_value = None
@@ -568,12 +624,14 @@ class TestInventoryServiceE2E:
 # Test 7: EWM Warehouse Service (mocked SAP)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestEwmBackendE2E:
     """SAP EWM OData backend with mocked HTTP."""
 
     def test_check_connection(self):
         """Connection check should return a status dict."""
         from backends.ewm_backend import EwmBackend
+
         svc = EwmBackend(config={"user": "test", "password": "test"})
         # When SAP is unreachable, returns error dict
         status = svc.check_connection()
@@ -582,6 +640,7 @@ class TestEwmBackendE2E:
     def test_list_tasks_without_sap_returns_empty(self):
         """With mocked SAP returning empty, list_tasks returns empty list."""
         from backends.ewm_backend import EwmBackend
+
         svc = EwmBackend(config={"user": "test", "password": "test"})
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -595,6 +654,7 @@ class TestEwmBackendE2E:
     def test_check_connection_with_mocked_sap(self):
         """With mocked SAP, connection check succeeds."""
         from backends.ewm_backend import EwmBackend
+
         svc = EwmBackend(config={"user": "test", "password": "test"})
         mock_resp = MagicMock()
         mock_resp.status_code = 200

@@ -2,6 +2,7 @@
 Heartbeat Monitor — Tracks robot connection state via MQTT VDA5050 topics.
 Stores state in Redis HASH with TTL expiry.
 """
+
 import json
 import logging
 import os
@@ -113,13 +114,16 @@ class HeartbeatMonitor:
 
         if topic_type == "connection":
             state = payload.get("connectionState", payload.get("state", "UNKNOWN"))
-            self.redis_client.hset(redis_key, mapping={
-                "state": state,
-                "lastSeen": now,
-                "manufacturer": manufacturer,
-                "serialNumber": serial_number,
-                "connectionState": state,
-            })
+            self.redis_client.hset(
+                redis_key,
+                mapping={
+                    "state": state,
+                    "lastSeen": now,
+                    "manufacturer": manufacturer,
+                    "serialNumber": serial_number,
+                    "connectionState": state,
+                },
+            )
             self.redis_client.expire(redis_key, ROBOT_TTL)
             logger.info(f"Robot {robot_id} connection: {state}")
 
@@ -130,11 +134,7 @@ class HeartbeatMonitor:
             errors = payload.get("errors", [])
             operating_mode = payload.get("operatingMode", "AUTOMATIC")
             battery_state = payload.get("batteryState", {})
-            is_charging = (
-                battery_state.get("charging", False)
-                if isinstance(battery_state, dict)
-                else False
-            )
+            is_charging = battery_state.get("charging", False) if isinstance(battery_state, dict) else False
 
             if any(e.get("errorLevel") == "FATAL" for e in errors if isinstance(e, dict)):
                 vehicle_state = "ERROR"
@@ -152,17 +152,20 @@ class HeartbeatMonitor:
             battery = payload.get("batteryState", {}).get("batteryCharge", "")
             position = payload.get("agvPosition", payload.get("position", {}))
 
-            self.redis_client.hset(redis_key, mapping={
-                "state": vehicle_state,
-                "lastSeen": now,
-                "battery": str(battery) if battery != "" else "",
-                "position_x": str(position.get("x", "")),
-                "position_y": str(position.get("y", "")),
-                "manufacturer": manufacturer,
-                "serialNumber": serial_number,
-                "driving": str(driving).lower(),
-                "paused": str(paused).lower(),
-                "operatingMode": operating_mode,
-                "raw_state": json.dumps(payload),
-            })
+            self.redis_client.hset(
+                redis_key,
+                mapping={
+                    "state": vehicle_state,
+                    "lastSeen": now,
+                    "battery": str(battery) if battery != "" else "",
+                    "position_x": str(position.get("x", "")),
+                    "position_y": str(position.get("y", "")),
+                    "manufacturer": manufacturer,
+                    "serialNumber": serial_number,
+                    "driving": str(driving).lower(),
+                    "paused": str(paused).lower(),
+                    "operatingMode": operating_mode,
+                    "raw_state": json.dumps(payload),
+                },
+            )
             self.redis_client.expire(redis_key, ROBOT_TTL)

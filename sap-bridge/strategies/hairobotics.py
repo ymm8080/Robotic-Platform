@@ -14,7 +14,6 @@ References:
   REFERENCE/05_reference/robots/hairobotics-strategy.md
 """
 
-
 from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 # HAIQ status → normalized status mapping
@@ -157,10 +156,7 @@ class HaiRoboticsStrategy(BaseStrategy):
         elif driving:
             status = "MOVING"
         elif state.get("actionStates"):
-            running = [
-                a for a in state["actionStates"]
-                if a.get("actionStatus") in ("RUNNING", "INITIALIZING")
-            ]
+            running = [a for a in state["actionStates"] if a.get("actionStatus") in ("RUNNING", "INITIALIZING")]
             status = "EXECUTING" if running else "IDLE"
         else:
             status = "IDLE"
@@ -252,24 +248,19 @@ class HaiRoboticsStrategy(BaseStrategy):
             BrandQuirk(
                 name="dense-3d-storage",
                 description=(
-                    "Storage positions are 3D (aisle/column/height). "
-                    "Standard 2D bin model needs z-axis extension."
+                    "Storage positions are 3D (aisle/column/height). Standard 2D bin model needs z-axis extension."
                 ),
                 severity="INFO",
             ),
             BrandQuirk(
                 name="acr-no-vda5050",
-                description=(
-                    "HaiPick ACR series does NOT support VDA5050. "
-                    "Uses HAIQ-ESS REST API exclusively."
-                ),
+                description=("HaiPick ACR series does NOT support VDA5050. Uses HAIQ-ESS REST API exclusively."),
                 severity="WARN",
             ),
             BrandQuirk(
                 name="high-frequency-batching",
                 description=(
-                    "Designed for high-frequency small-tote handling. "
-                    "Batch requests for efficient throughput."
+                    "Designed for high-frequency small-tote handling. Batch requests for efficient throughput."
                 ),
                 severity="INFO",
             ),

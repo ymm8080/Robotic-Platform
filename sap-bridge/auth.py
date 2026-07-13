@@ -99,19 +99,13 @@ class OAuth2TokenManager:
         )
 
         if resp.status_code != 200:
-            logger.error(
-                f"OAuth2 token request failed: {resp.status_code} {resp.text[:200]}"
-            )
-            raise RuntimeError(
-                f"OAuth2 token endpoint returned {resp.status_code}"
-            )
+            logger.error(f"OAuth2 token request failed: {resp.status_code} {resp.text[:200]}")
+            raise RuntimeError(f"OAuth2 token endpoint returned {resp.status_code}")
 
         try:
             body = resp.json()
         except ValueError:
-            logger.error(
-                f"OAuth2 token response is not valid JSON: {resp.text[:200]}"
-            )
+            logger.error(f"OAuth2 token response is not valid JSON: {resp.text[:200]}")
             raise RuntimeError("OAuth2 token endpoint returned non-JSON response")
 
         access_token = body.get("access_token")
@@ -129,10 +123,7 @@ class OAuth2TokenManager:
         token_type = body.get("token_type", "Bearer")
         if token_type.lower() != "bearer":
             logger.warning("Unexpected OAuth2 token_type: %s", token_type)
-        logger.info(
-            f"Fetched new OAuth2 token (expires_in={expires_in}s, "
-            f"cached_ttl={cache_ttl}s, type={token_type})"
-        )
+        logger.info(f"Fetched new OAuth2 token (expires_in={expires_in}s, cached_ttl={cache_ttl}s, type={token_type})")
         return access_token
 
     def get_valid_token(self, client: httpx.Client) -> str:
@@ -151,6 +142,7 @@ class OAuth2TokenManager:
             if token:
                 return token
             return self.fetch_new(client)
+
     def invalidate(self) -> None:
         """Force token invalidation (e.g., after a 401 response)."""
         try:
@@ -165,4 +157,6 @@ class OAuth2TokenManager:
         No-op: Redis connection is owned by the caller.
         """
         logger.debug("OAuth2TokenManager.close() is a no-op")
+
+
 # EOF
