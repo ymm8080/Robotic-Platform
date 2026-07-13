@@ -135,7 +135,7 @@ class CoordinatorState:
 def _strip_sap_prefix(task_id: str) -> str | None:
     """Return the SAP task id from a coordinator order id (``SAP-<tid>``)."""
     if task_id.startswith(SAP_ORDER_PREFIX):
-        return task_id[len(SAP_ORDER_PREFIX):]
+        return task_id[len(SAP_ORDER_PREFIX) :]
     return None
 
 
@@ -331,8 +331,7 @@ class SapCoordinatorBridge:
                     if rsrc is not None:
                         await self._handle_failure(WAREHOUSE, tid, rsrc)
                     logger.error(
-                        "SAP-TC bridge: task %s FAILED by coordinator — "
-                        "ZEWM cleanup attempted, manual review",
+                        "SAP-TC bridge: task %s FAILED by coordinator — ZEWM cleanup attempted, manual review",
                         tid,
                     )
                 else:
@@ -360,9 +359,7 @@ class SapCoordinatorBridge:
             if self._zewm is not None:
                 # ZEWM confirmation requires a real pick result + rsrc; without
                 # an explicit completion signal we cannot confirm safely.
-                self._park_manual_review(
-                    tid, f"inactive {GRACE_POLLS} polls, no completion signal"
-                )
+                self._park_manual_review(tid, f"inactive {GRACE_POLLS} polls, no completion signal")
                 continue
             if not AUTO_CONFIRM:
                 logger.warning(
@@ -488,7 +485,7 @@ class SapCoordinatorBridge:
                     exc,
                 )
                 if attempt < retry_max - 1:
-                    delay = min(backoff_cap, backoff_base * (2 ** attempt))
+                    delay = min(backoff_cap, backoff_base * (2**attempt))
                     await asyncio.sleep(delay)
         logger.error(
             "SAP-TC bridge: ZEWM step-2 exhausted %d retries for task %s: %s — manual review",
@@ -504,9 +501,7 @@ class SapCoordinatorBridge:
         zewm = self._zewm
         assert zewm is not None  # noqa: S101 — caller guards on self._zewm
         try:
-            await asyncio.to_thread(
-                zewm.set_robot_status, lgnum, rsrc, str(ExceptionCode.BLOCKED)
-            )
+            await asyncio.to_thread(zewm.set_robot_status, lgnum, rsrc, str(ExceptionCode.BLOCKED))
         except RobcoError as exc:
             logger.warning("SAP-TC bridge: ZEWM set_robot_status failed for task %s: %s", tid, exc)
         try:

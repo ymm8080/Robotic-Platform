@@ -41,9 +41,7 @@ def _make_bridge(state_data, zewm=None):
     tc = _tc_with_state(state_data)
     backend = MagicMock()
     backend.list_tasks = MagicMock(return_value=[])
-    return SapCoordinatorBridge(
-        tc_client=tc, backend_provider=lambda w: backend, zewm_client=zewm
-    )
+    return SapCoordinatorBridge(tc_client=tc, backend_provider=lambda w: backend, zewm_client=zewm)
 
 
 def _zewm_mock():
@@ -93,9 +91,7 @@ def test_completion_with_pick_result_two_step_confirm():
     bridge._submitted.add("1002")
     bridge._robot_for_task["1002"] = "MIR_002"
     bridge._assigned.add("1002")
-    get_pick_result_store().record(
-        PickResult(task_id="1002", robot_id="MIR_002", actual_qty=5.0, dest_bin="BIN9")
-    )
+    get_pick_result_store().record(PickResult(task_id="1002", robot_id="MIR_002", actual_qty=5.0, dest_bin="BIN9"))
 
     asyncio.run(bridge._poll_coordinator_state())
 
@@ -163,9 +159,7 @@ def test_disabled_path_uses_backend_confirm():
     backend.list_tasks = MagicMock(return_value=[])
     backend.confirm_task = MagicMock(return_value=True)
     tc = _tc_with_state(state)
-    bridge = SapCoordinatorBridge(
-        tc_client=tc, backend_provider=lambda w: backend, zewm_client=None
-    )
+    bridge = SapCoordinatorBridge(tc_client=tc, backend_provider=lambda w: backend, zewm_client=None)
     bridge._submitted.add("2001")
 
     asyncio.run(bridge._poll_coordinator_state())
@@ -188,9 +182,7 @@ def test_step2_retry_exhaustion_parks_manual_review():
     bridge._submitted.add("3001")
     bridge._robot_for_task["3001"] = "R"
     bridge._assigned.add("3001")
-    get_pick_result_store().record(
-        PickResult(task_id="3001", robot_id="R", actual_qty=2.0, dest_bin="B")
-    )
+    get_pick_result_store().record(PickResult(task_id="3001", robot_id="R", actual_qty=2.0, dest_bin="B"))
 
     asyncio.run(bridge._poll_coordinator_state())
 

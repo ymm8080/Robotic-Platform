@@ -13,9 +13,7 @@ from services.pick_result_store import PickResult, PickResultStore
 def test_record_get_pop_roundtrip():
     store = PickResultStore()
     assert store.get("t1") is None
-    store.record(
-        PickResult(task_id="t1", robot_id="R1", actual_qty=5.0, dest_bin="BIN9")
-    )
+    store.record(PickResult(task_id="t1", robot_id="R1", actual_qty=5.0, dest_bin="BIN9"))
     result = store.get("t1")
     assert result is not None
     assert result.task_id == "t1"
@@ -57,7 +55,5 @@ def test_len_tracks_entries():
 
 def test_exception_field_preserved():
     store = PickResultStore()
-    store.record(
-        PickResult(task_id="t1", robot_id="R1", actual_qty=3.0, exception="BLKD")
-    )
+    store.record(PickResult(task_id="t1", robot_id="R1", actual_qty=3.0, exception="BLKD"))
     assert store.get("t1").exception == "BLKD"
