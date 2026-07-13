@@ -163,13 +163,16 @@ class MqttGateway(InboundGateway, OutboundGateway):
         self._connections: dict[str, RobotConnection] = {}
         self._lock = threading.Lock()
         self._running = False
+        self._connect_event = threading.Event()
 
     # ── lifecycle ────────────────────────────────────────────
 
     def start(self, callback: Callable[[InboundMessage], None]) -> None:
         self._callback = callback
         self._running = True
-        self._connect()
+        if not self._connect():
+            logger.error("MqttGateway failed to initialize connection")
+            self._running = False
 
     def stop(self) -> None:
         self._running = False
@@ -178,8 +181,13 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 self._client.disconnect()
         self._callback = None
 
-    def _connect(self) -> None:
-        """Connect to MQTT broker and subscribe to VDA5050 topics."""
+    def _connect(self) -> bool:
+        """Connect to MQTT broker and subscribe to VDA5050 topics.
+        
+        Returns:
+            True if connection was established or is in progress,
+            False if connection failed due to missing dependencies or configuration.
+        """
         try:
             import paho.mqtt.client as mqtt
         except ImportError:
@@ -187,7 +195,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 "paho-mqtt not installed — MqttGateway running in no-op mode. "
                 "Install with: pip install paho-mqtt"
             )
-            return
+            return False
 
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -206,7 +214,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 "Aborting connection — auth is required."
             )
             self._client = None
-            return
+            return False
         if mqtt_username:
             password = self._load_mqtt_password()
             if password:
@@ -219,7 +227,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
                     "Aborting connection — auth misconfiguration."
                 )
                 self._client = None
-                return
+                return False
 
         # ── TLS (off by default; enable with MQTT_USE_TLS=true) ─
         if os.environ.get("MQTT_USE_TLS", "false").lower() == "true":
@@ -245,13 +253,26 @@ class MqttGateway(InboundGateway, OutboundGateway):
         )
 
         try:
+            self._connect_event.clear()
             self._client.connect(self._broker_host, self._broker_port, keepalive=10)
             self._client.loop_start()
-            logger.info(
-                "MqttGateway connected to %s:%s", self._broker_host, self._broker_port
-            )
+            # Wait for on_connect callback to confirm connection (max 5s)
+            if not self._connect_event.wait(timeout=5):
+                logger.warning(
+                    "MqttGateway connect to %s:%s — callback not received in 5s, "
+                    "connection may still be in progress",
+                    self._broker_host, self._broker_port,
+                )
+            else:
+                logger.info(
+                    "MqttGateway connected to %s:%s",
+                    self._broker_host, self._broker_port,
+                )
+            return True
         except Exception:
             logger.exception("MqttGateway failed to connect to MQTT broker")
+            self._client = None
+            return False
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
         rc_value = getattr(reason_code, "value", reason_code)
@@ -268,6 +289,8 @@ class MqttGateway(InboundGateway, OutboundGateway):
             logger.info("MqttGateway subscribed to VDA5050 topics")
         else:
             logger.error("MqttGateway connection failed, rc=%s", reason_code)
+        # Signal connection attempt completed (success or failure)
+        self._connect_event.set()
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None) -> None:
         if self._running:
@@ -466,8 +489,31 @@ class MqttGateway(InboundGateway, OutboundGateway):
         )
         self._publish(topic, payload)
 
+    def _load_mqtt_password(self) -> str:
+        """Load MQTT password from env var or Docker secret file."""
+        password = os.environ.get("MQTT_PASSWORD", "")
+        if password:
+            return password
+        password_file = os.environ.get("MQTT_PASSWORD_FILE", "")
+        if password_file:
+            try:
+                with open(password_file, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if not content:
+                        logger.warning("MQTT password file is empty: %s", password_file)
+                    return content
+            except FileNotFoundError:
+                logger.error("MQTT password file not found: %s", password_file)
+            except PermissionError:
+                logger.error("Permission denied reading MQTT password file: %s", password_file)
+            except OSError as e:
+                logger.error("Cannot read MQTT password file %s: %s", password_file, e)
+        return ""
+
     def _publish(self, topic: str, payload: dict) -> None:
+        """Publish message to MQTT topic with null-guard and error logging."""
         if self._client is None:
+            logger.warning("Cannot publish to %s: MQTT client not initialized", topic)
             return
         try:
             self._client.publish(topic, json.dumps(payload), qos=self._qos)

@@ -8,6 +8,7 @@ Priority scale:
   2 = normal
   3 = low (lowest)
 """
+
 import json
 import logging
 import os
@@ -78,11 +79,17 @@ class PriorityQueue:
         item = json.loads(item_json)
 
         # Add to processing set (crash recovery)
-        self._redis.hset(PROCESSING_KEY, item["order_no"], json.dumps({
-            **item,
-            "popped_at": time.time(),
-            "score": score,
-        }))
+        self._redis.hset(
+            PROCESSING_KEY,
+            item["order_no"],
+            json.dumps(
+                {
+                    **item,
+                    "popped_at": time.time(),
+                    "score": score,
+                }
+            ),
+        )
         self._redis.expire(PROCESSING_KEY, 3600)  # Auto-clean after 1h
 
         return item
@@ -100,7 +107,7 @@ class PriorityQueue:
         items = self._redis.zrange(QUEUE_KEY, 0, -1, withscores=True)
         for _item_json, score in items:
             # Score format: float(f"{p}{ts:019d}") — extract p as first digit
-            priority = int(score // 10 ** 19)
+            priority = int(score // 10**19)
             if priority in counts:
                 counts[priority] += 1
             else:

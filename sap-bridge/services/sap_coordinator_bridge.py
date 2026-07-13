@@ -13,6 +13,7 @@ Env vars:
   SAP_TC_POLL_INTERVAL   — seconds between SAP polls (default: 5)
   SAP_TC_WAREHOUSE       — warehouse ID for SAP task queries (default: "WM01")
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +35,8 @@ WAREHOUSE = os.getenv("SAP_TC_WAREHOUSE", "WM01")
 # auto-confirmed to SAP — they remain in ``_submitted`` and require manual
 # confirmation.  Set to "1" for automatic confirmation (risky).
 AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
+# Number of consecutive polls a task must be inactive before auto-confirming.
+GRACE_POLLS = 2
 
 # Maximum confirmed task IDs to retain in memory.
 MAX_CONFIRMED_RETENTION = 500
@@ -110,13 +113,13 @@ class SapCoordinatorBridge:
         backend_provider: Callable[[str], object | None],
     ) -> None:
         """Args:
-            tc_client: TrafficCoordinatorClient instance (or None if unavailable).
-            backend_provider: callable(warehouse) → backend or None.
+        tc_client: TrafficCoordinatorClient instance (or None if unavailable).
+        backend_provider: callable(warehouse) → backend or None.
         """
         self._tc = tc_client
         self._get_backend = backend_provider
-        self._submitted: set[str] = set()   # SAP task IDs already forwarded
-        self._confirmed: set[str] = set()   # SAP task IDs already confirmed
+        self._submitted: set[str] = set()  # SAP task IDs already forwarded
+        self._confirmed: set[str] = set()  # SAP task IDs already confirmed
         self._inactive_since: dict[str, int] = {}  # tid → first-seen-inactive timestamp
         self._poll_count: int = 0
         self._task: asyncio.Task | None = None
@@ -219,22 +222,22 @@ class SapCoordinatorBridge:
 
             # Check explicit failure
             if tid in failed_task_ids:
-                logger.warning(
+                logger.error(
                     "SAP-TC bridge: task %s marked FAILED by coordinator — "
-                    "skipping SAP confirm, requires manual review", tid,
+                    "skipping SAP confirm, requires manual review",
+                    tid,
                 )
                 self._confirmed.add(tid)  # Remove from pending
                 self._inactive_since.pop(tid, None)
                 continue
 
             # Not in any explicit list — use grace-period fallback
-            GRACE_POLLS = 2
             if tid not in self._inactive_since:
                 self._inactive_since[tid] = self._poll_count
-                logger.info(
-                    "SAP-TC bridge: order %s inactive, "
-                    "waiting %d polls before confirming",
-                    order_id, GRACE_POLLS,
+                logger.debug(
+                    "SAP-TC bridge: order %s inactive, waiting %d polls before confirming",
+                    order_id,
+                    GRACE_POLLS,
                 )
                 continue
             if self._poll_count - self._inactive_since[tid] < GRACE_POLLS:
@@ -243,12 +246,13 @@ class SapCoordinatorBridge:
             if not AUTO_CONFIRM:
                 logger.warning(
                     "SAP-TC bridge: task %s inactive for %d polls but AUTO_CONFIRM=0 — "
-                    "skipping SAP confirm, requires manual review", tid, GRACE_POLLS,
+                    "skipping SAP confirm, requires manual review",
+                    tid,
+                    GRACE_POLLS,
                 )
                 continue
             logger.info(
-                "SAP-TC bridge: confirming SAP task %s "
-                "(no explicit status, grace period elapsed)",
+                "SAP-TC bridge: confirming SAP task %s (no explicit status, grace period elapsed)",
                 tid,
             )
             backend = self._get_backend(WAREHOUSE)
@@ -270,5 +274,6 @@ class SapCoordinatorBridge:
                 self._confirmed.discard(tid)
             logger.info(
                 "SAP-TC bridge: pruned %d stale confirmed entries (retention=%d)",
-                excess, MAX_CONFIRMED_RETENTION,
+                excess,
+                MAX_CONFIRMED_RETENTION,
             )

@@ -1,4 +1,5 @@
 """Tests for OAuth2TokenManager — SAP S/4HANA client_credentials flow."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -134,28 +135,34 @@ def test_ewm_backend_basic_auth_backward_compatible():
 
 
 def test_ewm_backend_oauth2_validate_config():
-    backend = EwmBackend(config={
-        "auth_mode": "oauth2",
-        "base_url": "http://sap:8000",
-        "oauth2": {"token_url": "x", "client_id": "c", "client_secret": "s"},
-    })
+    backend = EwmBackend(
+        config={
+            "auth_mode": "oauth2",
+            "base_url": "http://sap:8000",
+            "oauth2": {"token_url": "x", "client_id": "c", "client_secret": "s"},
+        }
+    )
     auth_errors = [e for e in backend.validate_config() if "OAuth2" in e]
     assert auth_errors == []
 
 
 def test_ewm_backend_oauth2_is_configured():
-    backend = EwmBackend(config={
-        "auth_mode": "oauth2",
-        "oauth2": {"token_url": "x", "client_id": "c", "client_secret": "s"},
-    })
+    backend = EwmBackend(
+        config={
+            "auth_mode": "oauth2",
+            "oauth2": {"token_url": "x", "client_id": "c", "client_secret": "s"},
+        }
+    )
     assert backend._is_configured() is True
 
 
 def test_ewm_backend_get_auth_for_request_oauth2():
-    backend = EwmBackend(config={
-        "auth_mode": "oauth2",
-        "oauth2": {"token_url": "x", "client_id": "c", "client_secret": "s"},
-    })
+    backend = EwmBackend(
+        config={
+            "auth_mode": "oauth2",
+            "oauth2": {"token_url": "x", "client_id": "c", "client_secret": "s"},
+        }
+    )
     assert backend._get_auth_for_request() is None
 
 

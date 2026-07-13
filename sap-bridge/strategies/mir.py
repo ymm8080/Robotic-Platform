@@ -3,6 +3,7 @@ MiR250 strategy.
 VDA5050 v1.1.0 — older spec with known state mapping quirks.
 Reference: REFERENCE/05_reference/protocols/vda5050/vda5050-state-machine.md
 """
+
 from .base import BaseStrategy, BatteryInfo, BrandQuirk, DispatchResult, RobotState
 
 

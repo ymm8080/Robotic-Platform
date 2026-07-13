@@ -3,6 +3,7 @@ Inventory sync service — pulls stock data from SAP EWM and caches in Redis.
 References:
   REFERENCE/05_reference/sap/odata-warehouse-task-api.md
 """
+
 import json
 import logging
 import os
@@ -27,8 +28,7 @@ class InventoryService:
         self._redis = rd.from_url(REDIS_URL, decode_responses=True)
         self._last_sync = 0.0
 
-    def get_stock(self, product: str, warehouse: str = "WM01",
-                  batch: str | None = None) -> float | None:
+    def get_stock(self, product: str, warehouse: str = "WM01", batch: str | None = None) -> float | None:
         """Get cached stock quantity for a product.
 
         Returns cached value, or None if not in cache (triggers sync).
@@ -58,8 +58,7 @@ class InventoryService:
                 break
         return result
 
-    def update_stock(self, product: str, quantity: float,
-                     warehouse: str = "WM01", batch: str | None = None):
+    def update_stock(self, product: str, quantity: float, warehouse: str = "WM01", batch: str | None = None):
         """Update cached stock for a product."""
         key = f"inventory:{warehouse}:{product}"
         if batch:
@@ -85,8 +84,7 @@ class InventoryService:
         pipe.execute()
         logger.info(f"Updated {count} inventory items for warehouse {warehouse}")
 
-    def report_consumption(self, product: str, quantity: float,
-                           order_id: str, warehouse: str = "WM01"):
+    def report_consumption(self, product: str, quantity: float, order_id: str, warehouse: str = "WM01"):
         """Record material consumption for an order.
 
         Decrements cached stock and logs the event.
@@ -97,8 +95,7 @@ class InventoryService:
             self.update_stock(product, new_qty, warehouse)
         self._log_event("CONSUMPTION", product, quantity, order_id, warehouse)
 
-    def report_production(self, product: str, quantity: float,
-                          order_id: str, warehouse: str = "WM01"):
+    def report_production(self, product: str, quantity: float, order_id: str, warehouse: str = "WM01"):
         """Record material production/completion for an order."""
         current = self.get_stock(product, warehouse)
         if current is not None:
@@ -130,18 +127,19 @@ class InventoryService:
         if deleted:
             logger.info(f"Cleared {deleted} inventory cache entries for {warehouse}")
 
-    def _log_event(self, event: str, product: str, qty: float,
-                   order_id: str, warehouse: str):
+    def _log_event(self, event: str, product: str, qty: float, order_id: str, warehouse: str):
         """Log inventory event to Redis for audit/alert."""
         log_key = f"inventory:events:{warehouse}"
-        entry = json.dumps({
-            "event": event,
-            "product": product,
-            "quantity": qty,
-            "orderId": order_id,
-            "timestamp": time.time(),
-        })
+        entry = json.dumps(
+            {
+                "event": event,
+                "product": product,
+                "quantity": qty,
+                "orderId": order_id,
+                "timestamp": time.time(),
+            }
+        )
         self._redis.lpush(log_key, entry)
         self._redis.ltrim(log_key, 0, 999)  # Keep last 1000 events
-        self._redis.expire(log_key, 86400)   # Auto-clean after 24h
+        self._redis.expire(log_key, 86400)  # Auto-clean after 24h
         logger.info(f"Inventory {event}: {product} qty={qty} order={order_id}")

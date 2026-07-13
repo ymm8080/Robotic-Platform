@@ -9,6 +9,7 @@ class CommandPanel {
    */
   constructor(page) {
     this.page = page;
+    this._cmdRegexCache = new Map();
   }
 
   /**
@@ -17,7 +18,13 @@ class CommandPanel {
    * @param {'Pause' | 'Resume' | 'Stop' | 'Cancel Order' | 'Recharge' | 'Reboot' | 'State' | 'Factsheet'} command
    */
   async commandButton(robotId, command) {
-    const cmdRegex = new RegExp(`^${command}$`, 'i');
+    // Use cached regex for better performance
+    let cmdRegex = this._cmdRegexCache.get(command);
+    if (!cmdRegex) {
+      cmdRegex = new RegExp(`^${command}$`, 'i');
+      this._cmdRegexCache.set(command, cmdRegex);
+    }
+    
     // Try to scope to the robot's card/row first; fall back to global search.
     const robotSection = this.page.locator(`[data-testid="robot-${robotId}"]`);
     const button = robotSection

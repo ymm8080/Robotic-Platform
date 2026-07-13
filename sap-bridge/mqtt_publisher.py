@@ -6,6 +6,7 @@ Provides VDA5050-compliant MQTT publishing with:
 - Last-will-and-testament support
 - Reconnect handling
 """
+
 import json
 import logging
 import os
@@ -47,6 +48,7 @@ _TOPIC_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 # ──────────────────────────────────────────────
 # MQTT Client
 # ──────────────────────────────────────────────
+
 
 class VDA5050Publisher:
     """VDA5050-compliant MQTT publisher with auto sequence numbering."""
@@ -180,10 +182,7 @@ class VDA5050Publisher:
             self._connected = True
             logger.info("MQTT connected successfully")
             # Announce self as connected
-            self.publish(
-                "SYSTEM", "sap-bridge", "connection",
-                {"connectionState": "ONLINE"}, retain=True
-            )
+            self.publish("SYSTEM", "sap-bridge", "connection", {"connectionState": "ONLINE"}, retain=True)
         else:
             self._connected = False
             logger.error(f"MQTT connection failed (rc={rc})")

@@ -1,4 +1,5 @@
 """Tests for HeartbeatMonitor — MQTT message parsing, Redis storage."""
+
 import json
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,7 @@ class TestHeartbeatMonitor:
     @pytest.fixture
     def monitor(self):
         from heartbeat_monitor import HeartbeatMonitor
+
         with patch("heartbeat_monitor.redis_from_url") as mock_redis:
             mock_redis.return_value = MagicMock()
             mon = HeartbeatMonitor()
@@ -62,13 +64,15 @@ class TestHeartbeatMonitor:
         """State messages should store position and battery."""
         msg = MagicMock()
         msg.topic = "vda5050/MiR/MIR-001/state"
-        msg.payload = json.dumps({
-            "driving": True,
-            "batteryState": {"batteryCharge": 85},
-            "agvPosition": {"x": 10.5, "y": 20.3, "theta": 0.0, "lastNodeId": "N1", "positionInitialized": True},
-            "operatingMode": "AUTOMATIC",
-            "errors": [],
-        }).encode()
+        msg.payload = json.dumps(
+            {
+                "driving": True,
+                "batteryState": {"batteryCharge": 85},
+                "agvPosition": {"x": 10.5, "y": 20.3, "theta": 0.0, "lastNodeId": "N1", "positionInitialized": True},
+                "operatingMode": "AUTOMATIC",
+                "errors": [],
+            }
+        ).encode()
 
         monitor._on_message(None, None, msg)
 

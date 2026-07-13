@@ -4,6 +4,7 @@ VDA5050 v1.1.0 — simulates known quirks:
 - DRIVING reported instead of MOVING
 - WAITING state before IDLE after job complete
 """
+
 import random
 
 from .base_simulator import BaseRobotSimulator

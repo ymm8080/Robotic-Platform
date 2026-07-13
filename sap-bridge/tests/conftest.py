@@ -2,6 +2,7 @@
 
 PostgreSQL-only: All tests connect to a PostgreSQL instance.
 """
+
 import os
 import sys
 
@@ -19,9 +20,7 @@ _pg_user = os.environ.get("PG_USER", "robot_platform")
 if "DB_URL" not in os.environ:
     # Try secrets file (production-like)
     if "PG_PASSWORD" not in os.environ and "PG_PASSWORD_FILE" not in os.environ:
-        _secrets_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "secrets", "pg_password.txt"
-        )
+        _secrets_path = os.path.join(os.path.dirname(__file__), "..", "..", "secrets", "pg_password.txt")
         if os.path.exists(_secrets_path):
             os.environ["PG_PASSWORD_FILE"] = _secrets_path
 
@@ -36,15 +35,11 @@ if "DB_URL" not in os.environ:
             pass
 
     if _pg_password:
-        os.environ["DB_URL"] = (
-            f"postgresql://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/{_pg_db}"
-        )
+        os.environ["DB_URL"] = f"postgresql://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/{_pg_db}"
     elif "PG_PASSWORD" not in os.environ and "PG_PASSWORD_FILE" not in os.environ:
         # Last resort: local Docker dev default (matches pg-test-robot container)
         os.environ.setdefault("PG_PASSWORD", "changeme_pg_password")
-        os.environ["DB_URL"] = (
-            f"postgresql://{_pg_user}:changeme_pg_password@{_pg_host}:{_pg_port}/{_pg_db}"
-        )
+        os.environ["DB_URL"] = f"postgresql://{_pg_user}:changeme_pg_password@{_pg_host}:{_pg_port}/{_pg_db}"
 
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ.setdefault("REDIS_URL_TEST", "redis://localhost:6379/15")
@@ -68,6 +63,7 @@ def _pg_available() -> bool:
         return _PG_AVAILABLE
     try:
         from db import connect
+
         conn = connect()
         conn.commit()  # Close any implicit transaction
         conn.close()
@@ -82,6 +78,7 @@ def _truncate_tables():
     import psycopg2
 
     from db import DB_URL
+
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
     cur.execute(
@@ -108,6 +105,7 @@ def _init_pg_schema():
         return
 
     from db import init_schema
+
     init_schema()
     logger.info("PostgreSQL schema initialized for test session")
     yield

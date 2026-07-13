@@ -39,10 +39,7 @@ DEFAULT_USER = os.getenv("SAP_USER", "")
 DEFAULT_PASSWORD_FILE = os.getenv("SAP_PASSWORD_FILE", "/run/secrets/sap_password")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-ODATA_SERVICE = (
-    "/sap/opu/odata4/sap/api_warehouse_order_task_2"
-    "/srvd_a2x/sap/warehouseorder/0001"
-)
+ODATA_SERVICE = "/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001"
 
 MAX_REQUESTS_PER_MINUTE = 80
 TOKEN_BUCKET_INTERVAL = 60.0 / MAX_REQUESTS_PER_MINUTE
@@ -59,6 +56,7 @@ def _read_password(password_file: str) -> str:
 
 
 # ── CSRF Token Manager ─────────────────────────────────────
+
 
 class CsrfTokenManager:
     """Manages SAP OData CSRF tokens with Redis caching."""
@@ -115,6 +113,7 @@ class CsrfTokenManager:
 
 # ── EWM Backend ────────────────────────────────────────────
 
+
 class EwmBackend(WarehouseBackend):
     """SAP EWM OData warehouse task operations."""
 
@@ -161,9 +160,7 @@ class EwmBackend(WarehouseBackend):
 
         # Validate required fields before attempting to read secrets
         if not token_url or not client_id:
-            raise ValueError(
-                "OAuth2 auth_mode requires oauth2.token_url and oauth2.client_id"
-            )
+            raise ValueError("OAuth2 auth_mode requires oauth2.token_url and oauth2.client_id")
 
         secret_file = oauth2_cfg.get(
             "client_secret_file",
@@ -183,7 +180,8 @@ class EwmBackend(WarehouseBackend):
         """Get or create Redis connection (lazy init)."""
         if self._redis is None:
             self._redis = redis_from_url(
-                self._cfg.get("redis_url", REDIS_URL), decode_responses=True,
+                self._cfg.get("redis_url", REDIS_URL),
+                decode_responses=True,
             )
         return self._redis
 
@@ -274,13 +272,14 @@ class EwmBackend(WarehouseBackend):
 
     # ── Task CRUD ────────────────────────────────────────
 
-    def list_tasks(self, warehouse: str = "WM01", status: str = "0",
-                   top: int = 100, skip: int = 0) -> list[WarehouseTask]:
+    def list_tasks(
+        self, warehouse: str = "WM01", status: str = "0", top: int = 100, skip: int = 0
+    ) -> list[WarehouseTask]:
         self._throttle()
-        if not re.match(r'^[A-Za-z0-9_\-]+$', warehouse):
+        if not re.match(r"^[A-Za-z0-9_\-]+$", warehouse):
             logger.error(f"Invalid warehouse param: {warehouse!r}")
             return []
-        if not re.match(r'^[A-Za-z0-9_\-]+$', status):
+        if not re.match(r"^[A-Za-z0-9_\-]+$", status):
             logger.error(f"Invalid status param: {status!r}")
             return []
         filter_str = f"EWMWarehouse eq '{warehouse}' and WarehouseTaskStatus eq '{status}'"
@@ -386,11 +385,9 @@ class EwmBackend(WarehouseBackend):
             logger.error(f"Create task failed: {resp.status_code} {resp.text[:200]}")
             return None
 
-    def confirm_task(self, warehouse: str, task_id: str, qty: float,
-                     item_no: str = "0001") -> bool:
+    def confirm_task(self, warehouse: str, task_id: str, qty: float, item_no: str = "0001") -> bool:
         self._throttle()
-        key = (f"EWMWarehouse='{warehouse}',WarehouseTask='{task_id}',"
-               f"WarehouseTaskItem='{item_no}'")
+        key = f"EWMWarehouse='{warehouse}',WarehouseTask='{task_id}',WarehouseTaskItem='{item_no}'"
         url = f"{self._base_url}{self._odata_service}/WarehouseTask({key})/SAP__self.ConfirmWarehouseTaskExact"
 
         with self._get_client() as client:
@@ -421,8 +418,7 @@ class EwmBackend(WarehouseBackend):
 
     def cancel_task(self, warehouse: str, task_id: str, item_no: str = "0001") -> bool:
         self._throttle()
-        key = (f"EWMWarehouse='{warehouse}',WarehouseTask='{task_id}',"
-               f"WarehouseTaskItem='{item_no}'")
+        key = f"EWMWarehouse='{warehouse}',WarehouseTask='{task_id}',WarehouseTaskItem='{item_no}'"
         url = f"{self._base_url}{self._odata_service}/WarehouseTask({key})/SAP__self.CancelWarehouseTask"
 
         with self._get_client() as client:

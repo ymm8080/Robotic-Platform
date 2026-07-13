@@ -53,7 +53,7 @@ SEGMENT_TASK_TYPES = {
 
 def _ns(tag: str) -> str:
     """Return unqualified tag (strip any namespace prefix)."""
-    return tag[tag.rfind("}") + 1:] if "}" in tag else tag
+    return tag[tag.rfind("}") + 1 :] if "}" in tag else tag
 
 
 def _parse_date(d: str) -> str:
@@ -120,19 +120,19 @@ def _segment_to_warehouse_task(segment: dict, dc40: dict) -> WarehouseTask | Non
     if task_type is None:
         logger.debug(f"Unknown segment type '{seg_type}' — skipping")
         return None
-    product = (segment.get("MATNR", "") or segment.get("MATERIAL", "") or
-               segment.get("PRODUCT", "") or "")
-    source_bin = (segment.get("VLPLA", "") or segment.get("SOURCE_BIN", "") or
-                  segment.get("LGPLA", "") or "")
-    dest_bin = (segment.get("NLPLA", "") or segment.get("DEST_BIN", "") or
-                segment.get("NLEPL", "") or "")
-    warehouse = (segment.get("LGNUM", "") or segment.get("WERKS", "") or
-                 segment.get("WAREHOUSE", "") or "WM01")
+    product = segment.get("MATNR", "") or segment.get("MATERIAL", "") or segment.get("PRODUCT", "") or ""
+    source_bin = segment.get("VLPLA", "") or segment.get("SOURCE_BIN", "") or segment.get("LGPLA", "") or ""
+    dest_bin = segment.get("NLPLA", "") or segment.get("DEST_BIN", "") or segment.get("NLEPL", "") or ""
+    warehouse = segment.get("LGNUM", "") or segment.get("WERKS", "") or segment.get("WAREHOUSE", "") or "WM01"
     batch = segment.get("CHARG", "") or segment.get("BATCH", "") or ""
     qty_str = segment.get("PLQT1", "") or segment.get("TARGET_QTY", "") or "0"
     uom = segment.get("MEINS", "") or segment.get("UOM", "") or "EA"
-    external_id = (segment.get("TANUM", "") or segment.get("TASK_ID", "") or
-                   segment.get("IDOC_NUMBER", "") or dc40.get("IDOC_NUMBER", ""))
+    external_id = (
+        segment.get("TANUM", "")
+        or segment.get("TASK_ID", "")
+        or segment.get("IDOC_NUMBER", "")
+        or dc40.get("IDOC_NUMBER", "")
+    )
 
     try:
         target_qty = float(qty_str) if qty_str else 0.0
@@ -253,10 +253,7 @@ class IdocListener:
             "errors": errors if errors else None,
             "warehouse": tasks[0].warehouse if tasks else None,
         }
-        logger.info(
-            f"IDoc {result['idocNumber']}: {result['messageType']} "
-            f"→ {len(tasks)} tasks, {len(errors)} errors"
-        )
+        logger.info(f"IDoc {result['idocNumber']}: {result['messageType']} → {len(tasks)} tasks, {len(errors)} errors")
         return result
 
     # ── Internal ───────────────────────────────────────
