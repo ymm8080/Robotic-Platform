@@ -15,7 +15,7 @@
 #   cat auto-fix.sh | claude
 # ============================================================================
 
-PROJECT_ROOT="D:/EWM ROBOT/ROBOTIC PLATFORM CODES"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAX_LOOP=6
 MAX_SESSIONS=3
 WARNING_AT=4
