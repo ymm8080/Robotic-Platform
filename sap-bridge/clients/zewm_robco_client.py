@@ -1187,13 +1187,17 @@ class ZewmRobcoClient:
         base_url = config.get("base_url", "")
         if not base_url or base_url == DEFAULT_BASE_URL:
             logger.warning(
-                "base_url may be default (%s) — verify config",
+                "base_url may be default (%s) — verify config "
+                "(non-blocking: service stays disabled until explicitly enabled)",
                 DEFAULT_BASE_URL,
             )
 
         client_val = config.get("client", "")
         if not client_val or client_val == "100":
-            logger.warning("SAP client may be default (100) — verify tenant")
+            logger.warning(
+                "SAP client may be default (100) — verify tenant "
+                "(non-blocking: service stays disabled until explicitly enabled)"
+            )
 
         return errors
 
