@@ -37,7 +37,6 @@ from auth import OAuth2TokenManager, read_client_secret
 from redis_client import redis_from_url
 
 from .zewm_robco_exceptions import (
-import json
     RobcoInternalError,
     raise_for_error_code,
 )
@@ -415,7 +414,7 @@ class ZewmRobcoClient:
                 Lgnum="WH01", Rsrc="MIR_001", Who="123",
             )
             # → ".../AssignRobotWho?Lgnum='WH01'&Rsrc='MIR_001'&Who='123'"
-            
+
             _function_import_url(
                 "SomeFunction",
                 Name="O'Brien",
@@ -608,16 +607,16 @@ class ZewmRobcoClient:
         initial_headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         """Execute HTTP request with retry logic for transient failures.
-        
+
         Centralizes retry logic for 403 (CSRF expiry), 401 (OAuth2 expiry),
         and 429 (rate limiting) responses.
-        
+
         Args:
             method: HTTP method.
             url: Full URL.
             body: Optional request body.
             initial_headers: Initial headers for first attempt.
-            
+
         Returns:
             HTTP response.
         """
@@ -655,8 +654,6 @@ class ZewmRobcoClient:
                     break
 
                 # Create a new client for retry to ensure clean connection state
-                with contextlib.suppress(Exception):
-                    client.close()
                 client = self._get_client()
 
                 # Prepare headers for retry (with exception handling)
@@ -669,7 +666,9 @@ class ZewmRobcoClient:
                         "Retry header preparation failed (status=%d): %s",
                         resp.status_code, exc,
                     )
-                    raise
+                    # Break instead of raise to let _handle_error_response
+                    # produce a meaningful typed exception for the caller.
+                    break
 
                 resp = client.request(
                     method=method,
@@ -689,11 +688,9 @@ class ZewmRobcoClient:
                     break
 
             return resp
-        finally:
-            with contextlib.suppress(Exception):
-                client.close()
-
-    # ── Core request method ───────────────────────────────────────────
+        except httpx.HTTPError as exc:
+            logger.error("HTTP request failed: %s", exc)
+            raise
 
     def _request(
         self,
@@ -966,6 +963,34 @@ class ZewmRobcoClient:
         )
         return self._request("POST", url)
 
+    # ── P1: Collection result helper ────────────────────────────────────
+
+    @staticmethod
+    def _unwrap_collection_result(
+        result: dict[str, Any] | list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]]:
+        """Unwrap a parse_response result into a list of dicts.
+
+        Handles three cases:
+        - ``None`` → empty list
+        - ``list`` → returned as-is
+        - ``dict`` with ``results`` key → extracts the list
+        - ``dict`` (single entity) → wrapped in a single-element list
+
+        Args:
+            result: The return value of :meth:`parse_response`.
+
+        Returns:
+            A list of result dicts.
+        """
+        if result is None:
+            return []
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict) and "results" in result and isinstance(result["results"], list):
+            return result["results"]
+        return [result]
+
     # ── P1: get_in_process_who ────────────────────────────────────────
 
     def get_in_process_who(
@@ -996,16 +1021,7 @@ class ZewmRobcoClient:
             Rsrctype=rsrctype,
         )
         result = self._request("GET", url)
-        # parse_response already handles unwrapping "results" if present
-        if result is None:
-            return []
-        if isinstance(result, list):
-            return result
-        # result is a dict, check if it's a single item collection
-        if "results" in result and isinstance(result["results"], list):
-            return result["results"]
-        # single dict result
-        return [result]
+        return self._unwrap_collection_result(result)
 
     # ── P1: get_assigned_robot_who ────────────────────────────────────
 
@@ -1035,16 +1051,7 @@ class ZewmRobcoClient:
             Rsrc=rsrc,
         )
         result = self._request("GET", url)
-        # parse_response already handles unwrapping "results" if present
-        if result is None:
-            return []
-        if isinstance(result, list):
-            return result
-        # result is a dict, check if it's a single item collection
-        if "results" in result and isinstance(result["results"], list):
-            return result["results"]
-        # single dict result
-        return [result]
+        return self._unwrap_collection_result(result)
 
     # ═══════════════════════════════════════════════════════════════════
     # P2 Stubs — Planned but not yet implemented
