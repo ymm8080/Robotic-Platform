@@ -146,7 +146,7 @@ sap:
     base_url: "https://sap-host.example.com:443"
     client: "100"
     odata_service: "/sap/opu/odata/sap/ZEWM_ROBCO_SRV"
-    auth_mode: "basic"       # basic | oauth2 - only this field controls auth mode
+    auth_mode: "basic"       # basic | oauth2 - only this field controls auth mode (see OAuth2 block below)
     user: "${SAP_ROBCO_USER:-ROBCO_USER}"
     password_file: "${SAP_ROBCO_PASSWORD_FILE:-/run/secrets/sap_password}"
     rate_limit: 80           # requests per minute (overrides sap.rate_limit_per_minute for this service)
