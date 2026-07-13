@@ -40,7 +40,7 @@ AUTO_CONFIRM = os.getenv("SAP_TC_AUTO_CONFIRM", "0") == "1"
 # lower for faster confirmation.
 try:
     GRACE_POLLS = int(os.getenv("SAP_TC_GRACE_POLLS", "2"))
-except ValueError:
+except (ValueError, TypeError):
     GRACE_POLLS = 2
 
 # Maximum confirmed task IDs to retain in memory.

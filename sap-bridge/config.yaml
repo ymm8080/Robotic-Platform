@@ -157,9 +157,9 @@ sap:
     # ── Two-step confirmation retry ──
     confirm_retry_max: 5            # max retries for step-2 confirmation
     confirm_retry_backoff_base: 1   # seconds (exponential: 1, 2, 4, 8, 16)
-    confirm_retry_backoff_cap: 30   # seconds, per-retry cap on backoff
+    confirm_retry_backoff_cap: 30   # seconds, cap on individual retry backoff
     # ── OAuth2 mode (uncomment for S/4HANA) ──
-    # To enable: change auth_mode above (line 149) to "oauth2", then uncomment:
+    # To enable: set auth_mode above to "oauth2", then uncomment:
     # oauth2:
     #   token_url: "${SAP_ROBCO_OAUTH_TOKEN_URL:-https://sap-s4hana:44300/sap/bc/sec/oauth2/token}"
     #   client_id: "${SAP_ROBCO_OAUTH_CLIENT_ID:-}"
