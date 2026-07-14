@@ -21,7 +21,7 @@ thresholds:
   checkpoint_fatal: 10000    # ms
 
   # Redis 内存阈值 — read by CONFIG['thresholds']['redis_memory_ratio_*']
-  # in watchdog.py:1181 (overrides the 0.8/0.95 defaults in DEFAULT_CONFIG).
+  # (overrides the defaults in watchdog.py DEFAULT_CONFIG).
   redis_memory_ratio_warning: 0.75   # 75% 黄色警告
   redis_memory_ratio_critical: 0.95  # 95% 红色安全模式
 
