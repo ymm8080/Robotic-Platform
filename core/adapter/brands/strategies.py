@@ -2,7 +2,18 @@
 
 Each strategy implements the ``_StrategyLike`` protocol expected by
 ``VDA5050FleetAdapter`` and lives entirely in the core so there is zero
-dependency on ``sap-bridge/strategies/`` (which does not exist yet).
+dependency on ``sap-bridge/strategies/``.
+
+Relationship to ``sap-bridge/strategies/``:
+  - This module (core): canonical strategy layer for the v5.0 traffic
+    coordinator.  Lightweight, standalone classes, uses core Pose /
+    FleetState / SensorHealth, accepts MapTransformer.
+  - sap-bridge/strategies/: SAP integration layer with richer features
+    (ABC base, version checking, BrandQuirk, DispatchResult).  Used
+    by the SAP bridge service for OData/RFC/IDoc integration.
+  - The two layers are intentionally separate: core has zero dependency on
+    sap-bridge.  If a future phase merges them, sap-bridge/strategies/
+    should delegate to these core classes, not the reverse.
 
 Brand quirks handled:
   - MiR:  reports driving state as VDA5050 operatingMode string, no robotId
@@ -81,6 +92,20 @@ def _parse_pose(payload: dict) -> Pose:
     )
 
 
+def _apply_transform(transformer: MapTransformer, pose: Pose) -> Pose:
+    """Apply ``MapTransformer.transform_pose`` to a Pose.
+
+    Preserves ``position_initialized`` and ``last_node_id`` -- only the
+    spatial components (x, y, theta) are transformed.
+    """
+    t = transformer.transform_pose(pose.x, pose.y, pose.theta)
+    return Pose(
+        x=t.x, y=t.y, theta=t.theta,
+        position_initialized=pose.position_initialized,
+        last_node_id=pose.last_node_id,
+    )
+
+
 def _parse_vda5050_mode(payload: dict) -> RobotMode:
     """Extract RobotMode from standard VDA5050 operatingMode."""
     mode_str = (payload.get("operatingMode", payload.get("mode", "IDLE"))
@@ -147,11 +172,14 @@ class MirStrategy:
             for ld in loads
         )
 
+        pose = Pose(x=x, y=y, theta=theta,
+                    position_initialized=bool(pose_raw.get("positionInitialized", True)),
+                    last_node_id=str(pose_raw.get("nodeId", "")))
+        pose = _apply_transform(self._transformer, pose)
+
         return MirState(
             robot_id=str(robot_id),
-            pose=Pose(x=x, y=y, theta=theta,
-                      position_initialized=bool(pose_raw.get("positionInitialized", True)),
-                      last_node_id=str(pose_raw.get("nodeId", ""))),
+            pose=pose,
             battery_percent=battery,
             mode=RobotMode.TASKING if has_load and bool(pose_raw) else _parse_vda5050_mode(raw),
             velocity=float(raw.get("velocity", raw.get("speed", 0.0))),
@@ -251,6 +279,7 @@ class OttoStrategy:
         robot_id = raw.get("robotId", raw.get("robot_id",
                                 raw.get("serialNumber", "otto_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery_charge = float(battery_raw.get("batteryCharge",
@@ -355,6 +384,7 @@ class KukaStrategy:
         robot_id = raw.get("robotId", raw.get("robot_id",
                                 raw.get("serialNumber", "kuka_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
@@ -454,6 +484,7 @@ class GeekPlusStrategy:
         robot_id = raw.get("robotId", raw.get("robot_id",
                                 raw.get("deviceId", "geek_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
@@ -567,6 +598,7 @@ class HaiRoboticsStrategy:
         robot_id = raw.get("robotId", raw.get("robot_id",
                                 raw.get("deviceId", "hai_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
@@ -692,6 +724,7 @@ class QuicktronStrategy:
         robot_id = raw.get("robotId", raw.get("robot_id",
                                 raw.get("serialNumber", "quicktron_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(

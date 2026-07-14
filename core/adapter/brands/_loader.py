@@ -5,6 +5,17 @@ exist yet.  v5.0 Phase 2 moves all strategy classes into
 ``core/adapter/brands/strategies.py`` so the core has zero dependency on
 the sap-bridge layer.
 
+Relationship to ``sap-bridge/strategies/``:
+  - This module (core/adapter/brands/): loads core strategy classes for the
+    v5.0 traffic coordinator.  The core strategies are lightweight, standalone
+    classes that have zero dependency on sap-bridge.
+  - sap-bridge/strategies/: SAP integration layer with richer features
+    (ABC base, version checking, BrandQuirk, DispatchResult).  Used
+    by the SAP bridge service for OData/RFC/IDoc integration.
+  - The two layers are intentionally separate.  This loader imports only from
+    core/adapter/brands/strategies.py to maintain core's zero-dependency
+    guarantee.
+
 Each brand strategy implements the ``_StrategyLike`` protocol expected by
 ``VDA5050FleetAdapter`` (handle_state, to_fleet_state, to_capability_vector,
 extract_errors, dispatch, brand).
