@@ -392,7 +392,20 @@ class SapCoordinatorBridge:
             else:
                 logger.warning("SAP-TC bridge: SAP confirm failed for task %s", tid)
 
-        # Prune confirmed entries to prevent unbounded memory growth.
+        # Prune confirmed entries and stale robot-for-task cache to prevent unbounded memory growth.
+        if self._poll_count % CLEANUP_INTERVAL == 0:
+            # Clean up _robot_for_task entries for tasks no longer active or submitted.
+            stale_robots = [
+                tid for tid in self._robot_for_task
+                if tid in self._confirmed or tid in self._manual_review
+            ]
+            for tid in stale_robots:
+                self._robot_for_task.pop(tid, None)
+            if stale_robots:
+                logger.debug(
+                    "SAP-TC bridge: cleaned %d stale _robot_for_task entries",
+                    len(stale_robots),
+                )
         if self._poll_count % CLEANUP_INTERVAL == 0 and len(self._confirmed) > MAX_CONFIRMED_RETENTION:
             excess = len(self._confirmed) - MAX_CONFIRMED_RETENTION
             to_remove = list(self._confirmed)[:excess]
@@ -435,7 +448,8 @@ class SapCoordinatorBridge:
         retry next cycle.  Never raises — all failures are logged.
         """
         zewm = self._zewm
-        assert zewm is not None  # noqa: S101 — caller guards on self._zewm
+        if zewm is None:  # caller guards on self._zewm
+            return False
 
         # Step 1 — resource confirmation (commits immediately in SAP).
         try:
@@ -508,7 +522,8 @@ class SapCoordinatorBridge:
     async def _handle_failure(self, lgnum: str, tid: str, rsrc: str) -> None:
         """Report a failed task to SAP: set robot exception status + unassign WHO."""
         zewm = self._zewm
-        assert zewm is not None  # noqa: S101 — caller guards on self._zewm
+        if zewm is None:  # caller guards on self._zewm
+            return
         try:
             await asyncio.to_thread(zewm.set_robot_status, lgnum, rsrc, str(ExceptionCode.BLOCKED))
         except RobcoError as exc:

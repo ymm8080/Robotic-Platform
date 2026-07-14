@@ -15,7 +15,7 @@ test exercises one branch of the dispatch loop:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from clients.traffic_coordinator_client import ClientResult
 from clients.zewm_robco_exceptions import WhtNotConfirmedError
@@ -69,7 +69,7 @@ def test_assign_on_observed_assignment_is_idempotent():
 
     asyncio.run(bridge._poll_coordinator_state())
     assert zewm.assign_robot_who.call_count == 1
-    assert zewm.assign_robot_who.call_args == ((("WM01", "MIR_001", "1001")),)
+    assert zewm.assign_robot_who.call_args == call("WM01", "MIR_001", "1001")
     assert bridge._robot_for_task["1001"] == "MIR_001"
     assert "1001" in bridge._assigned
 
