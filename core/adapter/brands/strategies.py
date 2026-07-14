@@ -2,7 +2,18 @@
 
 Each strategy implements the ``_StrategyLike`` protocol expected by
 ``VDA5050FleetAdapter`` and lives entirely in the core so there is zero
-dependency on ``sap-bridge/strategies/`` (which does not exist yet).
+dependency on ``sap-bridge/strategies/``.
+
+Relationship to ``sap-bridge/strategies/``:
+  - This module (core): canonical strategy layer for the v5.0 traffic
+    coordinator.  Lightweight, standalone classes, uses core Pose /
+    FleetState / SensorHealth, accepts MapTransformer.
+  - sap-bridge/strategies/: SAP integration layer with richer features
+    (ABC base, version checking, BrandQuirk, DispatchResult).  Used
+    by the SAP bridge service for OData/RFC/IDoc integration.
+  - The two layers are intentionally separate: core has zero dependency on
+    sap-bridge.  If a future phase merges them, sap-bridge/strategies/
+    should delegate to these core classes, not the reverse.
 
 Brand quirks handled:
   - MiR:  reports driving state as VDA5050 operatingMode string, no robotId
@@ -38,7 +49,7 @@ from core.messages import (
 
 _VDA5050_MODE_MAP: dict[str, RobotMode] = {
     "IDLE": RobotMode.IDLE,
-    "AUTOMATIC": RobotMode.IDLE,    # ready for task, not currently executing
+    "AUTOMATIC": RobotMode.IDLE,  # ready for task, not currently executing
     "MANUAL": RobotMode.IDLE,
     "SEMIAUTOMATIC": RobotMode.IDLE,
     "TEACHIN": RobotMode.IDLE,
@@ -75,16 +86,37 @@ def _parse_pose(payload: dict) -> Pose:
     position_initialized = bool(pos.get("positionInitialized", True))
     last_node = pos.get("nodeId", pos.get("lastNodeId", ""))
     return Pose(
-        x=x, y=y, theta=theta,
+        x=x,
+        y=y,
+        theta=theta,
         position_initialized=position_initialized,
         last_node_id=str(last_node),
     )
 
 
+def _apply_transform(transformer: MapTransformer | None, pose: Pose) -> Pose:
+    """Apply ``MapTransformer.transform_pose`` to a Pose.
+
+    Preserves ``position_initialized`` and ``last_node_id`` -- only the
+    spatial components (x, y, theta) are transformed.
+
+    If ``transformer`` is ``None``, the pose is returned unchanged.
+    """
+    if transformer is None:
+        return pose
+    t = transformer.transform_pose(pose.x, pose.y, pose.theta)
+    return Pose(
+        x=t.x,
+        y=t.y,
+        theta=t.theta,
+        position_initialized=pose.position_initialized,
+        last_node_id=pose.last_node_id,
+    )
+
+
 def _parse_vda5050_mode(payload: dict) -> RobotMode:
     """Extract RobotMode from standard VDA5050 operatingMode."""
-    mode_str = (payload.get("operatingMode", payload.get("mode", "IDLE"))
-                .strip().upper())
+    mode_str = payload.get("operatingMode", payload.get("mode", "IDLE")).strip().upper()
     return _VDA5050_MODE_MAP.get(mode_str, RobotMode.IDLE)
 
 
@@ -100,7 +132,7 @@ def _parse_vda5050_errors(payload: dict) -> list[str]:
         lvl = e.get("errorLevel", e.get("level", "WARN"))
         desc = e.get("errorDescription", e.get("description", ""))
         refs = e.get("errorReferences", [])
-        ref_str = f" [{','.join(str(r.get('referenceKey','')) for r in refs)}]" if refs else ""
+        ref_str = f" [{','.join(str(r.get('referenceKey', '')) for r in refs)}]" if refs else ""
         out.append(f"{typ}:{lvl}:{desc}{ref_str}")
     return out
 
@@ -108,6 +140,7 @@ def _parse_vda5050_errors(payload: dict) -> list[str]:
 # ═══════════════════════════════════════════════════════════════════
 #  MiR Strategy
 # ═══════════════════════════════════════════════════════════════════
+
 
 class MirStrategy:
     """MiR (Mobile Industrial Robots) VDA5050 strategy.
@@ -126,8 +159,7 @@ class MirStrategy:
         self._transformer = transformer or MapTransformer.identity("mir")
 
     def handle_state(self, raw: dict) -> MirState:
-        robot_id = raw.get("robotId", raw.get("robot_id",
-                                raw.get("serialNumber", "mir_unknown")))
+        robot_id = raw.get("robotId", raw.get("robot_id", raw.get("serialNumber", "mir_unknown")))
         pose_raw = raw.get("agvPosition", {})
         x, y, theta = (
             float(pose_raw.get("x", 0)),
@@ -142,16 +174,20 @@ class MirStrategy:
         )
 
         loads = raw.get("loads", raw.get("load", [])) or []
-        has_load = any(
-            ld.get("loadPosition", ld.get("position", "")) != ""
-            for ld in loads
+        has_load = any(ld.get("loadPosition", ld.get("position", "")) != "" for ld in loads)
+
+        pose = Pose(
+            x=x,
+            y=y,
+            theta=theta,
+            position_initialized=bool(pose_raw.get("positionInitialized", True)),
+            last_node_id=str(pose_raw.get("nodeId", "")),
         )
+        pose = _apply_transform(self._transformer, pose)
 
         return MirState(
             robot_id=str(robot_id),
-            pose=Pose(x=x, y=y, theta=theta,
-                      position_initialized=bool(pose_raw.get("positionInitialized", True)),
-                      last_node_id=str(pose_raw.get("nodeId", ""))),
+            pose=pose,
             battery_percent=battery,
             mode=RobotMode.TASKING if has_load and bool(pose_raw) else _parse_vda5050_mode(raw),
             velocity=float(raw.get("velocity", raw.get("speed", 0.0))),
@@ -197,12 +233,31 @@ class MirStrategy:
 
 class MirState:
     """Intermediate robot state for MiR."""
-    __slots__ = ("robot_id", "boot_id", "pose", "battery_percent", "mode",
-                 "velocity", "errors", "sensor_health", "has_load")
-    def __init__(self, robot_id: str, pose: Pose, battery_percent: float,
-                 mode: RobotMode, velocity: float, errors: list[str],
-                 sensor_health: SensorHealth, boot_id: str = "",
-                 has_load: bool = False) -> None:
+
+    __slots__ = (
+        "robot_id",
+        "boot_id",
+        "pose",
+        "battery_percent",
+        "mode",
+        "velocity",
+        "errors",
+        "sensor_health",
+        "has_load",
+    )
+
+    def __init__(
+        self,
+        robot_id: str,
+        pose: Pose,
+        battery_percent: float,
+        mode: RobotMode,
+        velocity: float,
+        errors: list[str],
+        sensor_health: SensorHealth,
+        boot_id: str = "",
+        has_load: bool = False,
+    ) -> None:
         self.robot_id = robot_id
         self.boot_id = boot_id
         self.pose = pose
@@ -232,6 +287,7 @@ def _parse_mir_sensor_health(raw: dict) -> SensorHealth:
 #  OTTO Strategy
 # ═══════════════════════════════════════════════════════════════════
 
+
 class OttoStrategy:
     """OTTO Motors VDA5050 strategy.
 
@@ -248,20 +304,19 @@ class OttoStrategy:
         self._transformer = transformer or MapTransformer.identity("otto")
 
     def handle_state(self, raw: dict) -> OttoState:
-        robot_id = raw.get("robotId", raw.get("robot_id",
-                                raw.get("serialNumber", "otto_unknown")))
+        robot_id = raw.get("robotId", raw.get("robot_id", raw.get("serialNumber", "otto_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
-        battery_charge = float(battery_raw.get("batteryCharge",
-                                battery_raw.get("batteryPercentage", 50.0)))
-        battery_unit = str(battery_raw.get("charging",
-                            battery_raw.get("unit", "percent")))
+        battery_charge = float(
+            battery_raw.get("batteryCharge", battery_raw.get("batteryPercentage", 50.0))
+        )
+        battery_unit = str(battery_raw.get("charging", battery_raw.get("unit", "percent")))
         battery = _normalise_battery(battery_charge, battery_unit)
 
         health = HealthStatus.HEALTHY
-        motor_temp = float(raw.get("motorTemperature",
-                           battery_raw.get("motorTemperature", 30.0)))
+        motor_temp = float(raw.get("motorTemperature", battery_raw.get("motorTemperature", 30.0)))
         if motor_temp > 75.0:
             health = SensorHealth.DEGRADED
         elif motor_temp > 90.0:
@@ -310,17 +365,34 @@ class OttoStrategy:
         return state.get("errors", []) or []
 
     def dispatch(self, order: dict) -> dict:
-        return {"job": order.get("orderId", ""),
-                "destinations": [order.get("destination", "")]}
+        return {"job": order.get("orderId", ""), "destinations": [order.get("destination", "")]}
 
 
 class OttoState:
-    __slots__ = ("robot_id", "boot_id", "pose", "battery_percent", "mode",
-                 "velocity", "errors", "sensor_health", "motor_temperature")
-    def __init__(self, robot_id: str, pose: Pose, battery_percent: float,
-                 mode: RobotMode, velocity: float, errors: list[str],
-                 sensor_health: SensorHealth, motor_temperature: float = 30.0,
-                 boot_id: str = "") -> None:
+    __slots__ = (
+        "robot_id",
+        "boot_id",
+        "pose",
+        "battery_percent",
+        "mode",
+        "velocity",
+        "errors",
+        "sensor_health",
+        "motor_temperature",
+    )
+
+    def __init__(
+        self,
+        robot_id: str,
+        pose: Pose,
+        battery_percent: float,
+        mode: RobotMode,
+        velocity: float,
+        errors: list[str],
+        sensor_health: SensorHealth,
+        motor_temperature: float = 30.0,
+        boot_id: str = "",
+    ) -> None:
         self.robot_id = robot_id
         self.boot_id = boot_id
         self.pose = pose
@@ -335,6 +407,7 @@ class OttoState:
 # ═══════════════════════════════════════════════════════════════════
 #  KUKA Strategy
 # ═══════════════════════════════════════════════════════════════════
+
 
 class KukaStrategy:
     """KUKA KMP series VDA5050 strategy.
@@ -352,13 +425,14 @@ class KukaStrategy:
         self._transformer = transformer or MapTransformer.identity("kuka")
 
     def handle_state(self, raw: dict) -> KukaState:
-        robot_id = raw.get("robotId", raw.get("robot_id",
-                                raw.get("serialNumber", "kuka_unknown")))
+        robot_id = raw.get("robotId", raw.get("robot_id", raw.get("serialNumber", "kuka_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
-            float(battery_raw.get("batteryCharge", battery_raw.get("charge", 100.0))))
+            float(battery_raw.get("batteryCharge", battery_raw.get("charge", 100.0)))
+        )
 
         # KUKA agvMode → RobotMode
         agv_mode = raw.get("agvMode", raw.get("operatingMode", "IDLE")).strip().upper()
@@ -393,8 +467,10 @@ class KukaStrategy:
             max_speed=2.0,
             supported_models=["KMP 600", "KMP 1500", "KMP 3000"],
             action_primitives={
-                ActionPrimitive.MOVE, ActionPrimitive.DOCK,
-                ActionPrimitive.PICK, ActionPrimitive.PLACE,
+                ActionPrimitive.MOVE,
+                ActionPrimitive.DOCK,
+                ActionPrimitive.PICK,
+                ActionPrimitive.PLACE,
             },
             env=EnvConstraints(max_grade=0.03, floor_threshold=0.01, min_friction=0.4),
             supports_reverse=True,
@@ -404,17 +480,38 @@ class KukaStrategy:
         return state.get("errors", []) or []
 
     def dispatch(self, order: dict) -> dict:
-        return {"orderId": order.get("orderId", ""),
-                "nodes": [{"nodeId": n, "sequenceId": i, "released": True}
-                          for i, n in enumerate(order.get("path", []))]}
+        return {
+            "orderId": order.get("orderId", ""),
+            "nodes": [
+                {"nodeId": n, "sequenceId": i, "released": True}
+                for i, n in enumerate(order.get("path", []))
+            ],
+        }
 
 
 class KukaState:
-    __slots__ = ("robot_id", "boot_id", "pose", "battery_percent", "mode",
-                 "velocity", "errors", "sensor_health")
-    def __init__(self, robot_id: str, pose: Pose, battery_percent: float,
-                 mode: RobotMode, velocity: float, errors: list[str],
-                 sensor_health: SensorHealth, boot_id: str = "") -> None:
+    __slots__ = (
+        "robot_id",
+        "boot_id",
+        "pose",
+        "battery_percent",
+        "mode",
+        "velocity",
+        "errors",
+        "sensor_health",
+    )
+
+    def __init__(
+        self,
+        robot_id: str,
+        pose: Pose,
+        battery_percent: float,
+        mode: RobotMode,
+        velocity: float,
+        errors: list[str],
+        sensor_health: SensorHealth,
+        boot_id: str = "",
+    ) -> None:
         self.robot_id = robot_id
         self.boot_id = boot_id
         self.pose = pose
@@ -428,6 +525,7 @@ class KukaState:
 # ═══════════════════════════════════════════════════════════════════
 #  Geek+ Strategy
 # ═══════════════════════════════════════════════════════════════════
+
 
 class GeekPlusStrategy:
     """Geek+ (极智嘉) P_VDA5050 strategy.
@@ -451,22 +549,26 @@ class GeekPlusStrategy:
         if "data" in raw:
             raw = raw["data"]
 
-        robot_id = raw.get("robotId", raw.get("robot_id",
-                                raw.get("deviceId", "geek_unknown")))
+        robot_id = raw.get("robotId", raw.get("robot_id", raw.get("deviceId", "geek_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
-            float(battery_raw.get("batteryCharge",
-                  battery_raw.get("percentage", 100.0))))
+            float(battery_raw.get("batteryCharge", battery_raw.get("percentage", 100.0)))
+        )
 
         # Geek+ sysStatus → RobotMode
         sys_status = raw.get("sysStatus", raw.get("operatingMode", "IDLE")).strip().upper()
         mode_map = {
-            "IDLE": RobotMode.IDLE, "STANDBY": RobotMode.IDLE,
-            "WORKING": RobotMode.TASKING, "MOVING": RobotMode.TASKING,
-            "CHARGING": RobotMode.CHARGING, "ERROR": RobotMode.ERROR,
-            "PAUSED": RobotMode.IDLE, "MANUAL": RobotMode.IDLE,
+            "IDLE": RobotMode.IDLE,
+            "STANDBY": RobotMode.IDLE,
+            "WORKING": RobotMode.TASKING,
+            "MOVING": RobotMode.TASKING,
+            "CHARGING": RobotMode.CHARGING,
+            "ERROR": RobotMode.ERROR,
+            "PAUSED": RobotMode.IDLE,
+            "MANUAL": RobotMode.IDLE,
         }
         mode = mode_map.get(sys_status, _parse_vda5050_mode(raw))
 
@@ -501,8 +603,10 @@ class GeekPlusStrategy:
             max_speed=1.8,
             supported_models=["P500", "P800", "P1200", "RS5"],
             action_primitives={
-                ActionPrimitive.MOVE, ActionPrimitive.PICK,
-                ActionPrimitive.PLACE, ActionPrimitive.CHARGE,
+                ActionPrimitive.MOVE,
+                ActionPrimitive.PICK,
+                ActionPrimitive.PLACE,
+                ActionPrimitive.CHARGE,
             },
             env=EnvConstraints(max_grade=0.02, floor_threshold=0.005, min_friction=0.4),
             supports_reverse=False,
@@ -513,23 +617,45 @@ class GeekPlusStrategy:
         # Geek+ may also report in "warnings" and "faults"
         for key in ("warnings", "faults"):
             for w in state.get(key, []) or []:
-                errs.append({"errorType": "WARN", "errorLevel": "WARNING",
-                             "errorDescription": str(w)})
+                errs.append(
+                    {"errorType": "WARN", "errorLevel": "WARNING", "errorDescription": str(w)}
+                )
         return errs
 
     def dispatch(self, order: dict) -> dict:
-        return {"taskId": order.get("orderId", ""),
-                "operations": [{"type": "MOVE",
-                                "target": n} for n in order.get("path", [])]}
+        return {
+            "taskId": order.get("orderId", ""),
+            "operations": [{"type": "MOVE", "target": n} for n in order.get("path", [])],
+        }
 
 
 class GeekPlusState:
-    __slots__ = ("robot_id", "boot_id", "pose", "battery_percent", "mode",
-                 "velocity", "errors", "sensor_health", "robot_model", "warehouse_id")
-    def __init__(self, robot_id: str, pose: Pose, battery_percent: float,
-                 mode: RobotMode, velocity: float, errors: list[str],
-                 sensor_health: SensorHealth, robot_model: str = "",
-                 warehouse_id: str = "", boot_id: str = "") -> None:
+    __slots__ = (
+        "robot_id",
+        "boot_id",
+        "pose",
+        "battery_percent",
+        "mode",
+        "velocity",
+        "errors",
+        "sensor_health",
+        "robot_model",
+        "warehouse_id",
+    )
+
+    def __init__(
+        self,
+        robot_id: str,
+        pose: Pose,
+        battery_percent: float,
+        mode: RobotMode,
+        velocity: float,
+        errors: list[str],
+        sensor_health: SensorHealth,
+        robot_model: str = "",
+        warehouse_id: str = "",
+        boot_id: str = "",
+    ) -> None:
         self.robot_id = robot_id
         self.boot_id = boot_id
         self.pose = pose
@@ -545,6 +671,7 @@ class GeekPlusState:
 # ═══════════════════════════════════════════════════════════════════
 #  HaiRobotics Strategy
 # ═══════════════════════════════════════════════════════════════════
+
 
 class HaiRoboticsStrategy:
     """HaiRobotics (海柔创新) HaiPick ACR strategy.
@@ -564,14 +691,14 @@ class HaiRoboticsStrategy:
         self._transformer = transformer or MapTransformer.identity("hairobotics")
 
     def handle_state(self, raw: dict) -> HaiRoboticsState:
-        robot_id = raw.get("robotId", raw.get("robot_id",
-                                raw.get("deviceId", "hai_unknown")))
+        robot_id = raw.get("robotId", raw.get("robot_id", raw.get("deviceId", "hai_unknown")))
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
-            float(battery_raw.get("batteryCharge",
-                  battery_raw.get("soc", 100.0))))
+            float(battery_raw.get("batteryCharge", battery_raw.get("soc", 100.0)))
+        )
 
         # HaiPick robotMode mapping
         robot_mode = raw.get("robotMode", "").strip().upper()
@@ -620,8 +747,10 @@ class HaiRoboticsStrategy:
             max_speed=1.5,
             supported_models=["ACR A42", "ACR A42T", "HAIPICK A3"],
             action_primitives={
-                ActionPrimitive.MOVE, ActionPrimitive.LIFT_FORK,
-                ActionPrimitive.PICK, ActionPrimitive.PLACE,
+                ActionPrimitive.MOVE,
+                ActionPrimitive.LIFT_FORK,
+                ActionPrimitive.PICK,
+                ActionPrimitive.PLACE,
             },
             env=EnvConstraints(max_grade=0.01, floor_threshold=0.005, min_friction=0.45),
             supports_reverse=False,  # ACR only moves forward on QR tracks
@@ -631,18 +760,38 @@ class HaiRoboticsStrategy:
         return state.get("errors", []) or []
 
     def dispatch(self, order: dict) -> dict:
-        return {"taskId": order.get("orderId", ""),
-                "waypoints": order.get("path", []),
-                "action": order.get("action", "MOVE")}
+        return {
+            "taskId": order.get("orderId", ""),
+            "waypoints": order.get("path", []),
+            "action": order.get("action", "MOVE"),
+        }
 
 
 class HaiRoboticsState:
-    __slots__ = ("robot_id", "boot_id", "pose", "battery_percent", "mode",
-                 "velocity", "errors", "sensor_health", "fork_height_m")
-    def __init__(self, robot_id: str, pose: Pose, battery_percent: float,
-                 mode: RobotMode, velocity: float, errors: list[str],
-                 sensor_health: SensorHealth, fork_height_m: float = 0.0,
-                 boot_id: str = "") -> None:
+    __slots__ = (
+        "robot_id",
+        "boot_id",
+        "pose",
+        "battery_percent",
+        "mode",
+        "velocity",
+        "errors",
+        "sensor_health",
+        "fork_height_m",
+    )
+
+    def __init__(
+        self,
+        robot_id: str,
+        pose: Pose,
+        battery_percent: float,
+        mode: RobotMode,
+        velocity: float,
+        errors: list[str],
+        sensor_health: SensorHealth,
+        fork_height_m: float = 0.0,
+        boot_id: str = "",
+    ) -> None:
         self.robot_id = robot_id
         self.boot_id = boot_id
         self.pose = pose
@@ -657,6 +806,7 @@ class HaiRoboticsState:
 # ═══════════════════════════════════════════════════════════════════
 #  Quicktron Strategy
 # ═══════════════════════════════════════════════════════════════════
+
 
 class QuicktronStrategy:
     """Quicktron (快仓) QuickBin VDA5050 strategy.
@@ -689,22 +839,28 @@ class QuicktronStrategy:
         self._transformer = transformer or MapTransformer.identity("quicktron")
 
     def handle_state(self, raw: dict) -> QuicktronState:
-        robot_id = raw.get("robotId", raw.get("robot_id",
-                                raw.get("serialNumber", "quicktron_unknown")))
+        robot_id = raw.get(
+            "robotId", raw.get("robot_id", raw.get("serialNumber", "quicktron_unknown"))
+        )
         pose = _parse_pose(raw)
+        pose = _apply_transform(self._transformer, pose)
 
         battery_raw = raw.get("batteryState", raw.get("battery", {}))
         battery = _normalise_battery(
-            float(battery_raw.get("batteryCharge",
-                  raw.get("batteryPercent", 100.0))))
+            float(battery_raw.get("batteryCharge", raw.get("batteryPercent", 100.0)))
+        )
 
         # Quicktron robotStatus → RobotMode
         status = raw.get("robotStatus", raw.get("operatingMode", "IDLE")).strip().upper()
         qt_mode_map = {
-            "IDLE": RobotMode.IDLE, "READY": RobotMode.IDLE,
-            "RUNNING": RobotMode.TASKING, "MOVING": RobotMode.TASKING,
-            "CHARGING": RobotMode.CHARGING, "ERROR": RobotMode.ERROR,
-            "PAUSED": RobotMode.IDLE, "DOCKING": RobotMode.TASKING,
+            "IDLE": RobotMode.IDLE,
+            "READY": RobotMode.IDLE,
+            "RUNNING": RobotMode.TASKING,
+            "MOVING": RobotMode.TASKING,
+            "CHARGING": RobotMode.CHARGING,
+            "ERROR": RobotMode.ERROR,
+            "PAUSED": RobotMode.IDLE,
+            "DOCKING": RobotMode.TASKING,
         }
         mode = qt_mode_map.get(status, _parse_vda5050_mode(raw))
 
@@ -740,8 +896,10 @@ class QuicktronStrategy:
             max_speed=2.0,
             supported_models=["QuickBin M100", "QuickBin M600", "QuickBin C200"],
             action_primitives={
-                ActionPrimitive.MOVE, ActionPrimitive.LIFT_FORK,
-                ActionPrimitive.PICK, ActionPrimitive.PLACE,
+                ActionPrimitive.MOVE,
+                ActionPrimitive.LIFT_FORK,
+                ActionPrimitive.PICK,
+                ActionPrimitive.PLACE,
             },
             env=EnvConstraints(max_grade=0.03, floor_threshold=0.01, min_friction=0.4),
             supports_reverse=True,
@@ -749,24 +907,50 @@ class QuicktronStrategy:
 
     def extract_errors(self, state: dict) -> list[dict]:
         if "errorCode" in state:
-            return [{"errorType": "ERROR",
-                     "errorLevel": "WARNING",
-                     "errorDescription": state["errorCode"]}]
+            return [
+                {
+                    "errorType": "ERROR",
+                    "errorLevel": "WARNING",
+                    "errorDescription": state["errorCode"],
+                }
+            ]
         return state.get("errors", []) or []
 
     def dispatch(self, order: dict) -> dict:
-        return {"orderId": order.get("orderId", ""),
-                "nodes": [{"nodeId": n, "sequenceId": i, "released": True}
-                          for i, n in enumerate(order.get("path", []))]}
+        return {
+            "orderId": order.get("orderId", ""),
+            "nodes": [
+                {"nodeId": n, "sequenceId": i, "released": True}
+                for i, n in enumerate(order.get("path", []))
+            ],
+        }
 
 
 class QuicktronState:
-    __slots__ = ("robot_id", "boot_id", "pose", "battery_percent", "mode",
-                 "velocity", "errors", "sensor_health", "bin_status")
-    def __init__(self, robot_id: str, pose: Pose, battery_percent: float,
-                 mode: RobotMode, velocity: float, errors: list[str],
-                 sensor_health: SensorHealth, bin_status: int = 0,
-                 boot_id: str = "") -> None:
+    __slots__ = (
+        "robot_id",
+        "boot_id",
+        "pose",
+        "battery_percent",
+        "mode",
+        "velocity",
+        "errors",
+        "sensor_health",
+        "bin_status",
+    )
+
+    def __init__(
+        self,
+        robot_id: str,
+        pose: Pose,
+        battery_percent: float,
+        mode: RobotMode,
+        velocity: float,
+        errors: list[str],
+        sensor_health: SensorHealth,
+        bin_status: int = 0,
+        boot_id: str = "",
+    ) -> None:
         self.robot_id = robot_id
         self.boot_id = boot_id
         self.pose = pose
@@ -788,5 +972,5 @@ def _parse_quicktron_errors(raw: dict) -> list[str]:
         if isinstance(e, str):
             errors.append(e)
         else:
-            errors.append(f"{e.get('errorType','')}:{e.get('errorDescription','')}")
+            errors.append(f"{e.get('errorType', '')}:{e.get('errorDescription', '')}")
     return errors

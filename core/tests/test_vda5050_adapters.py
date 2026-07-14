@@ -4,13 +4,24 @@ The adapter layer uses duck typing — strategy objects are passed at
 construction time.  The tests use a mock strategy so they do NOT depend
 on the sap-bridge package.
 """
+
 from __future__ import annotations
 
-import sys
+import importlib
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+
+# Robust check: can we actually import strategies.mir from sap-bridge?
+# "sap-bridge" contains a hyphen and is not a valid Python module name.
+# When sap-bridge/tests/conftest.py adds the sap-bridge/ directory to
+# sys.path, the top-level package "strategies" becomes importable.
+try:
+    importlib.import_module("strategies.mir")
+    _SAP_BRIDGE_AVAILABLE = True
+except ImportError:
+    _SAP_BRIDGE_AVAILABLE = False
 
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.vda5050_fleet_adapter import VDA5050FleetAdapter
@@ -35,10 +46,15 @@ class MockBattery:
 class MockRobotState:
     status: str = "IDLE"
     battery: MockBattery = field(default_factory=MockBattery)
-    position: dict = field(default_factory=lambda: {
-        "x": 1.0, "y": 2.0, "theta": 0.5,
-        "lastNodeId": "A", "positionInitialized": True,
-    })
+    position: dict = field(
+        default_factory=lambda: {
+            "x": 1.0,
+            "y": 2.0,
+            "theta": 0.5,
+            "lastNodeId": "A",
+            "positionInitialized": True,
+        }
+    )
     errors: list = field(default_factory=list)
     raw: dict | None = None
 
@@ -64,10 +80,14 @@ class MockStrategy:
     def to_fleet_state(self, robot_state: MockRobotState) -> FleetState:
         pos = robot_state.position
         return FleetState(
-            robot_id=robot_state.raw.get("serialNumber", "mock-001") if robot_state.raw else "mock-001",
+            robot_id=robot_state.raw.get("serialNumber", "mock-001")
+            if robot_state.raw
+            else "mock-001",
             boot_id="",
             pose=Pose(
-                x=pos["x"], y=pos["y"], theta=pos["theta"],
+                x=pos["x"],
+                y=pos["y"],
+                theta=pos["theta"],
                 last_node_id=pos.get("lastNodeId", ""),
                 position_initialized=pos.get("positionInitialized", True),
             ),
@@ -135,9 +155,11 @@ class TestVDA5050FleetAdapter:
         """map_vendor_errors calls strategy.extract_errors and formats output."""
         strategy = MockStrategy()
         adapter = VDA5050FleetAdapter(strategy=strategy)
-        result = adapter.map_vendor_errors([
-            {"errorType": "NAVIGATION", "errorLevel": "WARNING", "errorDescription": "lost"},
-        ])
+        result = adapter.map_vendor_errors(
+            [
+                {"errorType": "NAVIGATION", "errorLevel": "WARNING", "errorDescription": "lost"},
+            ]
+        )
         assert len(result) == 1
         assert "NAVIGATION" in result[0]
         assert "lost" in result[0]
@@ -194,16 +216,24 @@ class TestVDA5050FleetAdapter:
         strategy = MockStrategy()
         adapter = VDA5050FleetAdapter(strategy=strategy)
         # Register a robot with reverse support
-        state = FleetState(robot_id="mock-001", boot_id="b1", battery_percent=85.0,
-                           pose=Pose(x=0, y=0, theta=0),
-                           capability=CapabilityVector(supports_reverse=True))
+        state = FleetState(
+            robot_id="mock-001",
+            boot_id="b1",
+            battery_percent=85.0,
+            pose=Pose(x=0, y=0, theta=0),
+            capability=CapabilityVector(supports_reverse=True),
+        )
         adapter._last_state["mock-001"] = state
-        adapter._registry["mock-001"] = type("Reg", (), {"supports_reverse": True, "active_path": [], "next_waypoint_idx": 0})()
+        adapter._registry["mock-001"] = type(
+            "Reg", (), {"supports_reverse": True, "active_path": [], "next_waypoint_idx": 0}
+        )()
         cmd = adapter.request_fallback("mock-001", "test", now=0.0)
         assert cmd.action == "RETREAT"
 
         # Robot without reverse support
-        adapter._registry["mock-002"] = type("Reg", (), {"supports_reverse": False, "active_path": [], "next_waypoint_idx": 0})()
+        adapter._registry["mock-002"] = type(
+            "Reg", (), {"supports_reverse": False, "active_path": [], "next_waypoint_idx": 0}
+        )()
         cmd2 = adapter.request_fallback("mock-002", "test", now=0.0)
         assert cmd2.action == "HOLD"
 
@@ -216,7 +246,12 @@ class TestBrandAdapterFactories:
         from core.adapter.brands import BRAND_FACTORIES
 
         assert set(BRAND_FACTORIES.keys()) == {
-            "mir", "otto", "kuka", "geekplus", "hairobotics", "quicktron",
+            "mir",
+            "otto",
+            "kuka",
+            "geekplus",
+            "hairobotics",
+            "quicktron",
         }
         for brand, factory in BRAND_FACTORIES.items():
             assert callable(factory), f"{brand} factory is not callable"
@@ -288,20 +323,25 @@ class TestStrategyToFleetState:
     """
 
     @pytest.mark.skipif(
-        "sap-bridge" not in "".join(sys.path),
-        reason="sap-bridge not on sys.path; add project root to PYTHONPATH",
+        not _SAP_BRIDGE_AVAILABLE,
+        reason="strategies.mir not importable",
     )
     def test_mir_strategy_to_fleet_state_idle(self):
         """MiR strategy converts an IDLE RobotState to FleetState."""
         import importlib
-        mod = importlib.import_module("sap-bridge.strategies.mir")
+
+        mod = importlib.import_module("strategies.mir")
         strategy = mod.MirStrategy()
 
         raw = {
             "serialNumber": "mir-001",
-            "x": 1.5, "y": 2.5, "theta": 0.0,
-            "positionInitialized": True,
-            "lastNodeId": "B",
+            "agvPosition": {
+                "x": 1.5,
+                "y": 2.5,
+                "theta": 0.0,
+                "positionInitialized": True,
+                "lastNodeId": "B",
+            },
         }
         robot_state = strategy.handle_state(raw)
         fleet_state = strategy.to_fleet_state(robot_state)
@@ -311,13 +351,14 @@ class TestStrategyToFleetState:
         assert fleet_state.battery_percent == 0.0  # MiR raw has no battery in test
 
     @pytest.mark.skipif(
-        "sap-bridge" not in "".join(sys.path),
-        reason="sap-bridge not on sys.path",
+        not _SAP_BRIDGE_AVAILABLE,
+        reason="strategies.mir not importable",
     )
     def test_strategy_to_capability_vector_defaults(self):
         """to_capability_vector returns a valid CapabilityVector."""
         import importlib
-        mod = importlib.import_module("sap-bridge.strategies.mir")
+
+        mod = importlib.import_module("strategies.mir")
         strategy = mod.MirStrategy()
         cap = strategy.to_capability_vector()
         assert isinstance(cap, CapabilityVector)
