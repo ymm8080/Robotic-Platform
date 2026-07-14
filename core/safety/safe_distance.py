@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from core.config import SafetyConfig
 from core.messages import HealthStatus, SensorHealth
+from core.safety.safety_plc import SafetyPlc
 
 
 @dataclass
@@ -29,8 +30,15 @@ class SafeDistanceResult:
 class SafeDistanceCalculator:
     """Stateless calculator bound to an immutable SafetyConfig."""
 
-    def __init__(self, config: SafetyConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: SafetyConfig | None = None,
+        plc: SafetyPlc | None = None,
+    ) -> None:
         self.cfg = config or SafetyConfig()
+        # 安全 PLC 权威硬下限寄存器 (Phase 4 task 5). 默认 1.5m 法定;
+        # 软件可通过 config 申请抬高, 但 plc.enforce 永不让其低于法定值.
+        self.plc = plc or SafetyPlc()
 
     def compute(
         self,
@@ -54,11 +62,13 @@ class SafeDistanceCalculator:
             dynamic *= cfg.sensor_degrade_multiplier
             penalty = True
 
-        # 硬下限: 软件无权覆盖. 取 max, 永不小于 floor.
-        applied = max(dynamic, cfg.hard_floor)
+        # 硬下限: 软件无权覆盖. 经安全 PLC enforce — 软件可抬高, 不可 lowering
+        # 于法定寄存器值. 取 max(dynamic, plc_floor).
+        floor = self.plc.enforce(cfg.hard_floor)
+        applied = max(dynamic, floor)
         return SafeDistanceResult(
             dynamic=dynamic,
-            floor=cfg.hard_floor,
+            floor=floor,
             applied=applied,
             sensor_penalty=penalty,
         )
