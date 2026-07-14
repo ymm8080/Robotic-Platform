@@ -18,13 +18,17 @@ v7 架构说明书: 冲突层空间三层次 —
 # 平移会与它车再冲突, 须带 wait 约束重跑 ECBS. 升级路径: gate→constraint
 # 反馈进 ECBS 重解 (滚动窗口已支持 incremental update).
 """
+
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
 from core.scheduling.mapf_engine import AgentRequest, MAPFEngine, Plan
 from core.scheduling.traffic_light_controller import TrafficLightController
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,7 @@ class ConflictResolution:
     groups: list[list[str]] = field(default_factory=list)  # agent_ids per L1 组
     gates: list[IntersectionGate] = field(default_factory=list)
     ecbs_group_count: int = 0  # 需 ECBS 的组数 (≥2 车)
+    request_order: list[str] = field(default_factory=list)  # 原始请求顺序
 
     def get(self, agent_id: str) -> Plan | None:
         return self.plans.get(agent_id)
@@ -67,11 +72,10 @@ class ConflictLayerCoordinator:
         self.fmap = fmap
         self.mapf = mapf
         self.tlc = tlc
+        self._corridor_cache: dict[tuple[str, str, str], set[str]] = {}
 
     # ── 公共入口 ───────────────────────────────────────────────
-    def coordinate(
-        self, requests: list[AgentRequest], now: float = 0.0
-    ) -> ConflictResolution:
+    def coordinate(self, requests: list[AgentRequest], now: float = 0.0) -> ConflictResolution:
         if not requests:
             return ConflictResolution()
 
@@ -98,19 +102,32 @@ class ConflictLayerCoordinator:
             groups=groups,
             gates=gates,
             ecbs_group_count=ecbs_groups,
+            request_order=[r.agent_id for r in requests],
         )
 
     # ── L1 宏观 ────────────────────────────────────────────────
     def _corridor_nodes(self, req: AgentRequest) -> set[str]:
         """请求走廊的节点集 (用于交互分组)."""
+        cache_key = (req.start, req.goal, req.model)
+        if cache_key in self._corridor_cache:
+            return self._corridor_cache[cache_key]
+
         lane_filter = self._model_filter(req.model)
         lane_path = self.fmap.shortest_path(req.start, req.goal, lane_filter=lane_filter)
+        if not lane_path:
+            logger.warning(
+                "No path from %s to %s for model %r; corridor falls back to {start, goal}",
+                req.start,
+                req.goal,
+                req.model,
+            )
         nodes: set[str] = {req.start, req.goal}
         for lid in lane_path:
             lane = self.fmap.lane(lid)
             if lane is not None:
                 nodes.add(lane.from_node)
                 nodes.add(lane.to_node)
+        self._corridor_cache[cache_key] = nodes
         return nodes
 
     @staticmethod
@@ -120,9 +137,7 @@ class ConflictLayerCoordinator:
         return lambda lane: lane.allows_model(model)
 
     @staticmethod
-    def _macro_groups(
-        agent_ids: list[str], corridors: dict[str, set[str]]
-    ) -> list[list[str]]:
+    def _macro_groups(agent_ids: list[str], corridors: dict[str, set[str]]) -> list[list[str]]:
         """按共享走廊节点分组 (union-find). 非交互 → 各自单元素组."""
         parent: dict[str, str] = {a: a for a in agent_ids}
 
@@ -145,9 +160,9 @@ class ConflictLayerCoordinator:
         comp: dict[str, list[str]] = {}
         for a in agent_ids:
             comp.setdefault(find(a), []).append(a)
-        # 稳定排序: 组内按 agent_id, 组间按首元素
-        groups = [sorted(members) for members in comp.values()]
-        groups.sort(key=lambda g: g[0])
+        # 组内保持原始请求顺序; 组间按首成员在请求中的位置排序
+        groups = list(comp.values())
+        groups.sort(key=lambda g: agent_ids.index(g[0]))
         return groups
 
     # ── L3 路口门控 ────────────────────────────────────────────
