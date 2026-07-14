@@ -395,10 +395,7 @@ class SapCoordinatorBridge:
         # Prune confirmed entries and stale robot-for-task cache to prevent unbounded memory growth.
         if self._poll_count % CLEANUP_INTERVAL == 0:
             # Clean up _robot_for_task entries for tasks no longer active or submitted.
-            stale_robots = [
-                tid for tid in self._robot_for_task
-                if tid in self._confirmed or tid in self._manual_review
-            ]
+            stale_robots = [tid for tid in self._robot_for_task if tid in self._confirmed or tid in self._manual_review]
             for tid in stale_robots:
                 self._robot_for_task.pop(tid, None)
             if stale_robots:
