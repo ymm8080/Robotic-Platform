@@ -22,12 +22,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 from core.messages import EnvConstraints
 
 
-class SpeedClass(str, Enum):
+class SpeedClass(StrEnum):
     FAST = "FAST"
     SLOW = "SLOW"
 
@@ -142,7 +142,7 @@ class FixedLaneMap:
         return [lane.lane_id for lane in self._lanes.values() if lane.no_reverse]
 
     # ── map validation (灰犀牛 #12 验收陷阱) ─────────────────────
-    def validate(self) -> list[str]:
+    def validate(self, reference_map: FixedLaneMap | None = None) -> list[str]:
         """Return a list of integrity warnings; empty list means map is healthy."""
         issues: list[str] = []
         if not self._lanes:
@@ -166,6 +166,99 @@ class FixedLaneMap:
             unreachable = nodes - reachable
             for node in sorted(unreachable):
                 issues.append(f"node {node} is unreachable from {start}")
+
+        # Phase 2 Task 2: 车道图对齐：节点-节点对应校验
+        if reference_map is not None:
+            issues.extend(self.validate_node_correspondence(reference_map))
+
+        return issues
+
+    # ── lane graph correspondence validation (Phase 2 Task 2) ──────
+    def validate_node_correspondence(self, reference_map: FixedLaneMap) -> list[str]:
+        """Validate node-node correspondence between this map and a reference map.
+
+        Returns a list of correspondence warnings:
+        - Nodes in both maps should match semantically
+        - Lane connectivity should be consistent
+        - Structural differences that might indicate misalignment
+        """
+        issues: list[str] = []
+
+        # Get all nodes from both maps
+        our_nodes = {
+            node
+            for lane in self._lanes.values()
+            for node in (lane.from_node, lane.to_node)
+        }
+        ref_nodes = {
+            node
+            for lane in reference_map._lanes.values()
+            for node in (lane.from_node, lane.to_node)
+        }
+
+        # Check for nodes that exist in one but not the other
+        only_our_nodes = our_nodes - ref_nodes
+        only_ref_nodes = ref_nodes - our_nodes
+
+        if only_our_nodes:
+            issues.append(f"Nodes only in our map: {sorted(only_our_nodes)}")
+        if only_ref_nodes:
+            issues.append(f"Nodes only in reference map: {sorted(only_ref_nodes)}")
+
+        # Check node degree consistency for shared nodes
+        shared_nodes = our_nodes & ref_nodes
+        for node in shared_nodes:
+            our_out_degree = len(self.lanes_out_of(node))
+            ref_out_degree = len(reference_map.lanes_out_of(node))
+
+            if our_out_degree != ref_out_degree:
+                issues.append(
+                    f"Node {node} has different out-degree: "
+                    f"{our_out_degree} (our) vs {ref_out_degree} (reference)"
+                )
+
+            # Check if lanes match between maps
+            our_lanes = set(self.lanes_out_of(node))
+            ref_lanes = set(reference_map.lanes_out_of(node))
+
+            # Look for structural mismatches
+            if our_lanes and not ref_lanes:
+                issues.append(f"Node {node} has outgoing lanes in our map but not in reference")
+            elif not our_lanes and ref_lanes:
+                issues.append(f"Node {node} has outgoing lanes in reference but not in our map")
+            else:
+                # Check for significant differences in connectivity (50% threshold)
+                symmetric_diff = our_lanes.symmetric_difference(ref_lanes)
+                if len(symmetric_diff) > max(len(our_lanes), len(ref_lanes)) * 0.5:
+                    issues.append(
+                        f"Node {node} has very different connectivity"
+                    )
+
+        # Check for dangling node references in our map
+        for lane in self._lanes.values():
+            if lane.from_node not in our_nodes:
+                issues.append(f"Node {lane.from_node} (by lane {lane.lane_id}) does not exist")
+            if lane.to_node not in our_nodes:
+                issues.append(f"Node {lane.to_node} (by lane {lane.lane_id}) does not exist")
+
+        # Check for bidirectional lane equivalents with different IDs
+        for lane in self._lanes.values():
+            # Skip if the lane exists in reference with same ID
+            if reference_map.lane(lane.lane_id) is not None:
+                continue
+
+            # Check if there's a reverse lane in reference
+            ref_lanes_to = reference_map.lanes_out_of(lane.from_node)
+            has_reverse = any(
+                reference_map.lane(ref_id).to_node == lane.from_node
+                for ref_id in ref_lanes_to
+                if reference_map.lane(ref_id).from_node == lane.to_node
+            )
+            if has_reverse:
+                issues.append(
+                    f"Lane {lane.lane_id} has bidirectional equivalent in reference"
+                )
+
         return issues
 
     def _reachable_nodes(self, start: str) -> set[str]:
@@ -362,13 +455,30 @@ class FixedLaneMap:
         """Graph-aware cost from ``a`` to ``b`` (lane ids or node ids)."""
         path = self.shortest_path(a, b, lane_filter=lane_filter, cost=cost)
         if cost == "time":
-            return sum(self._lanes[lid].length / self._lanes[lid].max_speed for lid in path if self._lanes[lid].max_speed > 0) or 1.0
+            return (
+                sum(
+                    self._lanes[lid].length / self._lanes[lid].max_speed
+                    for lid in path
+                    if self._lanes[lid].max_speed > 0
+                )
+                or 1.0
+            )
         return sum(self._lanes[lid].length for lid in path) or 1.0
 
     # ── Ground Truth (附录A.7, 灰犀牛 #12 验收陷阱) ────────────
     def ground_truth_checksum(self) -> int:
         """Cheap checksum of the physical layer for change detection."""
-        return hash(tuple(sorted(
-            (lane.lane_id, lane.from_node, lane.to_node, lane.length, lane.speed_class.value)
-            for lane in self._lanes.values()
-        )))
+        return hash(
+            tuple(
+                sorted(
+                    (
+                        lane.lane_id,
+                        lane.from_node,
+                        lane.to_node,
+                        lane.length,
+                        lane.speed_class.value,
+                    )
+                    for lane in self._lanes.values()
+                )
+            )
+        )
