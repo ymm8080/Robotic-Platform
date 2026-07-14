@@ -48,6 +48,17 @@ jobs:
           echo "Switching to PR branch: $PR_BRANCH"
           git checkout -B "$PR_BRANCH" "origin/$PR_BRANCH"
 
+      - name: Check if already auto-fixed (prevent loop)
+        id: check-skip
+        run: |
+          LAST_COMMIT=$(git log -1 --pretty=format:"%s")
+          if [[ "$LAST_COMMIT" == "fix: auto-fix lint errors"* ]]; then
+            echo "Last commit is already an auto-fix commit. Skipping to prevent loop."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -62,11 +73,13 @@ jobs:
           git config user.email "auto-fix@catpaw.local"
 
       - name: Run ruff format (sap-bridge only)
+        if: steps.check-skip.outputs.skip != 'true'
         run: |
           echo "=== Running ruff format (sap-bridge) ==="
           ruff format sap-bridge/ || true
 
       - name: Run ruff check --fix (sap-bridge)
+        if: steps.check-skip.outputs.skip != 'true'
         run: |
           echo "=== Running ruff check --fix (sap-bridge) ==="
           cd sap-bridge
@@ -74,19 +87,21 @@ jobs:
           cd ..
 
       - name: Run ruff check --fix (scripts only)
+        if: steps.check-skip.outputs.skip != 'true'
         run: |
           echo "=== Running ruff check --fix (scripts) ==="
           ruff check scripts/ --fix --unsafe-fixes || true
 
       - name: Check for changes and commit
         id: check-changes
+        if: steps.check-skip.outputs.skip != 'true'
         env:
           BRANCH: ${{ steps.pr-info.outputs.pr_branch }}
         run: |
           if ! git diff --quiet; then
             echo "Changes detected, committing..."
             git add -A
-            git commit -m "fix: auto-fix lint errors [ci skip]"
+            git commit -m "fix: auto-fix lint errors"
             git push origin "$BRANCH"
             echo "pushed=true" >> $GITHUB_OUTPUT
           else
@@ -95,7 +110,7 @@ jobs:
           fi
 
       - name: Comment on PR (if changes pushed)
-        if: steps.check-changes.outputs.pushed == 'true'
+        if: steps.check-skip.outputs.skip != 'true' && steps.check-changes.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
