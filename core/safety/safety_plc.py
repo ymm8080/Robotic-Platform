@@ -11,6 +11,7 @@
 # ponytail: 不引入真实 PLC 驱动 (硬件未定) — 仅建模其权威寄存器语义.
 # 升级路径: 接真实安全 PLC (Modbus/EtherCAT) 读寄存器值, enforce() 不变.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -73,7 +74,7 @@ class SafetyPlc:
 
 
 # ── 自检 (DoD: 软件无法 lowering PLC 法定下限) ───────────────────
-def _demo() -> None:
+def _self_test() -> None:
     plc = SafetyPlc()  # 默认 1.5m 法定
     assert plc.hard_floor == 1.5
     # 抬高允许
@@ -88,4 +89,4 @@ def _demo() -> None:
 
 
 if __name__ == "__main__":
-    _demo()
+    _self_test()
