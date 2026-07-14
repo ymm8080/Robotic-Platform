@@ -195,11 +195,11 @@ class MapTransformer:
         return self.native_to_unified_lane(native_lane)
 
     @staticmethod
-    def _solve_3x3(mat: list[list[float]], rhs: list[float]) -> list[float]:
+    def _solve_3x3(mat: list[list[float]], rhs: list[float]) -> tuple[float, float, float]:
         """Solve a 3x3 linear system using Cramer's rule.
 
         ``mat`` is row-major ``[[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]]``.
-        Returns ``[x0, x1, x2]`` such that ``mat @ x = rhs``.
+        Returns ``(x0, x1, x2)`` such that ``mat @ x = rhs``.
         Raises ``ValueError`` if the matrix is singular (zero determinant).
         """
         m00, m01, m02 = mat[0]
@@ -230,4 +230,4 @@ class MapTransformer:
             m00 * (m11 * b2 - b1 * m21) - m01 * (m10 * b2 - b1 * m20) + b0 * (m10 * m21 - m11 * m20)
         ) * inv_det
 
-        return [x0, x1, x2]
+        return (x0, x1, x2)

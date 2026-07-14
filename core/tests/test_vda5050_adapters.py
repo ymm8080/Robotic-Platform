@@ -13,14 +13,14 @@ from typing import Any
 
 import pytest
 
-# Robust check: can we actually import sap-bridge.strategies.mir?
-# The old check (string matching on sys.path) was fragile: when sap-bridge
-# tests ran first, their conftest added "sap-bridge" to sys.path, making
-# the skipif condition False even though the import semantics differ.
+# Robust check: can we actually import strategies.mir from sap-bridge?
+# "sap-bridge" contains a hyphen and is not a valid Python module name.
+# When sap-bridge/tests/conftest.py adds the sap-bridge/ directory to
+# sys.path, the top-level package "strategies" becomes importable.
 try:
-    importlib.import_module("sap-bridge.strategies.mir")
+    importlib.import_module("strategies.mir")
     _SAP_BRIDGE_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     _SAP_BRIDGE_AVAILABLE = False
 
 from core.adapter.fleet_adapter import FleetAdapter
@@ -324,13 +324,13 @@ class TestStrategyToFleetState:
 
     @pytest.mark.skipif(
         not _SAP_BRIDGE_AVAILABLE,
-        reason="sap-bridge.strategies.mir not importable",
+        reason="strategies.mir not importable",
     )
     def test_mir_strategy_to_fleet_state_idle(self):
         """MiR strategy converts an IDLE RobotState to FleetState."""
         import importlib
 
-        mod = importlib.import_module("sap-bridge.strategies.mir")
+        mod = importlib.import_module("strategies.mir")
         strategy = mod.MirStrategy()
 
         raw = {
@@ -352,13 +352,13 @@ class TestStrategyToFleetState:
 
     @pytest.mark.skipif(
         not _SAP_BRIDGE_AVAILABLE,
-        reason="sap-bridge.strategies.mir not importable",
+        reason="strategies.mir not importable",
     )
     def test_strategy_to_capability_vector_defaults(self):
         """to_capability_vector returns a valid CapabilityVector."""
         import importlib
 
-        mod = importlib.import_module("sap-bridge.strategies.mir")
+        mod = importlib.import_module("strategies.mir")
         strategy = mod.MirStrategy()
         cap = strategy.to_capability_vector()
         assert isinstance(cap, CapabilityVector)
