@@ -25,8 +25,7 @@ class QuicktronStrategy(BaseStrategy):
 
     @property
     def supported_versions(self) -> list[str]:
-        # [GUESS] v1.1 and v2.0 — unconfirmed
-        return ["1.1.0", "2.0.0"]
+        return self._shared_supported_versions("quicktron")
 
     # ── Protocol routing ────────────────────────────────
 
