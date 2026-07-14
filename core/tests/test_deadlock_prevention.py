@@ -125,3 +125,84 @@ def test_clear_wait_removes_waiting_edge():
     assert p.waiting_for("R0") == "S1"
     p.clear_wait("R0")
     assert p.waiting_for("R0") is None
+
+
+# ── task 4: 检测解除 (reactive ring detection + 退避) ─────────
+def _form_ring(p: DeadlockPreventer, n: int) -> None:
+    """白盒: 注入一个 n 车环 (绕过 may_wait 预防, 模拟已形成死锁)."""
+    for i in range(n):
+        p._holders[f"S{i}"] = f"R{i}"
+        p._holds[f"R{i}"] = {f"S{i}"}
+        p._waiting[f"R{i}"] = f"S{(i + 1) % n}"
+
+
+def test_detect_deadlock_ring_finds_three_cycle():
+    p = DeadlockPreventer()
+    _form_ring(p, 3)
+    ring = p.detect_deadlock_ring()
+    assert ring is not None
+    assert set(ring) == {"R0", "R1", "R2"}
+
+
+def test_detect_deadlock_ring_finds_four_cycle():
+    p = DeadlockPreventer()
+    _form_ring(p, 4)
+    ring = p.detect_deadlock_ring()
+    assert ring is not None
+    assert set(ring) == {"R0", "R1", "R2", "R3"}
+
+
+def test_detect_deadlock_ring_none_when_no_cycle():
+    p = DeadlockPreventer()
+    p.acquire("R0", "S0")
+    p.acquire("R1", "S1")
+    p.may_wait("R0", "S1")  # chain R0->R1, no cycle
+    assert p.detect_deadlock_ring() is None
+
+
+def test_detect_deadlock_ring_none_when_no_waits():
+    p = DeadlockPreventer()
+    p.acquire("R0", "S0")
+    assert p.detect_deadlock_ring() is None
+
+
+def test_break_deadlock_picks_lowest_priority():
+    p = DeadlockPreventer()
+    _form_ring(p, 3)
+    ring = p.detect_deadlock_ring()
+    assert ring is not None
+    # R1 has smallest priority value → retreats (数值小 = 低优先级 = 退避)
+    yielder = p.break_deadlock(ring, {"R0": 5, "R1": 1, "R2": 3})
+    assert yielder == "R1"
+
+
+def test_break_deadlock_tiebreak_is_deterministic():
+    p = DeadlockPreventer()
+    _form_ring(p, 3)
+    ring = sorted(p.detect_deadlock_ring())
+    # all equal priority → min picks lexicographically first by ring order
+    yielder = p.break_deadlock(ring, {"R0": 2, "R1": 2, "R2": 2})
+    assert yielder in ring
+
+
+def test_break_deadlock_unknown_robot_defaults_to_retreat():
+    """未登记优先级的 robot 默认 0 (最低 → 退避)."""
+    p = DeadlockPreventer()
+    _form_ring(p, 3)
+    ring = p.detect_deadlock_ring()
+    # only R0 mapped (priority 5); R1,R2 unmapped → default 0 → one of them retreats
+    yielder = p.break_deadlock(ring, {"R0": 5})
+    assert yielder in {"R1", "R2"}
+
+
+def test_prevention_and_detection_are_orthogonal():
+    """预防阻止成环 → 检测无环可报; 注入环后检测命中."""
+    p = DeadlockPreventer()
+    for i in range(4):
+        p.acquire(f"R{i}", f"S{i}")
+    p.may_wait("R0", "S1")
+    p.may_wait("R1", "S2")
+    p.may_wait("R2", "S3")
+    assert p.may_wait("R3", "S0") is False  # prevention rejects ring-closing wait
+    assert p.detect_deadlock_ring() is None  # no ring formed → nothing to detect
+

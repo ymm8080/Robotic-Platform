@@ -152,6 +152,47 @@ class DeadlockPreventer:
 
         return dfs(start)
 
+    # ── 检测解除 (task 4, 灰犀牛 #19 双保险) ───────────────────
+    def detect_deadlock_ring(self) -> list[str] | None:
+        """检测当前等待图 *已形成* 的死锁环 (reactive 检测).
+
+        与 :meth:`may_wait` 的 *预防* 正交: 预防拒绝成环的新等待; 本方法处理
+        *已形成* 的环 (预防被绕过 / 外部状态变更 / legacy 路径). 返回环中
+        robot 列表 (任一环), 无环返回 None.
+
+        等待图是 functional graph (每 robot 最多一条等待边, out-degree ≤ 1),
+        故环检测 = 顺链走, 回到链中节点即环.
+        """
+        for start in self._waiting:
+            ring = self._find_cycle_path(start)
+            if ring:
+                return ring
+        return None
+
+    def _find_cycle_path(self, start: str) -> list[str] | None:
+        """从 start 顺等待链走, 返回环节点列表或 None (无环 / 链终止)."""
+        chain: list[str] = []
+        pos: dict[str, int] = {}
+        cur: str | None = start
+        while cur is not None and cur not in pos:
+            pos[cur] = len(chain)
+            chain.append(cur)
+            cur = self._resolve_waiter(cur, self._waiting, self._holders)
+        if cur is None:
+            return None  # 链终止, 无环
+        return chain[pos[cur] :]  # cur 在链中 → 从其位置起为环
+
+    def break_deadlock(
+        self, ring: list[str], priority_by_robot: dict[str, int]
+    ) -> str:
+        """死锁解除: 强制最低优先级车退避让点 (task 4, v5.x 检测解除).
+
+        priority_by_robot: robot -> 优先级值. 约定: **数值小 = 低优先级 = 退避**
+        (同 traffic_light_controller v5.x; 调用方负责把自身优先级体系映射到此).
+        未登记的 robot 默认 0 (最低 → 退避). 返回应退避的 robot_id.
+        """
+        return min(ring, key=lambda r: priority_by_robot.get(r, 0))
+
 
 # ── 自检 (DoD: 4 车环形死锁拓扑拒绝进死锁区, 0 死锁) ─────────────
 def _demo() -> None:
@@ -170,6 +211,18 @@ def _demo() -> None:
     p.release("R0", "S0")
     p.clear_wait("R0")
     assert p.held_by("S0") is None, "S0 freed after R0 release"
+
+    # task 4: 检测解除 — 预防被绕过后已形成的 3 车环
+    p2 = DeadlockPreventer()
+    for i in range(3):
+        p2._holders[f"S{i}"] = f"R{i}"          # Ri 持有 Si
+        p2._holds[f"R{i}"] = {f"S{i}"}
+        p2._waiting[f"R{i}"] = f"S{(i + 1) % 3}"  # Ri 等 S(i+1) → 3 环
+    ring = p2.detect_deadlock_ring()
+    assert ring is not None and set(ring) == {"R0", "R1", "R2"}, f"ring={ring}"
+    # R1 优先级最低 (值最小) → 退避让点
+    yielder = p2.break_deadlock(ring, {"R0": 5, "R1": 1, "R2": 3})
+    assert yielder == "R1", f"yielder={yielder}"
     print("OK: 4-vehicle ring — deadlock entry rejected, 0 deadlock")
 
 
