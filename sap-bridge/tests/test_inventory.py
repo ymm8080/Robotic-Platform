@@ -57,7 +57,12 @@ class TestInventoryService:
 
     def test_mark_synced(self, svc):
         svc.mark_synced()
-        svc._redis.set.assert_called_once()
+        svc._redis.setex.assert_called_once()
+        # mark_synced must now set a TTL (was a leaky .set() before) — verify
+        # the key and a positive expiry are passed.
+        args = svc._redis.setex.call_args.args
+        assert args[0] == "inventory:last_sync"
+        assert isinstance(args[1], int) and args[1] > 0
 
     def test_update_stock(self, svc):
         svc.update_stock("PROD-001", 50.0, "WM01")

@@ -113,7 +113,7 @@ class _ZewmCsrfManager:
         pipe = self._redis.pipeline()
         pipe.setex(_CSRF_REDIS_KEY, CSRF_REFRESH_INTERVAL, token)
         pipe.setex(_CSRF_REDIS_COOKIE_KEY, CSRF_REFRESH_INTERVAL, cookies)
-        pipe.set(_CSRF_REDIS_REFRESH_KEY, str(time.time()))
+        pipe.setex(_CSRF_REDIS_REFRESH_KEY, CSRF_REFRESH_INTERVAL, str(time.time()))
         pipe.execute()
 
     def fetch_new(
