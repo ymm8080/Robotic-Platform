@@ -114,7 +114,7 @@ def test_six_vehicles_conflict_free_zero_deadlock():
     assert sol.num_conflicts == 0
 
 
-def test_vertex_conflict_detected_and_resolved():
+def test_distinct_goals_resolved_conflict_free():
     """Two agents with distinct goals on a shared map are conflict-free."""
     m = _bypass_map()  # gives alternatives
     # distinct starts and goals: a→C, b→D — the engine resolves any
