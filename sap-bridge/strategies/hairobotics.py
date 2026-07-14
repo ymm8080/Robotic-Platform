@@ -43,7 +43,7 @@ class HaiRoboticsStrategy(BaseStrategy):
 
     @property
     def supported_versions(self) -> list[str]:
-        return ["2.0.0"]
+        return self._shared_supported_versions("hairobotics")
 
     # ── Protocol routing ────────────────────────────────
 
