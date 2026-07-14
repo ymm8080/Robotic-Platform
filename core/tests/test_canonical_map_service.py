@@ -294,18 +294,14 @@ class TestCalibrationService:
 
 
 def test_set_calibration_provider():
-    """Test setting calibration provider."""
-    # Create new provider
+    """Test setting calibration provider updates the global service."""
+    import core.platform.canonical_map_service as cms
+
     new_provider = FakeCalibrationProvider()
-    new_calibration_service = CalibrationService(new_provider)
+    cms.set_calibration_provider(new_provider)
 
-    # Set it
-    from core.platform.canonical_map_service import set_calibration_provider
-
-    set_calibration_provider(new_provider)
-
-    # Verify it was set by creating a new service with the provider
-    assert new_calibration_service.provider is new_provider
+    # Verify the global service was updated with the new provider
+    assert cms._calibration_service.provider is new_provider
 
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ def load_strategy(
         return cls(transformer=transformer)
 
     # Otherwise, try to load calibration
-    service = _calibration_service or CalibrationService(_calibration_provider)
+    service = _calibration_service
     result = service.load_transformer(brand=brand, map_id=map_id, max_rmse_mm=max_rmse_mm)
 
     # Log warnings

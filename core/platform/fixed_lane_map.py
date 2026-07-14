@@ -146,7 +146,7 @@ class FixedLaneMap:
         """Return a list of integrity warnings; empty list means map is healthy."""
         issues: list[str] = []
         if not self._lanes:
-            issues.append("map has no lanes")  # type: ignore
+            issues.append("map has no lanes")
             return issues
         nodes = set()
         for lane in self._lanes.values():

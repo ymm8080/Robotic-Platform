@@ -161,15 +161,16 @@ class CalibrationService:
                 )
             else:
                 # Fallback to affine parameters if no valid points
-                from math import radians
+                # Standard affine: a=sx*cos(θ), b=-sx*sin(θ), c=sy*sin(θ), d=sy*cos(θ)
+                from math import cos, radians, sin
 
-                rotation_rad = radians(calibration.rotation_deg)
+                theta = radians(calibration.rotation_deg)
                 transformer = MapTransformer.from_affine(
                     brand=brand,
-                    a=calibration.scale_x * radians(rotation_rad),
-                    b=-calibration.scale_x * radians(rotation_rad),
-                    c=calibration.scale_y * radians(rotation_rad),
-                    d=calibration.scale_y * radians(rotation_rad),
+                    a=calibration.scale_x * cos(theta),
+                    b=-calibration.scale_x * sin(theta),
+                    c=calibration.scale_y * sin(theta),
+                    d=calibration.scale_y * cos(theta),
                     tx=calibration.translate_x,
                     ty=calibration.translate_y,
                 )
@@ -237,15 +238,10 @@ class FakeCalibrationProvider(CalibrationProvider):
             return calibration
         return None
 
-    # Global instances
-
-
-_fake_calibration_provider = FakeCalibrationProvider()
-_calibration_provider: CalibrationProvider = _fake_calibration_provider
+# Global instances
+fake_calibration_provider = FakeCalibrationProvider()
+_calibration_provider: CalibrationProvider = fake_calibration_provider
 _calibration_service = CalibrationService(_calibration_provider)
-
-# In-memory fake instance for tests
-fake_calibration_provider = _fake_calibration_provider
 
 
 def set_calibration_provider(provider: CalibrationProvider) -> None:
