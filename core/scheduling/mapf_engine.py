@@ -462,9 +462,10 @@ def _detect_conflicts(plans: dict[str, Plan], horizon: int) -> list[tuple[str, s
             occ[(node, t)].append(aid)
     for (node, t), holders in occ.items():
         if len(holders) >= 2:
-            a = holders[0]
-            b = holders[1]
-            conflicts.append((a, b, "vertex", (node, t)))
+            # report all pairs (not just first 2) for complete debugging
+            for i in range(len(holders)):
+                for j in range(i + 1, len(holders)):
+                    conflicts.append((holders[i], holders[j], "vertex", (node, t)))
 
     # edge/swap: only opposite-direction is a real conflict in this model
     # (same-direction following is safe — all agents traverse at lane speed;
@@ -809,7 +810,11 @@ class MAPFEngine:
             )
         goal_time = (plan.goal_time + now) if plan.goal_time is not None else None
         if goal_time is not None and goal_time > horizon:
-            goal_time = None
+            # goal was truncated by horizon; check if last kept move still
+            # arrives at the goal node within the window
+            last = shifted_moves[-1]
+            goal_node = plan.moves[-1].to_node
+            goal_time = last.arrive_time if last.to_node == goal_node else None
         return Plan(
             agent_id=plan.agent_id,
             moves=shifted_moves,

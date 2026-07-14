@@ -134,10 +134,13 @@ def test_head_on_edge_swap_resolved_with_bypass():
     assert sol.plans["r1"].goal_reached
     assert sol.plans["r2"].goal_reached
     assert _detect_conflicts(sol.plans, HORIZON) == []
-    # the two agents used different routes (evidence of conflict avoidance)
+    # conflict avoidance evidence: agents used disjoint lane sets
+    # (one took the bypass); zero conflicts already asserted above.
     lanes_r1 = {mv.lane_id for mv in sol.plans["r1"].moves if mv.lane_id}
     lanes_r2 = {mv.lane_id for mv in sol.plans["r2"].moves if mv.lane_id}
-    assert lanes_r1.isdisjoint(lanes_r2) or sol.num_conflicts == 0
+    assert lanes_r1.isdisjoint(lanes_r2), (
+        f"agents share lanes {lanes_r1 & lanes_r2} despite 0 conflicts"
+    )
 
 
 def test_unsolvable_no_passing_does_not_hang():
