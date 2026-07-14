@@ -18,6 +18,7 @@ For brands with a known affine offset (translation + rotation), use
 ``MapTransformer.from_affine()`` or ``MapTransformer.from_points()`` instead
 of hand-rolling lambdas.
 """
+
 from __future__ import annotations
 
 import math
@@ -64,6 +65,11 @@ class MapTransformer:
             x' = a*x + b*y + tx
             y' = c*x + d*y + ty
             theta' = theta + atan2(c, a)
+
+        .. note::
+            The ``theta'`` formula is exact for rigid transforms (rotation +
+            translation).  For general affine transforms with non-uniform
+            scaling or shear, the heading offset is only an approximation.
 
         For a pure rigid transform (translation + rotation by angle ``phi``)::
 
@@ -169,9 +175,13 @@ class MapTransformer:
                 mtx_x[r] += row[r] * xu
                 mtx_y[r] += row[r] * yu
 
-        # Solve 3x3 system via Cramer's rule
-        a, b, tx = _solve_3x3(mtm, mtx_x)
-        c, d, ty = _solve_3x3(mtm, mtx_y)
+        # Solve 3x3 system via Cramer's rule.
+        # Note: Cramer's rule may be numerically unstable when the matrix is
+        # near-singular (collinear points).  For the typical 3–10 point-pair
+        # use case this is acceptable; for larger or degenerate datasets,
+        # consider switching to numpy.linalg.lstsq.
+        a, b, tx = cls._solve_3x3(mtm, mtx_x)
+        c, d, ty = cls._solve_3x3(mtm, mtx_y)
 
         return cls.from_affine(brand, a=a, b=b, c=c, d=d, tx=tx, ty=ty)
 
@@ -184,40 +194,40 @@ class MapTransformer:
     def transform_lane(self, native_lane: str) -> str | None:
         return self.native_to_unified_lane(native_lane)
 
+    @staticmethod
+    def _solve_3x3(mat: list[list[float]], rhs: list[float]) -> list[float]:
+        """Solve a 3x3 linear system using Cramer's rule.
 
-def _solve_3x3(mat: list[list[float]], rhs: list[float]) -> list[float]:
-    """Solve a 3x3 linear system using Cramer's rule.
+        ``mat`` is row-major ``[[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]]``.
+        Returns ``[x0, x1, x2]`` such that ``mat @ x = rhs``.
+        Raises ``ValueError`` if the matrix is singular (zero determinant).
+        """
+        m00, m01, m02 = mat[0]
+        m10, m11, m12 = mat[1]
+        m20, m21, m22 = mat[2]
 
-    ``mat`` is row-major ``[[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]]``.
-    Returns ``[x0, x1, x2]`` such that ``mat @ x = rhs``.
-    Raises ``ValueError`` if the matrix is singular (zero determinant).
-    """
-    m00, m01, m02 = mat[0]
-    m10, m11, m12 = mat[1]
-    m20, m21, m22 = mat[2]
-
-    det = (m00 * (m11 * m22 - m12 * m21)
-           - m01 * (m10 * m22 - m12 * m20)
-           + m02 * (m10 * m21 - m11 * m20))
-
-    if abs(det) < 1e-12:
-        raise ValueError(
-            "Singular matrix in from_points — points are likely collinear"
+        det = (
+            m00 * (m11 * m22 - m12 * m21)
+            - m01 * (m10 * m22 - m12 * m20)
+            + m02 * (m10 * m21 - m11 * m20)
         )
 
-    inv_det = 1.0 / det
-    b0, b1, b2 = rhs
+        if abs(det) < 1e-12:
+            raise ValueError("Singular matrix in from_points — points are likely collinear")
 
-    x0 = ((b0 * (m11 * m22 - m12 * m21)
-           - m01 * (b1 * m22 - m12 * b2)
-           + m02 * (b1 * m21 - m11 * b2)) * inv_det)
+        inv_det = 1.0 / det
+        b0, b1, b2 = rhs
 
-    x1 = ((m00 * (b1 * m22 - m12 * b2)
-           - b0 * (m10 * m22 - m12 * m20)
-           + m02 * (m10 * b2 - b1 * m20)) * inv_det)
+        x0 = (
+            b0 * (m11 * m22 - m12 * m21) - m01 * (b1 * m22 - m12 * b2) + m02 * (b1 * m21 - m11 * b2)
+        ) * inv_det
 
-    x2 = ((m00 * (m11 * b2 - b1 * m21)
-           - m01 * (m10 * b2 - b1 * m20)
-           + b0 * (m10 * m21 - m11 * m20)) * inv_det)
+        x1 = (
+            m00 * (b1 * m22 - m12 * b2) - b0 * (m10 * m22 - m12 * m20) + m02 * (m10 * b2 - b1 * m20)
+        ) * inv_det
 
-    return [x0, x1, x2]
+        x2 = (
+            m00 * (m11 * b2 - b1 * m21) - m01 * (m10 * b2 - b1 * m20) + b0 * (m10 * m21 - m11 * m20)
+        ) * inv_det
+
+        return [x0, x1, x2]

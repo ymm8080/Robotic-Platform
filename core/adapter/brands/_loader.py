@@ -43,9 +43,7 @@ _STRATEGY_FACTORY: dict[str, type] = {
 }
 
 
-def load_strategy(
-    brand: str, transformer: MapTransformer | None = None
-) -> object:
+def load_strategy(brand: str, transformer: MapTransformer | None = None) -> object:
     """Return a brand strategy instance for use with VDA5050FleetAdapter.
 
     Returns ``None`` for brands without a dedicated strategy
@@ -55,8 +53,7 @@ def load_strategy(
     cls = _STRATEGY_FACTORY.get(brand)
     if cls is None:
         raise KeyError(
-            f"No strategy defined for brand {brand!r}. "
-            f"Available: {list(_STRATEGY_FACTORY)}"
+            f"No strategy defined for brand {brand!r}. Available: {list(_STRATEGY_FACTORY)}"
         )
     return cls(transformer=transformer)
 
