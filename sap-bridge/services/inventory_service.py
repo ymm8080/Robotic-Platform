@@ -108,7 +108,14 @@ class InventoryService:
         return time.time() - self._last_sync > SYNC_INTERVAL
 
     def mark_synced(self):
-        """Mark sync completed."""
+        """Mark sync completed.
+
+        TTL = SYNC_INTERVAL (300s) so the key expires when the next sync is
+        due.  If a sync cycle takes longer than SYNC_INTERVAL the key simply
+        expires and needs_sync() returns True — which is the desired
+        behaviour (forces a re-sync).  The key is a cache marker, not a
+        source of truth; its absence is a valid signal.
+        """
         self._last_sync = time.time()
         self._redis.setex("inventory:last_sync", SYNC_INTERVAL, str(self._last_sync))
 

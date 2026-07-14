@@ -889,7 +889,7 @@ class WatchdogEngine:
             redis_client.delete('system:throttle_mode')
             redis_client.set(
                 'system:safe_mode_triggered_at',
-                datetime.now(timezone.utc).isoformat(), ex=3600
+                datetime.now(timezone.utc).isoformat(), ex=86400
             )
 
             logger.critical(f"🔴 致命熔断：进入安全模式，原因: {reason}")
@@ -923,7 +923,7 @@ class WatchdogEngine:
             redis_client.delete('system:safe_mode', 'system:safe_mode_reason')
             redis_client.set(
                 'system:safe_mode_cleared_at',
-                datetime.now(timezone.utc).isoformat(), ex=3600
+                datetime.now(timezone.utc).isoformat(), ex=86400
             )
 
             logger.info(f"🟢 安全模式已解除，原因: {reason}")
