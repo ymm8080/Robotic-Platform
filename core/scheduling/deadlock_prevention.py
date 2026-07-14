@@ -12,6 +12,7 @@ v7 架构说明书要求 "Petri 网状态方程显示进死锁区则拒绝". 在
 # ponytail: 单实例资源下 Petri 状态方程 = RAG 环检测. 升级路径: 当通道段允许多车
 # (多实例资源) 时改用 Banker 算法或显式 Petri 不变量 (T-不变量) 检测.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ _WHITE, _GRAY, _BLACK = 0, 1, 2
 class _Allocation:
     """通道段分配快照 (用于 introspection / 测试)."""
 
-    holder: str | None = None                       # res -> 持有它的 robot
+    holder: str | None = None  # res -> 持有它的 robot
     waiters: set[str] = field(default_factory=set)  # res -> 等待该 res 的 robots
 
 
@@ -37,15 +38,15 @@ class DeadlockPreventer:
     """
 
     def __init__(self) -> None:
-        self._holders: dict[str, str] = {}        # res -> robot
-        self._holds: dict[str, set[str]] = {}     # robot -> {res}
-        self._waiting: dict[str, str] = {}        # robot -> res (其唯一待申请 res)
+        self._holders: dict[str, str] = {}  # res -> robot
+        self._holds: dict[str, set[str]] = {}  # robot -> {res}
+        self._waiting: dict[str, str] = {}  # robot -> res (其唯一待申请 res)
         self._alloc: dict[str, _Allocation] = {}
 
     # ── 注册 / 内省 ───────────────────────────────────────────
-    def register(self, resource_id: str) -> _Allocation:
-        a = self._alloc.setdefault(resource_id, _Allocation())
-        return a
+    def _register(self, resource_id: str) -> _Allocation:
+        """确保资源有 _Allocation 条目 (内部副作用方法)."""
+        return self._alloc.setdefault(resource_id, _Allocation())
 
     def held_by(self, resource_id: str) -> str | None:
         return self._holders.get(resource_id)
@@ -66,7 +67,7 @@ class DeadlockPreventer:
             return False
         self._holders[resource_id] = robot_id
         self._holds.setdefault(robot_id, set()).add(resource_id)
-        a = self.register(resource_id)
+        a = self._register(resource_id)
         a.holder = robot_id
         # 若此前该 robot 在等此 res, 等待已满足
         if self._waiting.get(robot_id) == resource_id:
@@ -84,6 +85,11 @@ class DeadlockPreventer:
             a = self._alloc.get(resource_id)
             if a is not None:
                 a.holder = None
+                # 资源释放后清除残留等待者, 保持 _alloc 与 _waiting 一致
+                for waiter in list(a.waiters):
+                    if self._waiting.get(waiter) == resource_id:
+                        self._waiting.pop(waiter, None)
+                a.waiters.clear()
 
     # ── 预防核心 ───────────────────────────────────────────────
     def would_deadlock(self, robot_id: str, resource_id: str) -> bool:
@@ -112,7 +118,7 @@ class DeadlockPreventer:
         if self.would_deadlock(robot_id, resource_id):
             return False
         self._waiting[robot_id] = resource_id
-        a = self.register(resource_id)
+        a = self._register(resource_id)
         a.waiters.add(robot_id)
         return True
 
@@ -128,20 +134,17 @@ class DeadlockPreventer:
         self._clear_wait(robot_id)
 
     # ── 环检测 ─────────────────────────────────────────────────
-    @staticmethod
-    def _resolve_waiter(node: str, wait_for: dict[str, str], holders: dict[str, str]) -> str | None:
-        """node 等待的 res 的当前持有者 = 等待图下一跳."""
-        res = wait_for.get(node)
-        if res is None:
-            return None
-        return holders.get(res)
-
     def _has_cycle(self, start: str, wait_for: dict[str, str]) -> bool:
+        """从 *start* 起沿等待图做 DFS, 回边 (灰) = 环.
+
+        等待图下一跳 = node 等待的 res 的当前持有者.
+        """
         color: dict[str, int] = {}
 
         def dfs(u: str) -> bool:
             color[u] = _GRAY
-            nxt = self._resolve_waiter(u, wait_for, self._holders)
+            res = wait_for.get(u)
+            nxt = self._holders.get(res) if res is not None else None
             if nxt is not None:
                 if color.get(nxt, _WHITE) == _GRAY:
                     return True  # 回边 = 环
@@ -177,14 +180,13 @@ class DeadlockPreventer:
         while cur is not None and cur not in pos:
             pos[cur] = len(chain)
             chain.append(cur)
-            cur = self._resolve_waiter(cur, self._waiting, self._holders)
+            res = self._waiting.get(cur)
+            cur = self._holders.get(res) if res is not None else None
         if cur is None:
             return None  # 链终止, 无环
         return chain[pos[cur] :]  # cur 在链中 → 从其位置起为环
 
-    def break_deadlock(
-        self, ring: list[str], priority_by_robot: dict[str, int]
-    ) -> str:
+    def break_deadlock(self, ring: list[str], priority_by_robot: dict[str, int]) -> str:
         """死锁解除: 强制最低优先级车退避让点 (task 4, v5.x 检测解除).
 
         priority_by_robot: robot -> 优先级值. 约定: **数值小 = 低优先级 = 退避**
@@ -215,7 +217,7 @@ def _demo() -> None:
     # task 4: 检测解除 — 预防被绕过后已形成的 3 车环
     p2 = DeadlockPreventer()
     for i in range(3):
-        p2._holders[f"S{i}"] = f"R{i}"          # Ri 持有 Si
+        p2._holders[f"S{i}"] = f"R{i}"  # Ri 持有 Si
         p2._holds[f"R{i}"] = {f"S{i}"}
         p2._waiting[f"R{i}"] = f"S{(i + 1) % 3}"  # Ri 等 S(i+1) → 3 环
     ring = p2.detect_deadlock_ring()
