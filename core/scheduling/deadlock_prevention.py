@@ -86,7 +86,7 @@ class DeadlockPreventer:
             if a is not None:
                 a.holder = None
                 # 资源释放后清除残留等待者, 保持 _alloc 与 _waiting 一致
-                for waiter in list(a.waiters):
+                for waiter in a.waiters.copy():
                     if self._waiting.get(waiter) == resource_id:
                         self._waiting.pop(waiter, None)
                 a.waiters.clear()
@@ -132,6 +132,20 @@ class DeadlockPreventer:
     def clear_wait(self, robot_id: str) -> None:
         """机器人改道 / 离开等待时清除其等待边."""
         self._clear_wait(robot_id)
+
+    def _inject_ring(self, n: int, prefix: str = "R", res_prefix: str = "S") -> None:
+        """测试/自检专用: 白盒注入 n 车死锁环 (绕过 may_wait 预防).
+
+        模拟预防被绕过后已形成的环 — 用于 detect_deadlock_ring / break_deadlock 测试.
+        正常业务路径不应调用此方法.
+        """
+        for i in range(n):
+            ri, si = f"{prefix}{i}", f"{res_prefix}{i}"
+            self._holders[si] = ri
+            self._holds.setdefault(ri, set()).add(si)
+            self._waiting[ri] = f"{res_prefix}{(i + 1) % n}"
+            self._register(si).holder = ri
+            self._register(f"{res_prefix}{(i + 1) % n}").waiters.add(ri)
 
     # ── 环检测 ─────────────────────────────────────────────────
     def _has_cycle(self, start: str, wait_for: dict[str, str]) -> bool:
@@ -189,9 +203,17 @@ class DeadlockPreventer:
     def break_deadlock(self, ring: list[str], priority_by_robot: dict[str, int]) -> str:
         """死锁解除: 强制最低优先级车退避让点 (task 4, v5.x 检测解除).
 
-        priority_by_robot: robot -> 优先级值. 约定: **数值小 = 低优先级 = 退避**
-        (同 traffic_light_controller v5.x; 调用方负责把自身优先级体系映射到此).
-        未登记的 robot 默认 0 (最低 → 退避). 返回应退避的 robot_id.
+        Args:
+            ring: detect_deadlock_ring 返回的死锁环节点列表.
+            priority_by_robot: robot -> 优先级值映射.
+
+        Convention:
+            **数值小 = 低优先级 = 退避** (同 traffic_light_controller v5.x).
+            调用方负责把自身优先级体系映射到此.
+            未登记的 robot 默认 0 (最低优先级 → 退避).
+
+        Returns:
+            应退避让点的 robot_id (环中优先级值最小的 robot).
         """
         return min(ring, key=lambda r: priority_by_robot.get(r, 0))
 
@@ -216,10 +238,7 @@ def _demo() -> None:
 
     # task 4: 检测解除 — 预防被绕过后已形成的 3 车环
     p2 = DeadlockPreventer()
-    for i in range(3):
-        p2._holders[f"S{i}"] = f"R{i}"  # Ri 持有 Si
-        p2._holds[f"R{i}"] = {f"S{i}"}
-        p2._waiting[f"R{i}"] = f"S{(i + 1) % 3}"  # Ri 等 S(i+1) → 3 环
+    p2._inject_ring(3)  # 白盒注入 3 车环 (模拟预防被绕过)
     ring = p2.detect_deadlock_ring()
     assert ring is not None and set(ring) == {"R0", "R1", "R2"}, f"ring={ring}"
     # R1 优先级最低 (值最小) → 退避让点
