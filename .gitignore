@@ -99,4 +99,4 @@ dashboard/explore_*.cjs
 dashboard/test_login.cjs
 
 # 生成输出
-scripts/output/
+scripts/output/*.bak
