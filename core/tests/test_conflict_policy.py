@@ -93,6 +93,10 @@ def test_resolver_tier_and_policy_consistent():
 
 
 def test_unknown_brand_raises():
+    """未知品牌抛出 KeyError — 由底层 get_brand_knowledge 抛出, 非 resolver 自身.
+
+    若未来 get_brand_knowledge 改为返回默认值而非抛异常, 此测试需同步更新.
+    """
     with pytest.raises(KeyError):
         ConflictPolicyResolver.tier_for_brand("nonexistent-brand")
 
