@@ -38,7 +38,7 @@ class GeekPlusStrategy(BaseStrategy):
 
     @property
     def supported_versions(self) -> list[str]:
-        return ["1.1.0", "2.0.0"]
+        return self._shared_supported_versions("geekplus")
 
     # ── Protocol routing ────────────────────────────────
 

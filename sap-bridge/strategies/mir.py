@@ -26,7 +26,7 @@ class MirStrategy(BaseStrategy):
 
     @property
     def supported_versions(self) -> list[str]:
-        return ["1.1.0"]
+        return self._shared_supported_versions("mir")
 
     def handle_state(self, state: dict) -> RobotState:
         """Map MiR250 state with known quirks.

@@ -111,6 +111,20 @@ class BaseStrategy(ABC):
         """
         ...
 
+    @staticmethod
+    def _shared_supported_versions(brand_key: str) -> list[str]:
+        """Supported VDA5050 versions from the shared brand-knowledge registry.
+
+        Phase 0 dedup: the version list is sourced from
+        ``core.adapter.brands.brand_knowledge`` so the SAP and DISPATCH layers
+        cannot drift apart. Lazy-imported to mirror this module's existing
+        ``core.messages`` import convention and keep sap-bridge importable
+        standalone.
+        """
+        from core.adapter.brands.brand_knowledge import get_brand_knowledge
+
+        return list(get_brand_knowledge(brand_key).supported_versions)
+
     def check_version_compatibility(self, version: str = MIN_VDA5050_VERSION) -> bool:
         """Check if this strategy supports the minimum required VDA5050 version.
 

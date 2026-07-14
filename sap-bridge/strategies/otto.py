@@ -24,7 +24,7 @@ class OttoStrategy(BaseStrategy):
 
     @property
     def supported_versions(self) -> list[str]:
-        return ["2.0.0"]
+        return self._shared_supported_versions("otto")
 
     def handle_state(self, state: dict) -> RobotState:
         """Map OTTO 1500 state (handles mV battery + custom CHARGING).

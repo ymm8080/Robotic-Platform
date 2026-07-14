@@ -15,7 +15,7 @@ class KukaStrategy(BaseStrategy):
 
     @property
     def supported_versions(self) -> list[str]:
-        return ["2.0.0"]
+        return self._shared_supported_versions("kuka")
 
     def handle_state(self, state: dict) -> RobotState:
         """Map KUKA VDA5050 state to normalized RobotState."""
