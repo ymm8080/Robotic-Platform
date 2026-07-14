@@ -33,6 +33,7 @@ frame).
 
 from __future__ import annotations
 
+from core.adapter.brands.brand_knowledge import get_brand_knowledge
 from core.adapter.map_transformer import MapTransformer
 from core.messages import (
     ActionPrimitive,
@@ -137,6 +138,26 @@ def _parse_vda5050_errors(payload: dict) -> list[str]:
     return out
 
 
+def _capability_from_knowledge(brand: str) -> CapabilityVector:
+    """Build a CapabilityVector from the shared brand-knowledge registry.
+
+    Phase 0 dedup: the DISPATCH side no longer hardcodes per-brand capability
+    facts — they are sourced from ``core.adapter.brands.brand_knowledge`` so the
+    DISPATCH and SAP layers cannot drift apart. Values are verified identical to
+    the previously-hardcoded vectors across all six brands (see
+    ``01_architecture/PHASE0_DUAL_STRATEGY_FINDING.md``).
+    """
+    cv = get_brand_knowledge(brand).default_capability_vector
+    return CapabilityVector(
+        payload_kg=cv["payload_kg"],
+        max_speed=cv["max_speed"],
+        supported_models=list(cv["supported_models"]),
+        action_primitives={ActionPrimitive[p] for p in cv["action_primitives"]},
+        env=EnvConstraints(**cv["env"]),
+        supports_reverse=cv["supports_reverse"],
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  MiR Strategy
 # ═══════════════════════════════════════════════════════════════════
@@ -209,14 +230,7 @@ class MirStrategy:
         )
 
     def to_capability_vector(self) -> CapabilityVector:
-        return CapabilityVector(
-            payload_kg=1350.0,
-            max_speed=2.0,
-            supported_models=["MiR250", "MiR600", "MiR1350"],
-            action_primitives={ActionPrimitive.MOVE, ActionPrimitive.DOCK},
-            env=EnvConstraints(max_grade=0.05, floor_threshold=0.01, min_friction=0.4),
-            supports_reverse=True,
-        )
+        return _capability_from_knowledge("mir")
 
     def extract_errors(self, state: dict) -> list[dict]:
         raw_errors = state.get("errors", []) or []
@@ -352,14 +366,7 @@ class OttoStrategy:
         )
 
     def to_capability_vector(self) -> CapabilityVector:
-        return CapabilityVector(
-            payload_kg=1500.0,
-            max_speed=2.0,
-            supported_models=["OTTO 100", "OTTO 750", "OTTO 1500"],
-            action_primitives={ActionPrimitive.MOVE, ActionPrimitive.DOCK},
-            env=EnvConstraints(max_grade=0.05, floor_threshold=0.01, min_friction=0.4),
-            supports_reverse=True,
-        )
+        return _capability_from_knowledge("otto")
 
     def extract_errors(self, state: dict) -> list[dict]:
         return state.get("errors", []) or []
@@ -462,19 +469,7 @@ class KukaStrategy:
         )
 
     def to_capability_vector(self) -> CapabilityVector:
-        return CapabilityVector(
-            payload_kg=1500.0,
-            max_speed=2.0,
-            supported_models=["KMP 600", "KMP 1500", "KMP 3000"],
-            action_primitives={
-                ActionPrimitive.MOVE,
-                ActionPrimitive.DOCK,
-                ActionPrimitive.PICK,
-                ActionPrimitive.PLACE,
-            },
-            env=EnvConstraints(max_grade=0.03, floor_threshold=0.01, min_friction=0.4),
-            supports_reverse=True,
-        )
+        return _capability_from_knowledge("kuka")
 
     def extract_errors(self, state: dict) -> list[dict]:
         return state.get("errors", []) or []
@@ -598,19 +593,7 @@ class GeekPlusStrategy:
         )
 
     def to_capability_vector(self) -> CapabilityVector:
-        return CapabilityVector(
-            payload_kg=1000.0,
-            max_speed=1.8,
-            supported_models=["P500", "P800", "P1200", "RS5"],
-            action_primitives={
-                ActionPrimitive.MOVE,
-                ActionPrimitive.PICK,
-                ActionPrimitive.PLACE,
-                ActionPrimitive.CHARGE,
-            },
-            env=EnvConstraints(max_grade=0.02, floor_threshold=0.005, min_friction=0.4),
-            supports_reverse=False,
-        )
+        return _capability_from_knowledge("geekplus")
 
     def extract_errors(self, state: dict) -> list[dict]:
         errs = state.get("errors", []) or []
@@ -742,19 +725,7 @@ class HaiRoboticsStrategy:
         )
 
     def to_capability_vector(self) -> CapabilityVector:
-        return CapabilityVector(
-            payload_kg=600.0,
-            max_speed=1.5,
-            supported_models=["ACR A42", "ACR A42T", "HAIPICK A3"],
-            action_primitives={
-                ActionPrimitive.MOVE,
-                ActionPrimitive.LIFT_FORK,
-                ActionPrimitive.PICK,
-                ActionPrimitive.PLACE,
-            },
-            env=EnvConstraints(max_grade=0.01, floor_threshold=0.005, min_friction=0.45),
-            supports_reverse=False,  # ACR only moves forward on QR tracks
-        )
+        return _capability_from_knowledge("hairobotics")
 
     def extract_errors(self, state: dict) -> list[dict]:
         return state.get("errors", []) or []
@@ -891,19 +862,7 @@ class QuicktronStrategy:
         )
 
     def to_capability_vector(self) -> CapabilityVector:
-        return CapabilityVector(
-            payload_kg=1000.0,
-            max_speed=2.0,
-            supported_models=["QuickBin M100", "QuickBin M600", "QuickBin C200"],
-            action_primitives={
-                ActionPrimitive.MOVE,
-                ActionPrimitive.LIFT_FORK,
-                ActionPrimitive.PICK,
-                ActionPrimitive.PLACE,
-            },
-            env=EnvConstraints(max_grade=0.03, floor_threshold=0.01, min_friction=0.4),
-            supports_reverse=True,
-        )
+        return _capability_from_knowledge("quicktron")
 
     def extract_errors(self, state: dict) -> list[dict]:
         if "errorCode" in state:
