@@ -10,6 +10,7 @@ The hard floor is therefore *max(dynamic, floor)* and the floor can never
 be lowered by software — it is read from a frozen config that mirrors the
 safety PLC register.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,9 +22,9 @@ from core.safety.safety_plc import SafetyPlc
 
 @dataclass
 class SafeDistanceResult:
-    dynamic: float        # 公式计算值
-    floor: float          # 法律硬下限
-    applied: float        # 实际采用 = max(dynamic, floor)
+    dynamic: float  # 公式计算值
+    floor: float  # 法律硬下限
+    applied: float  # 实际采用 = max(dynamic, floor)
     sensor_penalty: bool  # 是否因传感器降级而放大
 
 
@@ -62,7 +63,7 @@ class SafeDistanceCalculator:
             dynamic *= cfg.sensor_degrade_multiplier
             penalty = True
 
-        # 硬下限: 软件无权覆盖. 经安全 PLC enforce — 软件可抬高, 不可 lowering
+        # 硬下限: 软件无权覆盖. 经安全 PLC enforce — 软件可抬高, 不可降低
         # 于法定寄存器值. 取 max(dynamic, plc_floor).
         floor = self.plc.enforce(cfg.hard_floor)
         applied = max(dynamic, floor)
@@ -100,9 +101,7 @@ def compute_safe_distance(
     config: SafetyConfig | None = None,
 ) -> float:
     """Convenience: return just the applied distance."""
-    return SafeDistanceCalculator(config).compute(
-        velocity, rtt, sensor_health
-    ).applied
+    return SafeDistanceCalculator(config).compute(velocity, rtt, sensor_health).applied
 
 
 # Sanity guard imported for type-checkers that walk this module.

@@ -1,4 +1,5 @@
 """Tests for the safety PLC hard-floor interface (v7 Phase 4 task 5)."""
+
 from __future__ import annotations
 
 import pytest
@@ -18,7 +19,7 @@ def test_enforce_allows_raising_above_legal():
     plc = SafetyPlc()
     assert plc.enforce(2.0) == 2.0
     assert plc.enforce(1.5) == 1.5
-    assert plc.violations() == []
+    assert plc.violations() == ()
 
 
 def test_enforce_rejects_lowering_below_legal():
@@ -70,7 +71,7 @@ def test_software_can_raise_floor_above_legal():
     r = calc.compute(velocity=0.0, rtt=0.0)
     assert r.floor == 2.0  # 抬高允许
     assert r.applied == 2.0
-    assert calc.plc.violations() == []
+    assert calc.plc.violations() == ()
 
 
 def test_demo_plc_allows_relaxed_floor():
@@ -92,9 +93,20 @@ def test_dynamic_above_floor_unchanged_by_plc():
 
 
 def test_speed_cap_still_respects_plc_floor():
+    """config.hard_floor=0.5 但 PLC 法定 1.5 → gap < 1.5 时限速."""
     calc = SafeDistanceCalculator(
         config=SafetyConfig(hard_floor=0.5, unsafe_speed_floor=0.2),
         plc=SafetyPlc(),  # 法定 1.5
     )
     # gap < enforced floor (1.5) → capped to unsafe_speed_floor
     assert calc.speed_cap_for_gap(velocity=1.0, rtt=0.1, available_gap=1.0) == 0.2
+
+
+def test_speed_cap_not_triggered_when_gap_above_plc_floor():
+    """gap > enforced PLC floor → 速度不被限制."""
+    calc = SafeDistanceCalculator(
+        config=SafetyConfig(hard_floor=0.5, unsafe_speed_floor=0.2),
+        plc=SafetyPlc(),  # 法定 1.5
+    )
+    # gap (2.0) > enforced floor (1.5) → speed unchanged
+    assert calc.speed_cap_for_gap(velocity=1.0, rtt=0.1, available_gap=2.0) == 1.0
