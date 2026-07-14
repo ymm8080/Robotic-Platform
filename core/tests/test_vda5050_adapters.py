@@ -6,11 +6,22 @@ on the sap-bridge package.
 """
 from __future__ import annotations
 
+import importlib
 import sys
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+
+# Robust check: can we actually import sap-bridge.strategies.mir?
+# The old check (string matching on sys.path) was fragile: when sap-bridge
+# tests ran first, their conftest added "sap-bridge" to sys.path, making
+# the skipif condition False even though the import semantics differ.
+try:
+    importlib.import_module("sap-bridge.strategies.mir")
+    _SAP_BRIDGE_AVAILABLE = True
+except Exception:
+    _SAP_BRIDGE_AVAILABLE = False
 
 from core.adapter.fleet_adapter import FleetAdapter
 from core.adapter.vda5050_fleet_adapter import VDA5050FleetAdapter
@@ -288,8 +299,8 @@ class TestStrategyToFleetState:
     """
 
     @pytest.mark.skipif(
-        "sap-bridge" not in "".join(sys.path),
-        reason="sap-bridge not on sys.path; add project root to PYTHONPATH",
+        not _SAP_BRIDGE_AVAILABLE,
+        reason="sap-bridge.strategies.mir not importable",
     )
     def test_mir_strategy_to_fleet_state_idle(self):
         """MiR strategy converts an IDLE RobotState to FleetState."""
@@ -299,9 +310,11 @@ class TestStrategyToFleetState:
 
         raw = {
             "serialNumber": "mir-001",
-            "x": 1.5, "y": 2.5, "theta": 0.0,
-            "positionInitialized": True,
-            "lastNodeId": "B",
+            "agvPosition": {
+                "x": 1.5, "y": 2.5, "theta": 0.0,
+                "positionInitialized": True,
+                "lastNodeId": "B",
+            },
         }
         robot_state = strategy.handle_state(raw)
         fleet_state = strategy.to_fleet_state(robot_state)
@@ -311,8 +324,8 @@ class TestStrategyToFleetState:
         assert fleet_state.battery_percent == 0.0  # MiR raw has no battery in test
 
     @pytest.mark.skipif(
-        "sap-bridge" not in "".join(sys.path),
-        reason="sap-bridge not on sys.path",
+        not _SAP_BRIDGE_AVAILABLE,
+        reason="sap-bridge.strategies.mir not importable",
     )
     def test_strategy_to_capability_vector_defaults(self):
         """to_capability_vector returns a valid CapabilityVector."""
