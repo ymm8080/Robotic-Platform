@@ -184,15 +184,8 @@ def plan_to_zones(plan: Plan, horizon: int | None = None) -> list[ZoneReservatio
     if horizon is None:
         horizon = plan.moves[-1].arrive_time
 
-    # build per-node occupied-time set
-    occ: set[tuple[str, int]] = set()
-    for m in plan.moves:
-        occ.add((m.from_node, m.depart_time))
-        occ.add((m.to_node, m.arrive_time))
-    if plan.goal_reached and plan.goal_time is not None:
-        goal_node = plan.moves[-1].to_node
-        for t in range(plan.goal_time, horizon + 1):
-            occ.add((goal_node, t))
+    # reuse Plan.vertex_occupancy to avoid duplicating the occupancy logic
+    occ = plan.vertex_occupancy(horizon)
 
     # group by node, merge contiguous runs
     by_node: dict[str, list[int]] = {}

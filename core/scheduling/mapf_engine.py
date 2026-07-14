@@ -270,10 +270,11 @@ class _LowLevel:
             if others:
                 n += len(others)
         # edge/swap conflicts for traversals
+        # Only opposite-direction (swap) is a real conflict: same-direction
+        # following is safe — all agents traverse a lane at the same speed,
+        # and vertex occupancy already catches same-node collisions.
         if not m.is_wait:
             for of, ot, od, oa in self.others_edges:
-                # opposite direction between same node pair + overlapping transit
-                # intervals (strict). For unit lanes reduces to same depart time.
                 if (
                     of == m.to_node
                     and ot == m.from_node
@@ -390,7 +391,9 @@ class _LowLevel:
     def _expand(self, state: tuple[str, int]) -> list[tuple[tuple[str, int], Move]]:
         node, t = state
         out: list[tuple[tuple[str, int], Move]] = []
-        # WAIT
+        # WAIT — no edge traversed, so only the next-timestep vertex
+        # constraint needs to be clear (edge constraints are irrelevant
+        # for a stay-in-place action).
         if not self._vertex_blocked(node, t + 1):
             out.append(
                 (
@@ -463,7 +466,9 @@ def _detect_conflicts(plans: dict[str, Plan], horizon: int) -> list[tuple[str, s
             b = holders[1]
             conflicts.append((a, b, "vertex", (node, t)))
 
-    # edge/swap
+    # edge/swap: only opposite-direction is a real conflict in this model
+    # (same-direction following is safe — all agents traverse at lane speed;
+    # vertex occupancy catches same-node collisions).
     edges_by_agent = {aid: plans[aid].edge_intervals() for aid in agent_ids}
     for i, a in enumerate(agent_ids):
         for b in agent_ids[i + 1 :]:
@@ -771,23 +776,44 @@ class MAPFEngine:
         return plans
 
     def _shift_plan(self, plan: Plan, now: int) -> Plan:
-        """Re-anchor a frozen plan to start at timestep ``now``."""
+        """Re-anchor a frozen plan to start at timestep ``now``.
+
+        Moves whose shifted depart time exceeds ``time_horizon`` are
+        dropped (they fall outside the rolling window). If the goal move
+        is dropped, ``goal_time`` is set to ``None``.
+        """
         if now == 0:
             return plan
-        shifted_moves = [
-            Move(
-                m.from_node,
-                m.to_node,
-                m.depart_time + now,
-                m.arrive_time + now,
-                m.lane_id,
+        horizon = self.time_horizon
+        shifted_moves: list[Move] = []
+        for m in plan.moves:
+            new_depart = m.depart_time + now
+            if new_depart > horizon:
+                break  # this and subsequent moves are beyond the window
+            shifted_moves.append(
+                Move(
+                    m.from_node,
+                    m.to_node,
+                    new_depart,
+                    m.arrive_time + now,
+                    m.lane_id,
+                )
             )
-            for m in plan.moves
-        ]
+        if not shifted_moves:
+            # entire plan beyond horizon — WAIT stub at the start node
+            start_node = plan.moves[0].from_node
+            return Plan(
+                agent_id=plan.agent_id,
+                moves=[Move(start_node, start_node, now, horizon, None)],
+                goal_time=None,
+            )
+        goal_time = (plan.goal_time + now) if plan.goal_time is not None else None
+        if goal_time is not None and goal_time > horizon:
+            goal_time = None
         return Plan(
             agent_id=plan.agent_id,
             moves=shifted_moves,
-            goal_time=(plan.goal_time + now) if plan.goal_time is not None else None,
+            goal_time=goal_time,
         )
 
     def _split(
