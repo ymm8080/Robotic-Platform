@@ -53,7 +53,7 @@ def _zewm_mock():
 
 
 def _clear_pick_store():
-    get_pick_result_store()._results.clear()
+    get_pick_result_store().clear()
 
 
 def test_assign_on_observed_assignment_is_idempotent():

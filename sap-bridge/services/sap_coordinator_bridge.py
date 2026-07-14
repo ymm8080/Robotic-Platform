@@ -133,9 +133,15 @@ class CoordinatorState:
 
 
 def _strip_sap_prefix(task_id: str) -> str | None:
-    """Return the SAP task id from a coordinator order id (``SAP-<tid>``)."""
+    """Return the SAP task id from a coordinator order id (``SAP-<tid>``).
+
+    Only returns the remainder when it is a non-empty numeric string,
+    preventing false matches on arbitrary ``SAP-`` prefixed IDs.
+    """
     if task_id.startswith(SAP_ORDER_PREFIX):
-        return task_id[len(SAP_ORDER_PREFIX) :]
+        remainder = task_id[len(SAP_ORDER_PREFIX) :]
+        if remainder.isdigit():
+            return remainder
     return None
 
 
@@ -309,6 +315,7 @@ class SapCoordinatorBridge:
                     if ok:
                         self._confirmed.add(tid)
                         self._inactive_since.pop(tid, None)
+                        self._robot_for_task.pop(tid, None)
                         logger.info("SAP-TC bridge: ZEWM confirmed SAP task %s (completed)", tid)
                     # else: retry next cycle (pick result may still arrive)
                     continue
@@ -342,6 +349,7 @@ class SapCoordinatorBridge:
                     )
                 self._manual_review.add(tid)
                 self._inactive_since.pop(tid, None)
+                self._robot_for_task.pop(tid, None)
                 continue
 
             # Not in any explicit list — use grace-period fallback
@@ -401,6 +409,7 @@ class SapCoordinatorBridge:
     def _park_manual_review(self, tid: str, reason: str) -> None:
         """Mark a task as parked for manual SAP review (logged once)."""
         if tid in self._manual_review:
+            logger.debug("SAP-TC bridge: task %s already in manual review (reason: %s)", tid, reason)
             return
         self._manual_review.add(tid)
         logger.warning("SAP-TC bridge: task %s parked for manual SAP review — %s", tid, reason)

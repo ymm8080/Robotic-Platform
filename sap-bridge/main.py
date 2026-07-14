@@ -197,7 +197,10 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "sap_tc_bridge", None) is not None:
         await app.state.sap_tc_bridge.stop()
     if getattr(app.state, "zewm_client", None) is not None:
-        app.state.zewm_client.close()
+        try:
+            app.state.zewm_client.close()
+        except Exception as exc:
+            logger.warning("ZEWM_ROBCO client close failed: %s", exc)
     if heartbeat is not None:
         heartbeat.stop()
     worker.stop()

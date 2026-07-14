@@ -67,6 +67,11 @@ class PickResultStore:
         with self._lock:
             return self._results.pop(task_id, None)
 
+    def clear(self) -> None:
+        """Remove all pick results (mainly for testing)."""
+        with self._lock:
+            self._results.clear()
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._results)
@@ -80,8 +85,7 @@ _store_lock = threading.Lock()
 def get_pick_result_store() -> PickResultStore:
     """Return the process-wide :class:`PickResultStore` singleton."""
     global _store
-    if _store is None:
-        with _store_lock:
-            if _store is None:
-                _store = PickResultStore()
+    with _store_lock:
+        if _store is None:
+            _store = PickResultStore()
     return _store
