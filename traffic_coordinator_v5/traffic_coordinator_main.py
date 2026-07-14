@@ -394,6 +394,16 @@ class Handler(BaseHTTPRequestHandler):
                         rid: {"mode": r.mode.name, "pose": (r.pose.x, r.pose.y)}
                         for rid, r in state.robots.items()
                     },
+                    # Recently completed/failed tasks so downstream systems (e.g.
+                    # the SAP bridge) get an explicit completion signal instead
+                    # of inferring it from absence in ``assignments``.  Each
+                    # entry is ``[task_id, timestamp]`` (matches snapshot shape).
+                    "recently_completed": [
+                        [tid, ts] for tid, ts in COORDINATOR._recently_completed
+                    ],
+                    "recently_failed": [
+                        [tid, ts] for tid, ts in COORDINATOR._recently_failed
+                    ],
                 },
             )
         elif path == "/metrics":

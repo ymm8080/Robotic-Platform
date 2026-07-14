@@ -158,6 +158,23 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("v5.0 coordinator client init failed: %s", exc)
 
+    # ── ZEWM_ROBCO client (robot-specific SAP OData operations) ─────
+    app.state.zewm_client = None
+    try:
+        _zewm_cfg = get_factory()._config.get("sap", {}).get("zewm_robco", {})
+        if _zewm_cfg.get("enabled"):
+            from clients.zewm_robco_client import ZewmRobcoClient
+
+            _zewm = ZewmRobcoClient(_zewm_cfg)
+            app.state.zewm_client = _zewm
+            logger.info(
+                "ZEWM_ROBCO client enabled (base_url=%s, odata=%s)",
+                _zewm_cfg.get("base_url"),
+                _zewm_cfg.get("odata_service"),
+            )
+    except Exception as exc:
+        logger.warning("ZEWM_ROBCO client init failed: %s", exc)
+
     # ── SAP ↔ Coordinator bridge (background polling) ───────────
     app.state.sap_tc_bridge = None
     bridge_en = os.getenv("SAP_TC_BRIDGE_ENABLED", "1" if ENABLE_V5 else "0") == "1"
@@ -168,6 +185,7 @@ async def lifespan(app: FastAPI):
             _bridge = SapCoordinatorBridge(
                 tc_client=app.state.tc_client,
                 backend_provider=get_backend_for,
+                zewm_client=app.state.zewm_client,
             )
             await _bridge.start()
             app.state.sap_tc_bridge = _bridge
@@ -178,6 +196,11 @@ async def lifespan(app: FastAPI):
     yield
     if getattr(app.state, "sap_tc_bridge", None) is not None:
         await app.state.sap_tc_bridge.stop()
+    if getattr(app.state, "zewm_client", None) is not None:
+        try:
+            app.state.zewm_client.close()
+        except Exception as exc:
+            logger.warning("ZEWM_ROBCO client close failed: %s", exc)
     if heartbeat is not None:
         heartbeat.stop()
     worker.stop()
@@ -682,6 +705,39 @@ async def mark_sap_confirmed(order_no: str, req: UpdateOrderStatusRequest):
 # ──────────────────────────────────────────────
 # Outbox API (v4.1: Node-RED calls these instead of direct SQLite access)
 # ──────────────────────────────────────────────
+
+
+class PickResultRequest(BaseModel):
+    """Robot-reported pick result for one SAP warehouse task.
+
+    Posted by a robot strategy adapter (or site integration) when a pick
+    completes, so the SAP bridge can confirm the task in ZEWM_ROBCO_SRV with
+    the *actual* picked quantity rather than a fabricated one.
+    """
+
+    task_id: str = Field(..., description="SAP warehouse task number (tanum)")
+    robot_id: str = Field(..., description="Resource (rsrc) that executed the pick")
+    actual_qty: float = Field(..., ge=0, description="Actual picked quantity (nista)")
+    dest_bin: str | None = Field(None, description="Destination bin reached (nlpla)")
+    exception: str | None = Field(None, description="SAP exception code (conf_exc), if any")
+
+
+@app.post("/api/v1/pick-result")
+async def record_pick_result(req: PickResultRequest):
+    """Record a robot-reported pick result for later SAP ZEWM confirmation."""
+    from services.pick_result_store import PickResult, get_pick_result_store
+
+    store = get_pick_result_store()
+    store.record(
+        PickResult(
+            task_id=req.task_id,
+            robot_id=req.robot_id,
+            actual_qty=req.actual_qty,
+            dest_bin=req.dest_bin,
+            exception=req.exception,
+        )
+    )
+    return {"status": "stored", "task_id": req.task_id}
 
 
 @app.get("/api/v1/outbox/pending")
