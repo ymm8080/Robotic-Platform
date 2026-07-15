@@ -85,45 +85,26 @@ jobs:
 
       # FIX: previously ruff ran only on sap-bridge/ and scripts/, so PRs that
       # touched core/ (e.g. #76-#80) were never linted and "No lint fixes
-      # needed." was always printed. Now lint ONLY the Python files this PR
-      # changes. ruff auto-discovers config per file: root pyproject.toml
-      # [tool.ruff] for core/*, sap-bridge/ruff.toml for sap-bridge/*.
-      - name: Collect changed Python files
-        id: changed
+      # needed." was always printed. Now lint the WHOLE repo (not a specific
+      # subset of files) so every PR gets a full ruff pass. ruff auto-discovers
+      # config per file: root pyproject.toml [tool.ruff] for core/*,
+      # sap-bridge/ruff.toml for sap-bridge/*. ruff respects .gitignore and
+      # excludes node_modules / __pycache__ / .git by default.
+      - name: Run ruff format (whole repo)
         if: steps.check-skip.outputs.skip != 'true'
-        env:
-          PR_BASE: ${{ steps.pr-info.outputs.pr_base }}
         run: |
-          # Three-dot diff = changes on the PR branch since it diverged from base.
-          mapfile -t ALL < <(git diff --name-only --diff-filter=AM "origin/${PR_BASE}...HEAD" -- '*.py')
-          PYFILES=()
-          for f in "${ALL[@]}"; do
-            [ -f "$f" ] && PYFILES+=("$f")
-          done
-          {
-            echo "count=${#PYFILES[@]}"
-            echo "files<<EOF"
-            printf '%s\n' "${PYFILES[@]}"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-          echo "Changed Python files: ${#PYFILES[@]}"
-          printf '  %s\n' "${PYFILES[@]}"
+          echo "=== ruff format (whole repo) ==="
+          ruff format . || true
 
-      - name: Run ruff format (changed files)
-        if: steps.check-skip.outputs.skip != 'true' && steps.changed.outputs.count != '0'
+      - name: Run ruff check --fix (whole repo)
+        if: steps.check-skip.outputs.skip != 'true'
         run: |
-          echo "=== ruff format (changed files) ==="
-          ruff format ${{ steps.changed.outputs.files }} || true
-
-      - name: Run ruff check --fix (changed files)
-        if: steps.check-skip.outputs.skip != 'true' && steps.changed.outputs.count != '0'
-        run: |
-          echo "=== ruff check --fix (changed files) ==="
-          ruff check --fix --unsafe-fixes ${{ steps.changed.outputs.files }} || true
+          echo "=== ruff check --fix (whole repo) ==="
+          ruff check --fix --unsafe-fixes . || true
 
       - name: Check for changes and commit
         id: check-changes
-        if: steps.check-skip.outputs.skip != 'true' && steps.changed.outputs.count != '0'
+        if: steps.check-skip.outputs.skip != 'true'
         env:
           BRANCH: ${{ steps.pr-info.outputs.pr_branch }}
         run: |
