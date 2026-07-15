@@ -11,6 +11,11 @@ on:
         required: true
         type: string
 
+# NOTE on GH_PAT: pushes made with the default `github.token` do NOT re-trigger
+# workflow runs, which breaks the auto-fix loop's "push -> CI/AI-review re-run"
+# contract. Set a `GH_PAT` secret (a PAT with repo + workflow scope) so pushed
+# fixes fire ci.yml / v5-core-ci.yml / deepseek-pr-review.yml again.
+
 jobs:
   auto-fix-lint:
     name: Auto-Fix Lint Errors
@@ -25,6 +30,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || github.token }}
+          submodules: false
 
       - name: Resolve PR info
         id: pr-info
@@ -39,8 +45,10 @@ jobs:
           fi
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           PR_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+          PR_BASE=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
           echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
-          echo "Resolved PR #$PR_NUMBER on branch $PR_BRANCH"
+          echo "pr_base=$PR_BASE" >> $GITHUB_OUTPUT
+          echo "Resolved PR #$PR_NUMBER: $PR_BRANCH -> $PR_BASE"
 
       - name: Switch to PR branch (fix detached HEAD)
         run: |
@@ -60,41 +68,62 @@ jobs:
           fi
 
       - name: Setup Python
+        if: steps.check-skip.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install ruff
+        if: steps.check-skip.outputs.skip != 'true'
         run: pip install ruff
 
       - name: Setup git
+        if: steps.check-skip.outputs.skip != 'true'
         run: |
           git config user.name "CatPaw Auto-Fix"
           git config user.email "auto-fix@catpaw.local"
 
-      - name: Run ruff format (sap-bridge only)
+      # FIX: previously ruff ran only on sap-bridge/ and scripts/, so PRs that
+      # touched core/ (e.g. #76-#80) were never linted and "No lint fixes
+      # needed." was always printed. Now lint ONLY the Python files this PR
+      # changes. ruff auto-discovers config per file: root pyproject.toml
+      # [tool.ruff] for core/*, sap-bridge/ruff.toml for sap-bridge/*.
+      - name: Collect changed Python files
+        id: changed
         if: steps.check-skip.outputs.skip != 'true'
+        env:
+          PR_BASE: ${{ steps.pr-info.outputs.pr_base }}
         run: |
-          echo "=== Running ruff format (sap-bridge) ==="
-          ruff format sap-bridge/ || true
+          # Three-dot diff = changes on the PR branch since it diverged from base.
+          mapfile -t ALL < <(git diff --name-only --diff-filter=AM "origin/${PR_BASE}...HEAD" -- '*.py')
+          PYFILES=()
+          for f in "${ALL[@]}"; do
+            [ -f "$f" ] && PYFILES+=("$f")
+          done
+          {
+            echo "count=${#PYFILES[@]}"
+            echo "files<<EOF"
+            printf '%s\n' "${PYFILES[@]}"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          echo "Changed Python files: ${#PYFILES[@]}"
+          printf '  %s\n' "${PYFILES[@]}"
 
-      - name: Run ruff check --fix (sap-bridge)
-        if: steps.check-skip.outputs.skip != 'true'
+      - name: Run ruff format (changed files)
+        if: steps.check-skip.outputs.skip != 'true' && steps.changed.outputs.count != '0'
         run: |
-          echo "=== Running ruff check --fix (sap-bridge) ==="
-          cd sap-bridge
-          ruff check . --config ruff.toml --fix --unsafe-fixes || true
-          cd ..
+          echo "=== ruff format (changed files) ==="
+          ruff format ${{ steps.changed.outputs.files }} || true
 
-      - name: Run ruff check --fix (scripts only)
-        if: steps.check-skip.outputs.skip != 'true'
+      - name: Run ruff check --fix (changed files)
+        if: steps.check-skip.outputs.skip != 'true' && steps.changed.outputs.count != '0'
         run: |
-          echo "=== Running ruff check --fix (scripts) ==="
-          ruff check scripts/ --fix --unsafe-fixes || true
+          echo "=== ruff check --fix (changed files) ==="
+          ruff check --fix --unsafe-fixes ${{ steps.changed.outputs.files }} || true
 
       - name: Check for changes and commit
         id: check-changes
-        if: steps.check-skip.outputs.skip != 'true'
+        if: steps.check-skip.outputs.skip != 'true' && steps.changed.outputs.count != '0'
         env:
           BRANCH: ${{ steps.pr-info.outputs.pr_branch }}
         run: |
@@ -118,9 +147,21 @@ jobs:
           gh pr comment $PR_NUMBER --body "Auto-fix: applied ruff format + lint fixes"
 
   auto-fix-full:
-    name: Full Auto-Fix (requires self-hosted runner)
-    runs-on: ubuntu-latest
-    if: false
+    name: Full CatPaw Auto-Fix (self-hosted)
+    # Runs the AI fix loop (auto-fix.sh) that addresses AI-review + CI findings.
+    # GATED behind vars.CATPAW_SELF_HOSTED so PRs don't hang on a missing runner.
+    #
+    # To activate:
+    #   1. Register a self-hosted runner with label `catpaw` on this repo.
+    #   2. Install + authenticate the Claude/CatPaw CLI on that runner.
+    #   3. Set GH_PAT secret (see note at top of file).
+    #   4. Create repo variable CATPAW_SELF_HOSTED=true
+    #      (gh variable set CATPAW_SELF_HOSTED -b true).
+    #   5. Only add this check to required branch protection AFTER the runner is
+    #      stable — otherwise PRs queue forever waiting for a matching runner.
+    if: ${{ vars.CATPAW_SELF_HOSTED == 'true' }}
+    runs-on: [self-hosted, catpaw]
+    timeout-minutes: 45
     permissions:
       pull-requests: write
       contents: write
@@ -131,28 +172,58 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || github.token }}
+          submodules: false
 
-      - name: Setup environment
+      - name: Resolve PR number
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+          else
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "PR #${PR_NUMBER}"
+
+      - name: Setup git
         run: |
           git config user.name "CatPaw Auto-Fix"
           git config user.email "auto-fix@catpaw.local"
 
-      - name: Wait for AI review + CI to complete
+      - name: Skip if last commit is an auto-fix lint commit (loop guard)
+        id: check-skip
+        run: |
+          LAST_COMMIT=$(git log -1 --pretty=format:"%s")
+          if [[ "$LAST_COMMIT" == "fix: auto-fix lint errors"* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for AI review + CI to start
+        if: steps.check-skip.outputs.skip != 'true'
         run: |
           echo "Waiting 60s for DeepSeek review + CI checks to start..."
           sleep 60
 
-      - name: Run auto-fix loop (CatPaw CLI required)
+      - name: Verify CatPaw CLI is available
+        if: steps.check-skip.outputs.skip != 'true'
+        run: |
+          if ! command -v claude &>/dev/null; then
+            echo "::error::claude CLI not found on the catpaw runner. Install + authenticate the CatPaw CLI on a self-hosted runner labeled 'catpaw'."
+            exit 1
+          fi
+          echo "CatPaw CLI: $(command -v claude)"
+
+      - name: Run CatPaw auto-fix loop
+        if: steps.check-skip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          echo "=== Auto-Fix triggered for PR #${PR_NUMBER} ==="
-
-          if command -v claude &>/dev/null; then
-            cat auto-fix.sh | claude --pr "${PR_NUMBER}"
-          else
-            echo "CatPaw CLI not available. Skipping full auto-fix."
-            echo "To enable: install CatPaw CLI on a self-hosted runner."
-            exit 0
-          fi
+          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
+          echo "=== CatPaw Auto-Fix loop for PR #${PR_NUMBER} ==="
+          # auto-fix.sh <PR> prints the fix-loop instructions; pipe them to the
+          # claude agent which executes them (fix -> verify -> commit -> push).
+          bash auto-fix.sh "$PR_NUMBER" | claude
