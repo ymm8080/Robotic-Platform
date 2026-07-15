@@ -57,6 +57,7 @@ import logging
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
 
@@ -257,6 +258,8 @@ class _LowLevel:
         Once the agent reaches its goal it holds that node forever; the hold is
         only valid if no constraint fires at or after arrival. So goal arrival
         at time ``t`` is acceptable iff ``t > max_goal_constraint_time``.
+        The sentinel -1 means "no constraint": any ``t >= 0`` satisfies
+        ``t > -1``, so an unconstrained goal can be reached at any timestep.
         """
         gc = self.vertex_c.get(self.req.goal, ())
         return max(gc) if gc else -1
@@ -462,10 +465,10 @@ def _detect_conflicts(plans: dict[str, Plan], horizon: int) -> list[tuple[str, s
             occ[(node, t)].append(aid)
     for (node, t), holders in occ.items():
         if len(holders) >= 2:
-            # report all pairs (not just first 2) for complete debugging
-            for i in range(len(holders)):
-                for j in range(i + 1, len(holders)):
-                    conflicts.append((holders[i], holders[j], "vertex", (node, t)))
+            # report all pairs for complete debugging; O(n²) in the rare
+            # case of many agents on one node at one timestep.
+            for a, b in combinations(holders, 2):
+                conflicts.append((a, b, "vertex", (node, t)))
 
     # edge/swap: only opposite-direction is a real conflict in this model
     # (same-direction following is safe — all agents traverse at lane speed;
@@ -482,7 +485,10 @@ def _detect_conflicts(plans: dict[str, Plan], horizon: int) -> list[tuple[str, s
 
 def _build_constraint_indexes(
     agent_id: str,
-    constraints: tuple[set[VertexConstraint], set[EdgeConstraint]],
+    constraints: tuple[
+        set[VertexConstraint] | frozenset[VertexConstraint],
+        set[EdgeConstraint] | frozenset[EdgeConstraint],
+    ],
 ) -> tuple[dict[str, set[int]], dict[tuple[str, str], set[int]]]:
     vertex_c: dict[str, set[int]] = defaultdict(set)
     edge_c: dict[tuple[str, str], set[int]] = defaultdict(set)
@@ -787,6 +793,10 @@ class MAPFEngine:
             return plan
         horizon = self.time_horizon
         shifted_moves: list[Move] = []
+        # Assumption: plan.moves are sorted by depart_time (they are built
+        # by the A* reconstruct, which appends in reverse-time order then
+        # reverses). So once one move is beyond horizon, all subsequent
+        # moves are too — break is correct, not continue.
         for m in plan.moves:
             new_depart = m.depart_time + now
             if new_depart > horizon:
@@ -803,9 +813,18 @@ class MAPFEngine:
         if not shifted_moves:
             # entire plan beyond horizon — WAIT stub at the start node
             start_node = plan.moves[0].from_node
+            # min() guards against now > horizon: produces a zero-duration
+            # WAIT (depart==arrive==horizon), which is harmless -- the agent is
+            # already off-window and just needs a placeholder plan.
+            wait_start = min(now, horizon)
+            logger.info(
+                "_shift_plan: all moves beyond horizon for agent %s "
+                "(now=%d, horizon=%d); creating WAIT stub",
+                plan.agent_id, now, horizon,
+            )
             return Plan(
                 agent_id=plan.agent_id,
-                moves=[Move(start_node, start_node, now, horizon, None)],
+                moves=[Move(start_node, start_node, wait_start, horizon, None)],
                 goal_time=None,
             )
         goal_time = (plan.goal_time + now) if plan.goal_time is not None else None
