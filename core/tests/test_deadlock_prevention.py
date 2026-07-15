@@ -131,12 +131,12 @@ def test_clear_wait_removes_waiting_edge():
 
 
 # ── task 4: 检测解除 (reactive ring detection + 退避) ─────────
-# _form_ring replaced by DeadlockPreventer._inject_ring (封装测试注入)
+# _form_ring replaced by DeadlockPreventer._inject_wait_cycle (封装测试注入)
 
 
 def test_detect_deadlock_ring_finds_three_cycle():
     p = DeadlockPreventer()
-    p._inject_ring(3)
+    p._inject_wait_cycle(3)
     ring = p.detect_deadlock_ring()
     assert ring is not None
     assert set(ring) == {"R0", "R1", "R2"}
@@ -144,7 +144,7 @@ def test_detect_deadlock_ring_finds_three_cycle():
 
 def test_detect_deadlock_ring_finds_four_cycle():
     p = DeadlockPreventer()
-    p._inject_ring(4)
+    p._inject_wait_cycle(4)
     ring = p.detect_deadlock_ring()
     assert ring is not None
     assert set(ring) == {"R0", "R1", "R2", "R3"}
@@ -166,7 +166,7 @@ def test_detect_deadlock_ring_none_when_no_waits():
 
 def test_break_deadlock_picks_lowest_priority():
     p = DeadlockPreventer()
-    p._inject_ring(3)
+    p._inject_wait_cycle(3)
     ring = p.detect_deadlock_ring()
     assert ring is not None
     # R1 has smallest priority value → retreats (数值小 = 低优先级 = 退避)
@@ -176,7 +176,7 @@ def test_break_deadlock_picks_lowest_priority():
 
 def test_break_deadlock_tiebreak_is_deterministic():
     p = DeadlockPreventer()
-    p._inject_ring(3)
+    p._inject_wait_cycle(3)
     ring = sorted(p.detect_deadlock_ring())
     # all equal priority → min picks lexicographically first by ring order
     yielder = p.break_deadlock(ring, {"R0": 2, "R1": 2, "R2": 2})
@@ -186,10 +186,10 @@ def test_break_deadlock_tiebreak_is_deterministic():
 def test_break_deadlock_unknown_robot_defaults_to_retreat():
     """未登记优先级的 robot 默认 0 (最低 → 退避)."""
     p = DeadlockPreventer()
-    p._inject_ring(3)
+    p._inject_wait_cycle(3)
     ring = p.detect_deadlock_ring()
     # only R0 mapped (priority 5); R1,R2 unmapped → default 0 (lowest) → retreats
-    # ring order from _inject_ring: R0->R1->R2->R0; min() scans in ring order,
+    # ring order from _inject_wait_cycle: R0->R1->R2->R0; min() scans in ring order,
     # so the first robot with priority 0 (i.e. R1) is deterministically selected
     yielder = p.break_deadlock(ring, {"R0": 5})
     assert yielder in {"R1", "R2"}, f"unmapped robot should retreat, got {yielder}"

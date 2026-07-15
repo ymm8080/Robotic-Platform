@@ -133,7 +133,7 @@ class DeadlockPreventer:
         """机器人改道 / 离开等待时清除其等待边."""
         self._clear_wait(robot_id)
 
-    def _inject_ring(self, n: int, prefix: str = "R", res_prefix: str = "S") -> None:
+    def _inject_wait_cycle(self, n: int, prefix: str = "R", res_prefix: str = "S") -> None:
         """测试/自检专用: 白盒注入 n 车死锁环 (绕过 may_wait 预防).
 
         模拟预防被绕过后已形成的环 — 用于 detect_deadlock_ring / break_deadlock 测试.
@@ -239,7 +239,7 @@ def _demo() -> None:
 
     # task 4: 检测解除 — 预防被绕过后已形成的 3 车环
     p2 = DeadlockPreventer()
-    p2._inject_ring(3)  # 白盒注入 3 车环 (模拟预防被绕过)
+    p2._inject_wait_cycle(3)  # 白盒注入 3 车环 (模拟预防被绕过)
     ring = p2.detect_deadlock_ring()
     assert ring is not None and set(ring) == {"R0", "R1", "R2"}, f"ring={ring}"
     # R1 优先级最低 (值最小) → 退避让点
