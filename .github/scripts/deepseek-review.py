@@ -94,11 +94,12 @@ try:
         sys.exit(1)
 
     # Append structured marker for auto-fix.sh to parse.
-    # Check if the "必须修复" section has actual numbered items (e.g., "1. **...**").
+    # Check if the "必须修复的问题" section has actual numbered items (e.g., "1. **...**").
     # The section header alone is not enough — the AI always includes it.
-    # We look for numbered list items under a "必须修复" heading.
-    # Match "必须修复" section with at least one numbered item after it
-    must_fix_pattern = r"必须修复[^#]*?\d+\.\s+\*\*"
+    # We look for numbered list items under a "必须修复的问题" heading.
+    # NOTE: must match "必须修复的问题" (with "的问题") to avoid false positives
+    # from negative statements like "没有发现必须修复的 bug".
+    must_fix_pattern = r"必须修复的问题.*?\d+\.\s+\*\*"
     has_issues = bool(re.search(must_fix_pattern, review, re.DOTALL))
     marker = "<!--AUTOFIX:HAS_ISSUES-->" if has_issues else "<!--AUTOFIX:CLEAN-->"
 
