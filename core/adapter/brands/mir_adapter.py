@@ -1,4 +1,5 @@
 """MiR brand adapter — wraps MiR250/MiR600 VDA5050 v1.1 strategy."""
+
 from __future__ import annotations
 
 from core.adapter.brands._loader import load_strategy

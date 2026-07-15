@@ -24,39 +24,23 @@ def build_parser() -> argparse.ArgumentParser:
         prog="traffic_coordinator_v5.simulator",
         description="VDA5050 mock robot simulator for the v5 traffic coordinator.",
     )
-    parser.add_argument(
-        "-n", "--count", type=int, default=1, help="Number of robots to simulate"
-    )
+    parser.add_argument("-n", "--count", type=int, default=1, help="Number of robots to simulate")
     parser.add_argument(
         "-b", "--brand", type=str, default="generic", help="VDA5050 manufacturer segment"
     )
-    parser.add_argument(
-        "-p", "--serial-prefix", type=str, default="R", help="Robot id prefix"
-    )
-    parser.add_argument(
-        "-m", "--map", type=str, default=DEFAULT_MAP, help="Lane graph YAML path"
-    )
-    parser.add_argument(
-        "-B", "--broker", type=str, default="localhost", help="MQTT broker host"
-    )
-    parser.add_argument(
-        "-P", "--port", type=int, default=1883, help="MQTT broker port"
-    )
+    parser.add_argument("-p", "--serial-prefix", type=str, default="R", help="Robot id prefix")
+    parser.add_argument("-m", "--map", type=str, default=DEFAULT_MAP, help="Lane graph YAML path")
+    parser.add_argument("-B", "--broker", type=str, default="localhost", help="MQTT broker host")
+    parser.add_argument("-P", "--port", type=int, default=1883, help="MQTT broker port")
     parser.add_argument(
         "-i", "--interval", type=float, default=0.5, help="State publish interval (seconds)"
     )
-    parser.add_argument(
-        "-s", "--speed", type=float, default=1.0, help="Default max speed (m/s)"
-    )
-    parser.add_argument(
-        "--drain", type=float, default=0.5, help="Battery drain per metre moved"
-    )
+    parser.add_argument("-s", "--speed", type=float, default=1.0, help="Default max speed (m/s)")
+    parser.add_argument("--drain", type=float, default=0.5, help="Battery drain per metre moved")
     parser.add_argument(
         "--charge", type=float, default=5.0, help="Battery charge per second while charging"
     )
-    parser.add_argument(
-        "--initial-battery", type=float, default=80.0, help="Starting battery %%"
-    )
+    parser.add_argument("--initial-battery", type=float, default=80.0, help="Starting battery %%")
     parser.add_argument(
         "--start-node", type=str, default="", help="Initial node id (default: first node)"
     )
@@ -66,9 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--offline", action="store_true", help="Run without connecting to an MQTT broker"
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable debug logging"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     return parser
 
 

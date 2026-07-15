@@ -7,20 +7,18 @@ Endpoints:
 - GET  /api/v1/operations/{id}          - Query operation status
 - GET  /api/v1/audit/logs               - Query audit logs
 """
+
 import json
 import logging
 import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Optional
 from uuid import uuid4
 
 import httpx
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 
 from .action_validator import ActionValidator
 from .audit_logger import AuditLogger
@@ -34,7 +32,6 @@ from .models import (
     NotificationRequest,
     NotificationResponse,
     OperationStatus,
-    TargetType,
     utc_now_iso,
 )
 from .platform_adapters import DingTalkAdapter, FeishuAdapter, WeChatAdapter
@@ -57,8 +54,8 @@ feishu = FeishuAdapter()
 dingtalk = DingTalkAdapter()
 
 # Redis for operation state
-_redis: Optional[aioredis.Redis] = None
-_http: Optional[httpx.AsyncClient] = None
+_redis: aioredis.Redis | None = None
+_http: httpx.AsyncClient | None = None
 
 
 def _require_gateway_api_key(provided: str | None) -> None:
@@ -79,10 +76,12 @@ async def lifespan(app: FastAPI):
 
     # Security: refuse to start in production without API key (skip in tests)
     _is_test = "pytest" in sys.modules
-    if not _is_test and os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION" and not settings.gateway_api_key:
-        raise RuntimeError(
-            "FATAL: GATEWAY_API_KEY is not configured in PRODUCTION mode."
-        )
+    if (
+        not _is_test
+        and os.getenv("MODE", "PRODUCTION").upper() == "PRODUCTION"
+        and not settings.gateway_api_key
+    ):
+        raise RuntimeError("FATAL: GATEWAY_API_KEY is not configured in PRODUCTION mode.")
 
     # Initialize all components
     await router.init()
@@ -93,13 +92,18 @@ async def lifespan(app: FastAPI):
     await dingtalk.init()
 
     redis_kwargs = {"decode_responses": True}
-    if settings.REDIS_URL.startswith("rediss://") or os.getenv("REDIS_SSL", "false").lower() == "true":
+    if (
+        settings.REDIS_URL.startswith("rediss://")
+        or os.getenv("REDIS_SSL", "false").lower() == "true"
+    ):
         redis_kwargs["ssl"] = True
         redis_kwargs["ssl_cert_reqs"] = os.getenv("REDIS_SSL_CERT_REQS", "required")
     _redis = aioredis.from_url(settings.REDIS_URL, **redis_kwargs)
     _http = httpx.AsyncClient(timeout=10.0)
 
-    logger.info("[Gateway] All components initialized. Enabled channels: %s", settings.enabled_channels)
+    logger.info(
+        "[Gateway] All components initialized. Enabled channels: %s", settings.enabled_channels
+    )
     yield
 
     # Shutdown
@@ -127,6 +131,7 @@ app = FastAPI(
 
 # -- Health Check --
 
+
 @app.get("/health")
 async def health():
     return {
@@ -140,10 +145,11 @@ async def health():
 
 # -- Send Notification --
 
+
 @app.post("/api/v1/notifications/send", response_model=NotificationResponse)
 async def send_notification(
     req: NotificationRequest,
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
 ):
     """Send a notification to specified channels.
 
@@ -153,7 +159,9 @@ async def send_notification(
     _require_gateway_api_key(x_api_key)
     logger.info(
         "[Gateway] Notification received: alert_id=%s, priority=%s, action=%s",
-        req.alert_id, req.priority, req.action_type,
+        req.alert_id,
+        req.priority,
+        req.action_type,
     )
 
     # 1. Route message
@@ -188,22 +196,30 @@ async def send_notification(
             elif channel == "email":
                 result = await email_gw.send(req, req.recipients, email_subject, email_html)
             else:
-                result = {"status": "skipped", "message_id": None, "error": f"unknown channel: {channel}"}
+                result = {
+                    "status": "skipped",
+                    "message_id": None,
+                    "error": f"unknown channel: {channel}",
+                }
 
-            channel_results.append({
-                "channel": channel,
-                "status": result.get("status", "unknown"),
-                "message_id": result.get("message_id"),
-                "error": result.get("error"),
-            })
+            channel_results.append(
+                {
+                    "channel": channel,
+                    "status": result.get("status", "unknown"),
+                    "message_id": result.get("message_id"),
+                    "error": result.get("error"),
+                }
+            )
         except Exception as e:
             logger.error("[Gateway] Channel %s error: %s", channel, e)
-            channel_results.append({
-                "channel": channel,
-                "status": "failed",
-                "message_id": None,
-                "error": str(e),
-            })
+            channel_results.append(
+                {
+                    "channel": channel,
+                    "status": "failed",
+                    "message_id": None,
+                    "error": str(e),
+                }
+            )
 
     # 4. Create operation record in Redis
     execution_id = f"EXEC_{uuid4().hex[:12]}"
@@ -254,6 +270,7 @@ async def send_notification(
 
 
 # -- Platform Callback (Unified) --
+
 
 @app.post("/webhook/{platform}")
 async def platform_callback(
@@ -318,12 +335,18 @@ async def platform_callback(
 
     logger.info(
         "[Gateway] Callback received: platform=%s, user=%s, action=%s, target=%s",
-        platform, callback.user.platform_user_id,
-        callback.action.action_type, callback.action.target_id,
+        platform,
+        callback.user.platform_user_id,
+        callback.action.action_type,
+        callback.action.target_id,
     )
 
     # 4. Check if this is a dismiss/view action (no validation needed)
-    if callback.action.action_type in (ActionType.DISMISS, ActionType.VIEW_ORDER, ActionType.VIEW_ROBOT):
+    if callback.action.action_type in (
+        ActionType.DISMISS,
+        ActionType.VIEW_ORDER,
+        ActionType.VIEW_ROBOT,
+    ):
         await audit.log(
             operator=callback.user.bound_user_id or callback.user.platform_user_id,
             operator_name=callback.user.platform_user_name,
@@ -410,7 +433,8 @@ async def platform_callback(
         # Real validation failure - reject
         logger.warning(
             "[Gateway] Validation failed at layer=%s: %s",
-            first_fail.layer, first_fail.message,
+            first_fail.layer,
+            first_fail.message,
         )
 
         await audit.log(
@@ -544,10 +568,11 @@ async def platform_callback(
 
 # -- Query Operation Status --
 
+
 @app.get("/api/v1/operations/{execution_id}")
 async def get_operation(
     execution_id: str,
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
 ):
     """Query the status of an operation by execution_id."""
     _require_gateway_api_key(x_api_key)
@@ -578,6 +603,7 @@ async def get_operation(
 
 # -- Query Audit Logs --
 
+
 @app.get("/api/v1/audit/logs")
 async def query_audit_logs(
     start_time: str = Query("", description="Start time ISO format"),
@@ -587,7 +613,7 @@ async def query_audit_logs(
     target_id: str = Query("", description="Filter by target ID"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
 ):
     """Query audit logs with filters."""
     _require_gateway_api_key(x_api_key)

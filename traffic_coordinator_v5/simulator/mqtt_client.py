@@ -91,9 +91,7 @@ class MqttVDAClient:
         try:
             self._client.connect(self._broker_host, self._broker_port, keepalive=60)
             self._client.loop_start()
-            logger.info(
-                "Simulator MQTT connected to %s:%d", self._broker_host, self._broker_port
-            )
+            logger.info("Simulator MQTT connected to %s:%d", self._broker_host, self._broker_port)
         except (OSError, ConnectionError) as exc:
             logger.exception("Simulator failed to connect to MQTT broker: %s", exc)
             self._client = None
@@ -112,7 +110,9 @@ class MqttVDAClient:
             self._client.disconnect()
         self._client = None
 
-    def _on_connect(self, client: mqtt.Client, _userdata: Any, _flags: Any, rc: int, _props: Any = None) -> None:
+    def _on_connect(
+        self, client: mqtt.Client, _userdata: Any, _flags: Any, rc: int, _props: Any = None
+    ) -> None:
         if rc == 0:
             self._connected = True
             # Clear any stale retained LWT from a previous crash so downstream
@@ -131,7 +131,9 @@ class MqttVDAClient:
         else:
             logger.error("Simulator MQTT connection failed, rc=%s", rc)
 
-    def _on_disconnect(self, _client: mqtt.Client, _userdata: Any, _rc: int, _props: Any = None) -> None:
+    def _on_disconnect(
+        self, _client: mqtt.Client, _userdata: Any, _rc: int, _props: Any = None
+    ) -> None:
         self._connected = False
         logger.warning("Simulator MQTT disconnected; will retry")
 
@@ -139,9 +141,7 @@ class MqttVDAClient:
         if self._client is None:
             return
         order_topic = ORDER_TOPIC.format(manufacturer=self._brand, serialNumber=robot_id)
-        action_topic = INSTANT_ACTIONS_TOPIC.format(
-            manufacturer=self._brand, serialNumber=robot_id
-        )
+        action_topic = INSTANT_ACTIONS_TOPIC.format(manufacturer=self._brand, serialNumber=robot_id)
         self._client.subscribe(order_topic, qos=1)
         self._client.subscribe(action_topic, qos=1)
 

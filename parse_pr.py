@@ -1,7 +1,7 @@
 import json
 import sys
 
-sys.stdout.reconfigure(encoding='utf-8')
+sys.stdout.reconfigure(encoding="utf-8")
 
 with open("pr25_comments.json", "rb") as f:
     raw = f.read()
@@ -22,6 +22,6 @@ print(f"Total comments: {len(comments)}")
 for i, c in enumerate(comments):
     author = c.get("author", {}).get("login", "unknown")
     body = c.get("body", "")
-    print(f"=== Comment {i+1} | Author: {author} ===")
+    print(f"=== Comment {i + 1} | Author: {author} ===")
     print(body[:5000])
     print()

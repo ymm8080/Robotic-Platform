@@ -4,6 +4,7 @@ These demonstrate how to map a vendor-native state dict into the unified
 ``FleetState`` and how to translate unified goals back to native commands.
 They are *templates*, not production adapters.
 """
+
 from __future__ import annotations
 
 from core.adapter.fleet_adapter import FleetAdapter

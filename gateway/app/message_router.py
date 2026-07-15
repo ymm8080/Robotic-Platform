@@ -1,9 +1,9 @@
 """Message Router - Multi-channel distribution, priority, dedup, time control."""
+
 import hashlib
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
 import redis.asyncio as aioredis
 
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 # Priority to TTL mapping (how long to keep trying)
 PRIORITY_TTL = {
-    Priority.P0: 300,    # 5 minutes
-    Priority.P1: 1800,   # 30 minutes
-    Priority.P2: 3600,   # 1 hour
+    Priority.P0: 300,  # 5 minutes
+    Priority.P1: 1800,  # 30 minutes
+    Priority.P2: 3600,  # 1 hour
 }
 
 # Priority to channel mapping
@@ -31,11 +31,14 @@ class MessageRouter:
     """Routes messages to appropriate channels based on priority and config."""
 
     def __init__(self):
-        self._redis: Optional[aioredis.Redis] = None
+        self._redis: aioredis.Redis | None = None
 
     async def init(self):
         redis_kwargs = {"decode_responses": True}
-        if settings.REDIS_URL.startswith("rediss://") or os.getenv("REDIS_SSL", "false").lower() == "true":
+        if (
+            settings.REDIS_URL.startswith("rediss://")
+            or os.getenv("REDIS_SSL", "false").lower() == "true"
+        ):
             redis_kwargs["ssl"] = True
             redis_kwargs["ssl_cert_reqs"] = os.getenv("REDIS_SSL_CERT_REQS", "required")
         self._redis = aioredis.from_url(settings.REDIS_URL, **redis_kwargs)
@@ -44,9 +47,7 @@ class MessageRouter:
         if self._redis:
             await self._redis.close()
 
-    def resolve_channels(
-        self, requested_channels: list[str], priority: Priority
-    ) -> list[str]:
+    def resolve_channels(self, requested_channels: list[str], priority: Priority) -> list[str]:
         """Determine which channels to send to.
 
         Logic:
@@ -64,21 +65,19 @@ class MessageRouter:
         if not channels:
             logger.warning(
                 "[Router] No enabled channels for priority=%s, requested=%s, enabled=%s",
-                priority, requested_channels, list(enabled),
+                priority,
+                requested_channels,
+                list(enabled),
             )
 
         return channels
 
-    async def check_dedup(
-        self, alert_id: str, content: str
-    ) -> bool:
+    async def check_dedup(self, alert_id: str, content: str) -> bool:
         """Check if this alert was already sent (deduplication).
 
         Returns True if it's a duplicate (should skip), False if new.
         """
-        content_hash = hashlib.sha256(
-            f"{alert_id}:{content}".encode()
-        ).hexdigest()
+        content_hash = hashlib.sha256(f"{alert_id}:{content}".encode()).hexdigest()
         key = f"gateway:dedup:{content_hash}"
 
         inserted = await self._redis.set(key, "1", nx=True, ex=600)
@@ -104,9 +103,7 @@ class MessageRouter:
 
         return True
 
-    async def route(
-        self, notification: NotificationRequest
-    ) -> dict:
+    async def route(self, notification: NotificationRequest) -> dict:
         """Route a notification to appropriate channels.
 
         Returns dict with routing results.
@@ -125,7 +122,8 @@ class MessageRouter:
         if not self.check_time_control(notification.priority):
             logger.info(
                 "[Router] Time control blocked alert %s (priority=%s)",
-                notification.alert_id, notification.priority,
+                notification.alert_id,
+                notification.priority,
             )
             return {
                 "skipped": True,
@@ -134,9 +132,7 @@ class MessageRouter:
             }
 
         # 3. Resolve channels
-        channels = self.resolve_channels(
-            notification.channels, notification.priority
-        )
+        channels = self.resolve_channels(notification.channels, notification.priority)
 
         if not channels:
             return {

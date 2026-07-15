@@ -6,17 +6,16 @@ to parse. Lives in a separate file so the workflow step does not rely on a
 multi-line ``python -c`` string (whose YAML indentation leaks into the Python
 source and triggers ``IndentationError: unexpected indent``).
 """
+
 import ast
-import glob
+import contextlib
 import sys
 from pathlib import Path
 
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
-        try:
+        with contextlib.suppress(ValueError, OSError):
             stream.reconfigure(encoding="utf-8")
-        except (ValueError, OSError):
-            pass
 
 # Resolve relative to this script so the check is cwd-independent.
 REPO_ROOT = Path(__file__).resolve().parents[2]

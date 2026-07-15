@@ -1,10 +1,10 @@
 """Email Gateway - Send alert notifications via SMTP."""
+
 import asyncio
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 from .config import settings
 from .models import NotificationRequest

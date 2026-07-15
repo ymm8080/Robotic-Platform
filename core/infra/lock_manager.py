@@ -4,6 +4,7 @@ Local implementation uses threading.Lock — sufficient for single-process
 Docker Compose deployment. When migrating to K8s dual-replica, swap with
 EtcdLockManager (etcd lease-based locks) with zero code changes in consumers.
 """
+
 from __future__ import annotations
 
 import threading

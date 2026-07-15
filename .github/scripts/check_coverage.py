@@ -12,6 +12,8 @@ triggers ``IndentationError: unexpected indent``).
 Usage:
     python .github/scripts/check_coverage.py [coverage.xml] [threshold]
 """
+
+import contextlib
 import sys
 import xml.etree.ElementTree as ET
 
@@ -19,10 +21,8 @@ import xml.etree.ElementTree as ET
 # (harmless on Ubuntu CI, which is already UTF-8).
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
-        try:
+        with contextlib.suppress(ValueError, OSError):
             stream.reconfigure(encoding="utf-8")
-        except (ValueError, OSError):
-            pass
 
 DEFAULT_THRESHOLD = 0.80
 

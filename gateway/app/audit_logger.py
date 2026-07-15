@@ -7,12 +7,13 @@ Critical operations also written to WORM storage.
 Elasticsearch is optional: if ES is unavailable or not configured, logs are
 written to a local JSONL fallback file and the gateway remains operational.
 """
+
 import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from .config import settings
@@ -28,7 +29,7 @@ class AuditLogger:
     def __init__(self):
         self._es: Any = None
         self._es_available: bool = False
-        self._es_error: Optional[str] = None
+        self._es_error: str | None = None
         self._fallback_dir_created: bool = False
 
     @property
@@ -72,8 +73,13 @@ class AuditLogger:
                 "hosts": [settings.ELASTICSEARCH_URL],
                 "basic_auth": ("elastic", settings.ELASTICSEARCH_PASSWORD),
             }
-            if settings.ELASTICSEARCH_URL.startswith("https://") or os.getenv("ELASTICSEARCH_SSL", "false").lower() == "true":
-                es_kwargs["verify_certs"] = os.getenv("ELASTICSEARCH_SSL_VERIFY", "true").lower() == "true"
+            if (
+                settings.ELASTICSEARCH_URL.startswith("https://")
+                or os.getenv("ELASTICSEARCH_SSL", "false").lower() == "true"
+            ):
+                es_kwargs["verify_certs"] = (
+                    os.getenv("ELASTICSEARCH_SSL_VERIFY", "true").lower() == "true"
+                )
             self._es = AsyncElasticsearch(**es_kwargs)
             await self._ensure_index()
             self._es_available = True
@@ -179,7 +185,11 @@ class AuditLogger:
                 await self._es.index(index=index_name, document=doc)
                 logger.info(
                     "[Audit] Logged: operator=%s, action=%s, target=%s, status=%s, critical=%s",
-                    operator, action_type, target_id, status, is_critical,
+                    operator,
+                    action_type,
+                    target_id,
+                    status,
+                    is_critical,
                 )
                 return log_id
             except Exception as e:
@@ -200,9 +210,7 @@ class AuditLogger:
 
         # For critical operations, mark as immutable (WORM-like)
         if is_critical:
-            logger.info(
-                "[Audit] Critical operation logged: %s (WORM backup recommended)", log_id
-            )
+            logger.info("[Audit] Critical operation logged: %s (WORM backup recommended)", log_id)
 
         return log_id
 
@@ -251,10 +259,7 @@ class AuditLogger:
             )
 
             total = result.get("hits", {}).get("total", {}).get("value", 0)
-            hits = [
-                hit["_source"]
-                for hit in result.get("hits", {}).get("hits", [])
-            ]
+            hits = [hit["_source"] for hit in result.get("hits", {}).get("hits", [])]
 
             return {
                 "total": total,
@@ -288,9 +293,10 @@ class AuditLogger:
         MAX_LINES = 10_000
         logs = []
         if FALLBACK_PATH.exists():
-            with open(FALLBACK_PATH, "r", encoding="utf-8") as f:
+            with open(FALLBACK_PATH, encoding="utf-8") as f:
                 # Read tail efficiently for large files
                 import collections
+
                 tail = collections.deque(f, maxlen=MAX_LINES)
                 for line in tail:
                     line = line.strip()

@@ -18,6 +18,7 @@ considered (陷阱 #4: 级联延迟放大 → 滚动时域, 只排未来 5s).
 
 GitHub: rmf_task (https://github.com/open-rmf/rmf_task) — task allocation.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -33,9 +34,9 @@ class Task:
     task_id: str
     start_lane: str
     end_lane: str
-    priority: int = 0          # 0=normal, higher=urgent
+    priority: int = 0  # 0=normal, higher=urgent
     created_at: float = 0.0
-    deadline: float = 0.0      # 超时未分配 → EXPIRED (Function Spec §2.1)
+    deadline: float = 0.0  # 超时未分配 → EXPIRED (Function Spec §2.1)
     # v4.0 补丁3: 动作原语 (任务描述必须包含, 不支持则过滤)
     action_primitives: set[ActionPrimitive] = field(default_factory=lambda: {ActionPrimitive.MOVE})
     required_payload_kg: float = 0.0
@@ -98,14 +99,14 @@ class TaskAllocator:
         models = cap.supported_models or [model_of(robot)]
         if not lane.allows_any(models):
             return False
-        if not cap.can_traverse(lane.env):
-            return False
-        return True
+        return cap.can_traverse(lane.env)
 
     def utility(self, robot: FleetState, task: Task) -> float:
         """Function Spec §5.1 calculate_utility (post-filter)."""
         distance = max(self._distance(robot.pose.last_node_id, task.start_lane), 0.0)
-        distance_score = 1.0 / (1.0 + distance)  # normalized so distance and reputation are comparable
+        distance_score = 1.0 / (
+            1.0 + distance
+        )  # normalized so distance and reputation are comparable
         reputation_score = self.reputation.score(robot.robot_id)
         # RaaS cost term: γ > 0 and economic model registered → subtract cost.
         cost_score = 0.0
@@ -113,13 +114,13 @@ class TaskAllocator:
             cost_score = self.economic.marginal_cost_per_km(robot.robot_id)
 
         alpha = 1.0  # distance_weight
-        beta = 1.0   # reputation_weight
+        beta = 1.0  # reputation_weight
         gamma = self.cfg.cost_weight  # 默认 0
 
         # Higher cost lowers utility; γ controls strength.
         u = alpha * distance_score + beta * reputation_score - gamma * cost_score
         # 优先级加权: urgent 任务对同一机器人的效用放大.
-        u *= (1.0 + 0.5 * task.priority)
+        u *= 1.0 + 0.5 * task.priority
         return u
 
     def allocate(self, task: Task, candidates: list[FleetState]) -> AllocationResult:

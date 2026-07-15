@@ -4,6 +4,7 @@ Local implementation uses an in-process dict — sufficient for single-process
 Docker Compose deployment. When migrating to K8s dual-replica, swap with
 RedisStateStore (or EtcdStateStore) with zero code changes in consumers.
 """
+
 from __future__ import annotations
 
 import threading
@@ -53,6 +54,7 @@ class LocalStateStore(StateStore):
             self._data[key] = value
             if ttl > 0:
                 import time
+
                 self._expiry[key] = time.monotonic() + ttl
             else:
                 self._expiry.pop(key, None)
@@ -71,6 +73,7 @@ class LocalStateStore(StateStore):
         if key not in self._expiry:
             return
         import time
+
         if time.monotonic() > self._expiry[key]:
             self._data.pop(key, None)
             self._expiry.pop(key, None)
@@ -87,6 +90,7 @@ class RedisStateStore(StateStore):
 
     def get(self, key: str) -> Any | None:
         import json
+
         raw = self._redis.get(key)
         if raw is None:
             return None
@@ -96,6 +100,7 @@ class RedisStateStore(StateStore):
 
     def set(self, key: str, value: Any, ttl: float = 0.0) -> None:
         import json
+
         serialized = json.dumps(value, default=str)
         if ttl > 0:
             self._redis.setex(key, int(ttl), serialized)

@@ -4,6 +4,7 @@
 信誉度 = 最近 N 次 (默认30) 滚动均值, 历史衰减.
 ERR_TRAFFIC_VIOLATION → 降低信誉度 (Function Spec §3); 作弊成本 > 收益.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -15,7 +16,7 @@ from core.config import GovernanceConfig
 @dataclass
 class ReputationEntry:
     timestamp: float
-    delta: float          # +good / -bad
+    delta: float  # +good / -bad
     reason: str
 
 
@@ -34,11 +35,11 @@ class ReputationEngine:
     def record_good(self, robot_id: str, now: float, reason: str = "task_completed") -> None:
         self._bucket(robot_id).append(ReputationEntry(now, +1.0, reason))
 
-    def record_violation(self, robot_id: str, now: float, reason: str = "traffic_violation") -> None:
+    def record_violation(
+        self, robot_id: str, now: float, reason: str = "traffic_violation"
+    ) -> None:
         """闯红灯/超时 → 降低信誉度."""
-        self._bucket(robot_id).append(
-            ReputationEntry(now, -self.cfg.violation_penalty, reason)
-        )
+        self._bucket(robot_id).append(ReputationEntry(now, -self.cfg.violation_penalty, reason))
 
     def score(self, robot_id: str) -> float:
         """Normalised reputation in [0, 1]. Default 0.5 for unknown robots

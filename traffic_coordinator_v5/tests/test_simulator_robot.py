@@ -62,45 +62,53 @@ class TestSimulatedRobotBasics:
         assert robot.path == []
 
     def test_tick_moves_robot_and_drains_battery(self, robot):
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [
-                {"nodeId": "L_A_B", "sequenceId": 0, "released": True},
-            ],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [
+                    {"nodeId": "L_A_B", "sequenceId": 0, "released": True},
+                ],
+            }
+        )
         reached = robot.tick(1.0)
         assert len(reached) == 0
         assert robot.velocity == 1.0
         assert robot.battery_percent < 80.0
 
     def test_tick_reaches_end_of_lane(self, robot):
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [
-                {"nodeId": "L_A_B", "sequenceId": 0, "released": True},
-                {"nodeId": "L_B_C", "sequenceId": 1, "released": True},
-            ],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [
+                    {"nodeId": "L_A_B", "sequenceId": 0, "released": True},
+                    {"nodeId": "L_B_C", "sequenceId": 1, "released": True},
+                ],
+            }
+        )
         reached = robot.tick(10.0)
         assert "L_A_B" in reached
         assert robot.current_lane_id == "L_B_C"
 
     def test_final_lane_reached_goes_idle(self, robot):
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [
-                {"nodeId": "L_A_B", "sequenceId": 0, "released": True},
-            ],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [
+                    {"nodeId": "L_A_B", "sequenceId": 0, "released": True},
+                ],
+            }
+        )
         robot.tick(10.0)
         assert robot.mode == SimRobotMode.IDLE
         assert robot.velocity == 0.0
 
     def test_inject_error_stops_robot(self, robot):
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            }
+        )
         robot.inject_error("ERR_SENSOR_DEGRADED")
         assert robot.mode == SimRobotMode.ERROR
         assert "ERR_SENSOR_DEGRADED" in robot.errors
@@ -115,10 +123,12 @@ class TestSimulatedRobotBasics:
         assert robot.errors == []
 
     def test_hold_and_resume(self, robot):
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            }
+        )
         robot.hold()
         robot.tick(5.0)
         assert robot.velocity == 0.0
@@ -127,10 +137,12 @@ class TestSimulatedRobotBasics:
         assert robot.velocity == 1.0
 
     def test_speed_cap_clamps_velocity(self, robot):
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            }
+        )
         robot.set_speed_cap(0.3)
         robot.tick(1.0)
         assert robot.velocity == pytest.approx(0.3)

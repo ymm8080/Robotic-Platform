@@ -16,7 +16,7 @@ import sys
 
 
 def patch_flows(path):
-    with open(path, encoding='utf-8') as f:
+    with open(path, encoding="utf-8") as f:
         flows = json.load(f)
 
     patches = 0
@@ -117,7 +117,7 @@ def patch_flows(path):
         print("  (Protected by global catch node — no action needed)")
 
     # Write patched flows
-    with open(path, 'w', encoding='utf-8') as f:
+    with open(path, "w", encoding="utf-8") as f:
         if isinstance(flows, list):
             json.dump(flows, f, indent=2, ensure_ascii=False)
         else:

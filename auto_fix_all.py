@@ -145,7 +145,7 @@ class AutoFixer:
                 if method_end == -1:
                     method_end = len(content)
 
-                old_method = content[method_start:method_end]
+                content[method_start:method_end]
                 # Replace with thread-safe version
                 content = content[:method_start] + old_get_valid_token + content[method_end:]
                 changes_made.append("Implemented thread-safe get_valid_token")
@@ -510,8 +510,6 @@ class AutoFixer:
             # Find and fix the inline assignment
             pattern = r"# Not in any explicit list — use grace-period fallback\s+GRACE_POLLS = 2\s+if tid not in self\._inactive_since:\s+self\._inactive_since\[tid\] = self\._poll_count\s+logger\.info\("
             replacement = "# Not in any explicit list — use grace-period fallback\n            if tid not in self._inactive_since:\n                self._inactive_since[tid] = self._poll_count\n                logger.debug("
-
-
 
             if re.search(pattern, content, re.MULTILINE):
                 content = re.sub(pattern, replacement, content, flags=re.MULTILINE)

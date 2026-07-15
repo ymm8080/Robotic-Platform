@@ -105,19 +105,25 @@ TC_ALLOW_UNAUTHENTICATED = os.environ.get("TC_ALLOW_UNAUTHENTICATED", "0") == "1
 
 if not TC_API_KEY:
     if MODE == "PRODUCTION":
-        print("[security] FATAL: TC_API_KEY not set in PRODUCTION mode. "
-              "Set TC_API_KEY or TC_API_KEY_FILE, or run in DEMO mode.",
-              file=sys.stderr)
+        print(
+            "[security] FATAL: TC_API_KEY not set in PRODUCTION mode. "
+            "Set TC_API_KEY or TC_API_KEY_FILE, or run in DEMO mode.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     else:
         if TC_ALLOW_UNAUTHENTICATED:
-            print("[security] WARNING: TC_API_KEY not set and TC_ALLOW_UNAUTHENTICATED=1 "
-                  "— all HTTP endpoints are unauthenticated. DO NOT USE IN PRODUCTION!",
-                  file=sys.stderr)
+            print(
+                "[security] WARNING: TC_API_KEY not set and TC_ALLOW_UNAUTHENTICATED=1 "
+                "— all HTTP endpoints are unauthenticated. DO NOT USE IN PRODUCTION!",
+                file=sys.stderr,
+            )
         else:
-            print("[security] WARNING: TC_API_KEY not set — all HTTP endpoints return 401. "
-                  "Set TC_API_KEY, or set TC_ALLOW_UNAUTHENTICATED=1 for local development.",
-                  file=sys.stderr)
+            print(
+                "[security] WARNING: TC_API_KEY not set — all HTTP endpoints return 401. "
+                "Set TC_API_KEY, or set TC_ALLOW_UNAUTHENTICATED=1 for local development.",
+                file=sys.stderr,
+            )
 
 _MAX_BODY_BYTES = 1_048_576  # 1 MB
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -162,7 +168,8 @@ def _on_mqtt_inbound(msg: InboundMessage) -> None:
     except Exception:
         _logger.exception(
             "Failed to ingest MQTT uplink from brand=%s robot=%s",
-            msg.brand, msg.raw.get("robotId", "?"),
+            msg.brand,
+            msg.raw.get("robotId", "?"),
         )
 
 
@@ -171,16 +178,12 @@ def _publish_tick_result(result) -> None:
     for robot_id, assignment in result.assignments:
         adapter = COORDINATOR._robot_adapter.get(robot_id)
         brand = adapter.brand if adapter is not None else "generic"
-        MQTT_GATEWAY.send(
-            OutboundEnvelope(robot_id=robot_id, brand=brand, assignment=assignment)
-        )
+        MQTT_GATEWAY.send(OutboundEnvelope(robot_id=robot_id, brand=brand, assignment=assignment))
 
     for cmd in result.commands:
         adapter = COORDINATOR._robot_adapter.get(cmd.robot_id)
         brand = adapter.brand if adapter is not None else "generic"
-        MQTT_GATEWAY.send(
-            OutboundEnvelope(robot_id=cmd.robot_id, brand=brand, command=cmd)
-        )
+        MQTT_GATEWAY.send(OutboundEnvelope(robot_id=cmd.robot_id, brand=brand, command=cmd))
 
 
 def _background_tick(stop_event: threading.Event) -> None:
@@ -193,7 +196,8 @@ def _background_tick(stop_event: threading.Event) -> None:
     # Local executor — no underscore prefix since this is a function-local
     # variable, not a module-level private name.
     snap_executor = concurrent.futures.ThreadPoolExecutor(
-        max_workers=1, thread_name_prefix="snapshot",
+        max_workers=1,
+        thread_name_prefix="snapshot",
     )
     try:
         while not stop_event.is_set():
@@ -307,7 +311,9 @@ if MQTT_ENABLED:
     _TICK_THREAD.start()
     _logger.info(
         "[mqtt] gateway started — broker=%s:%d, tick_interval=%ss",
-        MQTT_BROKER_HOST, MQTT_BROKER_PORT, TICK_INTERVAL,
+        MQTT_BROKER_HOST,
+        MQTT_BROKER_PORT,
+        TICK_INTERVAL,
     )
 else:
     _logger.info("[mqtt] gateway disabled (MQTT_ENABLED=0)")
@@ -401,9 +407,7 @@ class Handler(BaseHTTPRequestHandler):
                     "recently_completed": [
                         [tid, ts] for tid, ts in COORDINATOR._recently_completed
                     ],
-                    "recently_failed": [
-                        [tid, ts] for tid, ts in COORDINATOR._recently_failed
-                    ],
+                    "recently_failed": [[tid, ts] for tid, ts in COORDINATOR._recently_failed],
                 },
             )
         elif path == "/metrics":
@@ -556,7 +560,14 @@ class Handler(BaseHTTPRequestHandler):
                 completed = COORDINATOR.report_progress(robot_id, reached_lane, now)
                 result = COORDINATOR.tick(now)
                 _publish_tick_result(result)
-                self._json(200, {"robot_id": robot_id, "reached_lane": reached_lane, "assignment_completed": completed})
+                self._json(
+                    200,
+                    {
+                        "robot_id": robot_id,
+                        "reached_lane": reached_lane,
+                        "assignment_completed": completed,
+                    },
+                )
                 return
 
         if path.startswith("/lane/") and path.endswith("/block"):

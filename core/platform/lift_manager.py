@@ -4,13 +4,14 @@ Open-RMF's rmf_fleet_adapter handles lifts via the Door/Lift resource
 negotiation. v5.0 simplifies to a single-occupancy reservation with a
 timeout (灰犀牛 #2 僵尸占位 applies: 30s hold → release).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class LiftState(str, Enum):
+class LiftState(StrEnum):
     IDLE = "IDLE"
     MOVING = "MOVING"
     OCCUPIED = "OCCUPIED"

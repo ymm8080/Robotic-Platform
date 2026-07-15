@@ -4,6 +4,7 @@
 作弊成本 > 收益 (灰犀牛 #10): reputation slippage raises marginal cost,
 so a cheating fleet operator pays more per km over time.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ class RobotCostProfile:
 
     robot_id: str
     base_cost_per_km: float = 0.0
-    battery_wear: float = 0.0   # wear cost per km scaled by battery age
+    battery_wear: float = 0.0  # wear cost per km scaled by battery age
 
 
 class EconomicModel:

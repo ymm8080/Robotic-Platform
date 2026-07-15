@@ -1,6 +1,7 @@
 """Tests for the v4.0 red-team adjustments: capability filtering, dynamic
 obstacle cross-validation, deadlock break, 5s behavior timeout, open-loop
 retreat, failover degrade semantics, unsafe speed cap."""
+
 from __future__ import annotations
 
 from core.adapter.fleet_adapter import FleetAdapter
@@ -38,7 +39,8 @@ def _robot(
         pose=Pose(x=0.0, y=0.0, last_node_id="A"),
         battery_percent=80.0,
         mode=mode,
-        capability=cap or CapabilityVector(
+        capability=cap
+        or CapabilityVector(
             payload_kg=50.0,
             max_speed=1.5,
             action_primitives={ActionPrimitive.MOVE},
@@ -70,9 +72,16 @@ def test_allocator_filters_by_action_primitive():
 def test_allocator_filters_by_env_constraint():
     rep = ReputationEngine()
     fmap = FixedLaneMap()
-    fmap.add_lane(Lane("L_A", "A", "B", length=5.0, env=EnvConstraints(max_grade=0.2, floor_threshold=0.05)))
+    fmap.add_lane(
+        Lane("L_A", "A", "B", length=5.0, env=EnvConstraints(max_grade=0.2, floor_threshold=0.05))
+    )
     alloc = TaskAllocator(rep, lane_lookup=fmap.lane)
-    flat_bot = _robot("R1", cap=CapabilityVector(payload_kg=50.0, action_primitives={ActionPrimitive.MOVE}, env=EnvConstraints()))
+    flat_bot = _robot(
+        "R1",
+        cap=CapabilityVector(
+            payload_kg=50.0, action_primitives={ActionPrimitive.MOVE}, env=EnvConstraints()
+        ),
+    )
     climber = _robot(
         "R2",
         cap=CapabilityVector(
@@ -132,7 +141,9 @@ def test_obstacle_confidence_decay_erases():
 def test_robot_footprint_rectangle_collision():
     fmap = FixedLaneMap()
     rob = RobotAsObstacle(fmap)
-    rob.update("R1", x=0.0, y=0.0, theta=0.0, velocity=0.0, rtt=0.0, half_length=0.4, half_width=0.3)
+    rob.update(
+        "R1", x=0.0, y=0.0, theta=0.0, velocity=0.0, rtt=0.0, half_length=0.4, half_width=0.3
+    )
     # inside the body
     assert rob.collides(0.2, 0.1) == "R1"
     # outside body + corridor

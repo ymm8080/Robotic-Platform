@@ -8,6 +8,7 @@
 - All ERR_* events, E-Stops, manual interventions, boot takeovers and
   shadow mismatches are written here; this is the legal evidence trail.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -23,9 +24,9 @@ from core.config import WormConfig
 @dataclass
 class WormRecord:
     timestamp: float
-    category: str        # "EVENT" | "ERROR" | "ESTOP" | "MANUAL" | "BOOT" | "MISMATCH"
+    category: str  # "EVENT" | "ERROR" | "ESTOP" | "MANUAL" | "BOOT" | "MISMATCH"
     robot_id: str
-    payload: dict        # structured cause context
+    payload: dict  # structured cause context
     prev_hash: str = ""
     hash: str = ""
 
@@ -100,11 +101,14 @@ class WormBlackbox:
     def replay(self, robot_id: str | None = None, since: float = 0.0) -> list[WormRecord]:
         """因果链回放 — Playback一键导出故障前后30秒上下文 (Runbook §5)."""
         return [
-            r for r in self._records
+            r
+            for r in self._records
             if r.timestamp >= since and (robot_id is None or r.robot_id == robot_id)
         ]
 
-    def replay_recent(self, duration_seconds: float, robot_id: str | None = None, now: float | None = None) -> list[WormRecord]:
+    def replay_recent(
+        self, duration_seconds: float, robot_id: str | None = None, now: float | None = None
+    ) -> list[WormRecord]:
         """Convenience: replay from monotonic time minus ``duration_seconds``.
 
         Uses ``time.monotonic()`` (same clock as WORM record timestamps) so the
@@ -112,6 +116,7 @@ class WormBlackbox:
         reference time in tests.
         """
         import time as _time
+
         if now is None:
             now = _time.monotonic()
         since = now - duration_seconds
@@ -197,11 +202,10 @@ class WormBlackbox:
                 self._sink_failed = True
                 rec.payload = dict(rec.payload, **{"worm_sink_fallback": True})
                 import sys
+
                 print(
                     f"[WORM] DEMO mode: sink failed, falling back to in-memory \u2014 {ctx}",
                     file=sys.stderr,
                 )
                 return
-            raise RuntimeError(
-                f"WORM sink write failed in {self._mode} mode: {ctx}"
-            ) from exc
+            raise RuntimeError(f"WORM sink write failed in {self._mode} mode: {ctx}") from exc

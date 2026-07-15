@@ -1,4 +1,5 @@
 """Tests for the v5.0 core scheduling + safety modules."""
+
 from __future__ import annotations
 
 from core.config import TrafficConfig
@@ -93,15 +94,13 @@ def _robot(rid: str, node: str = "A") -> object:
         pose=Pose(x=0.0, y=0.0, last_node_id=node),
         battery_percent=80.0,
         mode=RobotMode.IDLE,
-        capability=CapabilityVector(
-            payload_kg=50.0, action_primitives={ActionPrimitive.MOVE}
-        ),
+        capability=CapabilityVector(payload_kg=50.0, action_primitives={ActionPrimitive.MOVE}),
     )
 
 
 def test_allocator_picks_idle_with_best_utility():
     rep = ReputationEngine()
-    rep.record_good("R1", 0.0)   # R1 has good reputation
+    rep.record_good("R1", 0.0)  # R1 has good reputation
     rep.record_violation("R2", 0.0)  # R2 penalised
     alloc = TaskAllocator(rep, distance_fn=lambda a, b: 1.0)
     task = Task(task_id="T1", start_lane="A", end_lane="B")

@@ -32,7 +32,9 @@ class LaneGraph:
     # Metres between disconnected components in the BFS layout.
     COMPONENT_SPACING = 50.0
 
-    def __init__(self, fmap: FixedLaneMap, node_positions: dict[str, tuple[float, float]] | None = None) -> None:
+    def __init__(
+        self, fmap: FixedLaneMap, node_positions: dict[str, tuple[float, float]] | None = None
+    ) -> None:
         self._fmap = fmap
         self._positions = node_positions or {}
         if not self._positions and fmap.all_lanes():
@@ -142,10 +144,7 @@ class LaneGraph:
                 if not children:
                     continue
                 span = math.pi / 3.0
-                if len(children) == 1:
-                    start_angle = parent_angle
-                else:
-                    start_angle = parent_angle - span / 2.0
+                start_angle = parent_angle if len(children) == 1 else parent_angle - span / 2.0
                 step = span / (len(children) - 1) if len(children) > 1 else 0.0
                 for idx, lane in enumerate(children):
                     child = lane.to_node

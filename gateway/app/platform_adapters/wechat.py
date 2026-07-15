@@ -1,9 +1,9 @@
 """WeChat (企业微信) platform adapter."""
+
 import hashlib
 import hmac
 import json
 import logging
-from typing import Any, Optional
 
 import httpx
 
@@ -21,7 +21,7 @@ class WeChatAdapter:
     MESSAGE_URL = f"{BASE_URL}/message/send"
 
     def __init__(self):
-        self._http: Optional[httpx.AsyncClient] = None
+        self._http: httpx.AsyncClient | None = None
         self._access_token: str = ""
         self._token_expires: int = 0
 
@@ -35,6 +35,7 @@ class WeChatAdapter:
     async def _get_access_token(self) -> str:
         """Fetch and cache access token with HTTP/JSON error handling."""
         import time
+
         if self._access_token and time.time() < self._token_expires - 60:
             return self._access_token
 
@@ -60,9 +61,7 @@ class WeChatAdapter:
         self._token_expires = int(time.time()) + data.get("expires_in", 7200)
         return self._access_token
 
-    async def send_message(
-        self, card_payload: dict, recipients: list[str]
-    ) -> dict:
+    async def send_message(self, card_payload: dict, recipients: list[str]) -> dict:
         """Send a card message to specified users."""
         token = await self._get_access_token()
         if not token:
@@ -75,9 +74,7 @@ class WeChatAdapter:
             "touser": touser,
             "msgtype": card_payload.get("msgtype", "template_card"),
             "agentid": settings.WECOM_AGENT_ID,
-            card_payload.get("msgtype", "template_card"): card_payload.get(
-                "template_card", {}
-            ),
+            card_payload.get("msgtype", "template_card"): card_payload.get("template_card", {}),
         }
 
         try:
@@ -124,13 +121,13 @@ class WeChatAdapter:
 
         return hmac.compare_digest(computed, signature)
 
-    def parse_callback(self, raw_body: dict) -> Optional[PlatformCallback]:
+    def parse_callback(self, raw_body: dict) -> PlatformCallback | None:
         """Parse WeChat callback into unified format."""
         try:
             event_type = raw_body.get("EventType", "")
             if event_type == "template_card_event":
                 task_id = raw_body.get("TaskId", "")
-                button_key = raw_body.get("TaskId", "")
+                raw_body.get("TaskId", "")
                 # The button value contains the action data
                 selected_items = raw_body.get("SelectedItems", [])
                 if selected_items:

@@ -9,6 +9,7 @@ Usage::
     adapter = create_mir_adapter()
     coordinator.register_adapter(adapter)
 """
+
 from __future__ import annotations
 
 from core.adapter.brands.geekplus_adapter import create_geekplus_adapter

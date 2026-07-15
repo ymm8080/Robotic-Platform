@@ -14,6 +14,7 @@ Usage:
 TEST_TIMEOUT prefix: prepend to any order_id/robot_id to inject artificial delay
   e.g., "TEST_TIMEOUT_5000_R001" delays response by 5000ms
 """
+
 import asyncio
 import logging
 import os
@@ -30,9 +31,9 @@ logger = logging.getLogger("wcs-sandbox")
 app = FastAPI(title="WCS Shadow Sandbox", version="1.0.0", docs_url="/docs")
 
 # ── In-memory state ─────────────────────────────────────────────────────────
-zone_locks: dict[str, dict] = {}         # zone_id → {robot_id, brand, zone_token, acquired_at}
-task_callbacks: list[dict] = []           # historical callback log
-brand_behaviors: dict[str, dict] = {}     # brand → config overrides
+zone_locks: dict[str, dict] = {}  # zone_id → {robot_id, brand, zone_token, acquired_at}
+task_callbacks: list[dict] = []  # historical callback log
+brand_behaviors: dict[str, dict] = {}  # brand → config overrides
 
 DEFAULT_BEHAVIORS = {
     "geekplus": {
@@ -58,6 +59,7 @@ DEFAULT_BEHAVIORS = {
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+
 async def _check_test_timeout(identifier: str):
     """If identifier starts with TEST_TIMEOUT_N, await N ms."""
     if identifier and identifier.startswith("TEST_TIMEOUT_"):
@@ -78,6 +80,7 @@ def _make_response(success: bool, data: dict = None, error: str = None) -> dict:
 
 
 # ── Models ──────────────────────────────────────────────────────────────────
+
 
 class ZoneLockRequest(BaseModel):
     zone_id: str = Field(..., description="Zone identifier (e.g., CROSS_01)")
@@ -103,6 +106,7 @@ class BrandConfigRequest(BaseModel):
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
+
 @app.get("/health")
 async def health():
     """Health check."""
@@ -110,6 +114,7 @@ async def health():
 
 
 # ── Zone Lock API (WCS must support per §供应商主权铁律) ────────────────────
+
 
 @app.post("/api/zone_lock")
 async def acquire_zone_lock(req: ZoneLockRequest):
@@ -146,11 +151,15 @@ async def acquire_zone_lock(req: ZoneLockRequest):
         # Different robot — locked
         return JSONResponse(
             status_code=423,
-            content=_make_response(False, data={
-                "locked_by": existing["robot_id"],
-                "locked_brand": existing["brand"],
-                "acquired_at": existing.get("acquired_at"),
-            }, error=f"Zone {req.zone_id} locked by {existing['robot_id']}"),
+            content=_make_response(
+                False,
+                data={
+                    "locked_by": existing["robot_id"],
+                    "locked_brand": existing["brand"],
+                    "acquired_at": existing.get("acquired_at"),
+                },
+                error=f"Zone {req.zone_id} locked by {existing['robot_id']}",
+            ),
         )
 
     # Acquire
@@ -193,16 +202,20 @@ async def get_zone_lock(zone_id: str):
     lock = zone_locks.get(zone_id)
     if not lock:
         return _make_response(False, data={"zone_id": zone_id, "locked": False})
-    return _make_response(True, data={
-        "zone_id": zone_id,
-        "locked": True,
-        "robot_id": lock["robot_id"],
-        "brand": lock["brand"],
-        "acquired_at": lock.get("acquired_at"),
-    })
+    return _make_response(
+        True,
+        data={
+            "zone_id": zone_id,
+            "locked": True,
+            "robot_id": lock["robot_id"],
+            "brand": lock["brand"],
+            "acquired_at": lock.get("acquired_at"),
+        },
+    )
 
 
 # ── Task Callback API (标准化契约 §1) ──────────────────────────────────────
+
 
 @app.post("/api/wcs/task_callback")
 async def task_callback(req: TaskStatusRequest):
@@ -240,6 +253,7 @@ async def list_callbacks(limit: int = 50):
 
 # ── Brand Behavior Configuration ─────────────────────────────────────────────
 
+
 @app.post("/api/admin/brand/{brand}/configure")
 async def configure_brand(brand: str, config: BrandConfigRequest):
     """Override default behavior for a specific brand (for testing edge cases)."""
@@ -267,6 +281,7 @@ async def deviation_log():
 
 
 # ── Zone Lock Stress Test ───────────────────────────────────────────────────
+
 
 @app.get("/api/admin/stress-test")
 async def stress_test(count: int = 100, brand: str = "geekplus"):

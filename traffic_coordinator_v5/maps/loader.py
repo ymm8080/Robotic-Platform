@@ -4,6 +4,7 @@ Parses a v5.0 facility_map.yaml into a ``FixedLaneMap`` plus registration
 lists for intersections, chargers, and lifts.  The caller (traffic coordinator
 main or bootstrap) feeds these into the ``RobotPlatformCoordinator``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -55,15 +56,10 @@ def load_facility_map(path: str | Path | None = None) -> FacilityMap:
     If *path* is None, the default ``facility_map.yaml`` next to this module
     is used.
     """
-    if path is None:
-        path = Path(__file__).resolve().parent / "facility_map.yaml"
-    else:
-        path = Path(path)
+    path = Path(__file__).resolve().parent / "facility_map.yaml" if path is None else Path(path)
 
     if not path.is_file():
-        return FacilityMap(
-            warnings=[f"map file not found: {path}"]
-        )
+        return FacilityMap(warnings=[f"map file not found: {path}"])
 
     with open(path, encoding="utf-8") as fh:
         raw: dict[str, Any] = yaml.safe_load(fh) or {}
@@ -92,14 +88,14 @@ def load_facility_map(path: str | Path | None = None) -> FacilityMap:
                 charger=bool(entry.get("charger", False)),
                 lift_id=str(entry["lift_id"]) if entry.get("lift_id") else None,
                 floor=int(entry["floor"]) if entry.get("floor") is not None else None,
-                intersection_id=str(entry["intersection_id"]) if entry.get("intersection_id") else None,
+                intersection_id=str(entry["intersection_id"])
+                if entry.get("intersection_id")
+                else None,
                 direction=int(entry.get("direction", 0)),
             )
             result.fmap.add_lane(lane)
         except (KeyError, ValueError, TypeError) as exc:
-            result.warnings.append(
-                f"skipping lane {entry.get('lane_id', entry)}: {exc}"
-            )
+            result.warnings.append(f"skipping lane {entry.get('lane_id', entry)}: {exc}")
 
     # ── parse intersections ───────────────────────────────────────
     for entry in raw.get("intersections", []) or []:
@@ -120,11 +116,13 @@ def load_facility_map(path: str | Path | None = None) -> FacilityMap:
     # ── parse lifts ───────────────────────────────────────────────
     for entry in raw.get("lifts", []) or []:
         try:
-            result.lift_ids.append({
-                "id": str(entry["id"]),
-                "lanes": [str(l) for l in entry.get("lanes", []) or []],
-                "floors": [int(f) for f in entry.get("floors", []) or []],
-            })
+            result.lift_ids.append(
+                {
+                    "id": str(entry["id"]),
+                    "lanes": [str(l) for l in entry.get("lanes", []) or []],
+                    "floors": [int(f) for f in entry.get("floors", []) or []],
+                }
+            )
         except (KeyError, TypeError) as exc:
             result.warnings.append(f"skipping lift {entry}: {exc}")
 

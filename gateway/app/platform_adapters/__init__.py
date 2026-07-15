@@ -1,6 +1,7 @@
 """Platform adapters package."""
-from .wechat import WeChatAdapter
-from .feishu import FeishuAdapter
+
 from .dingtalk import DingTalkAdapter
+from .feishu import FeishuAdapter
+from .wechat import WeChatAdapter
 
 __all__ = ["WeChatAdapter", "FeishuAdapter", "DingTalkAdapter"]

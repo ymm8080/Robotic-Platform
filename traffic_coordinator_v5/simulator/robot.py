@@ -22,14 +22,14 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 from traffic_coordinator_v5.simulator.map import LaneGraph
 
 logger = logging.getLogger(__name__)
 
 
-class SimRobotMode(str, Enum):
+class SimRobotMode(StrEnum):
     """Simulator-side robot mode names (match ``RobotMode`` enum names)."""
 
     IDLE = "IDLE"
@@ -42,13 +42,13 @@ class SimRobotMode(str, Enum):
 class RobotConfig:
     """Physical constants for one simulated robot."""
 
-    max_speed: float = 1.0              # m/s
+    max_speed: float = 1.0  # m/s
     battery_drain_per_metre: float = 0.5  # % per metre while TASKING
     battery_charge_per_second: float = 5.0  # % per second while CHARGING
-    charger_threshold: float = 20.0     # % — coordinator force-lock boundary
+    charger_threshold: float = 20.0  # % — coordinator force-lock boundary
     charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)
-    tick_guard_multiplier: int = 2      # multiplier for path-length-based guard limit
-    tick_guard_floor: int = 1000        # minimum guard limit for tick loop
+    tick_guard_multiplier: int = 2  # multiplier for path-length-based guard limit
+    tick_guard_floor: int = 1000  # minimum guard limit for tick loop
 
 
 @dataclass
@@ -70,12 +70,14 @@ class SimulatedRobot:
     mode: SimRobotMode = SimRobotMode.IDLE
     velocity: float = 0.0
     errors: list[str] = field(default_factory=list)
-    sensor_health: dict[str, str] = field(default_factory=lambda: {
-        "velocity_sensor": "HEALTHY",
-        "lidar": "HEALTHY",
-        "camera": "HEALTHY",
-        "time_sync": "HEALTHY",
-    })
+    sensor_health: dict[str, str] = field(
+        default_factory=lambda: {
+            "velocity_sensor": "HEALTHY",
+            "lidar": "HEALTHY",
+            "camera": "HEALTHY",
+            "time_sync": "HEALTHY",
+        }
+    )
     speed_cap: float = float("inf")
     held: bool = False
     boot_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -141,7 +143,9 @@ class SimulatedRobot:
         """
         if self.mode == SimRobotMode.CHARGING:
             self.mode = SimRobotMode.IDLE
-            logger.info("Robot %s force-stopped charging at %.1f%%", self.robot_id, self.battery_percent)
+            logger.info(
+                "Robot %s force-stopped charging at %.1f%%", self.robot_id, self.battery_percent
+            )
 
     def hold(self, reason: str = "HOLD") -> None:
         """Pause motion (e.g. red traffic light / coordinator HOLD)."""
@@ -217,10 +221,11 @@ class SimulatedRobot:
             _guard -= 1
             if _guard <= 0:
                 logger.warning(
-                    "Robot %s hit guard limit in tick; "
-                    "path_index=%d/%d, step_distance=%.6f",
+                    "Robot %s hit guard limit in tick; path_index=%d/%d, step_distance=%.6f",
                     self.robot_id,
-                    self._path_index, len(self._path), step_distance,
+                    self._path_index,
+                    len(self._path),
+                    step_distance,
                 )
                 break
             lane_id = self._path[self._path_index]
@@ -346,5 +351,6 @@ class SimulatedRobot:
         includes the actual millisecond component (not a hardcoded zero).
         """
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc)
         return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"

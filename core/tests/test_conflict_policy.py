@@ -1,4 +1,5 @@
 """Tests for brand conflict-tier degradation (v7 Phase 4 task 2)."""
+
 from __future__ import annotations
 
 import pytest

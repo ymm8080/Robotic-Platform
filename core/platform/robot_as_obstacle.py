@@ -11,6 +11,7 @@
 GitHub: multi_object_tracking_lidar (https://github.com/yzrobot/multi_object_tracking_lidar)
         — 外部感知可选增强 (CCTV/独立激光雷达站), 非强制.
 """
+
 from __future__ import annotations
 
 import math
@@ -27,10 +28,10 @@ class Footprint:
     robot_id: str
     x: float
     y: float
-    theta: float            # 朝向 (rad)
-    half_length: float      # 车体半长
-    half_width: float       # 车体半宽
-    corridor: float = 0.0   # 安全走廊半径 (safe distance), 用于碰撞粗判
+    theta: float  # 朝向 (rad)
+    half_length: float  # 车体半长
+    half_width: float  # 车体半宽
+    corridor: float = 0.0  # 安全走廊半径 (safe distance), 用于碰撞粗判
 
     def contains(self, x: float, y: float) -> bool:
         """点是否落入长方体 (含安全走廊). 先粗判走廊圆, 再精判旋转矩形."""
@@ -41,7 +42,10 @@ class Footprint:
         c, s = math.cos(-self.theta), math.sin(-self.theta)
         lx = c * dx - s * dy
         ly = s * dx + c * dy
-        return abs(lx) <= self.half_length + self.corridor and abs(ly) <= self.half_width + self.corridor
+        return (
+            abs(lx) <= self.half_length + self.corridor
+            and abs(ly) <= self.half_width + self.corridor
+        )
 
 
 class RobotAsObstacle:
@@ -57,18 +61,17 @@ class RobotAsObstacle:
         collision_margin: float | None = None,
     ) -> None:
         """Args:
-            fmap: the fixed lane map.
-            safe_distance: calculator for safety corridors.
-            collision_margin: physical body overlap tolerance (metres) used
-                by ``overlapping_pairs`` to decide when to issue emergency
-                HOLD commands. Defaults to ``DEFAULT_COLLISION_MARGIN`` (0.05 m).
-                Increase for more conservative collision detection.
+        fmap: the fixed lane map.
+        safe_distance: calculator for safety corridors.
+        collision_margin: physical body overlap tolerance (metres) used
+            by ``overlapping_pairs`` to decide when to issue emergency
+            HOLD commands. Defaults to ``DEFAULT_COLLISION_MARGIN`` (0.05 m).
+            Increase for more conservative collision detection.
         """
         self.fmap = fmap
         self.safe_distance = safe_distance or SafeDistanceCalculator()
         self.collision_margin = (
-            collision_margin if collision_margin is not None
-            else self.DEFAULT_COLLISION_MARGIN
+            collision_margin if collision_margin is not None else self.DEFAULT_COLLISION_MARGIN
         )
         self._footprints: dict[str, Footprint] = {}
 
@@ -86,8 +89,13 @@ class RobotAsObstacle:
         """Recompute a robot's footprint + safety corridor from live pose."""
         corridor = self.safe_distance.compute(velocity, rtt).applied
         fp = Footprint(
-            robot_id=robot_id, x=x, y=y, theta=theta,
-            half_length=half_length, half_width=half_width, corridor=corridor,
+            robot_id=robot_id,
+            x=x,
+            y=y,
+            theta=theta,
+            half_length=half_length,
+            half_width=half_width,
+            corridor=corridor,
         )
         self._footprints[robot_id] = fp
         return fp
@@ -95,8 +103,13 @@ class RobotAsObstacle:
     def mark_manual(self, robot_id: str, x: float, y: float) -> None:
         """SOP-YELLOW: mark a degraded robot as a fixed 1.5 m virtual wall."""
         fp = Footprint(
-            robot_id=robot_id, x=x, y=y, theta=0.0,
-            half_length=0.0, half_width=0.0, corridor=self.MANUAL_WALL_RADIUS,
+            robot_id=robot_id,
+            x=x,
+            y=y,
+            theta=0.0,
+            half_length=0.0,
+            half_width=0.0,
+            corridor=self.MANUAL_WALL_RADIUS,
         )
         self._footprints[robot_id] = fp
         self.fmap.add_virtual_wall(x, y, self.MANUAL_WALL_RADIUS)
@@ -139,6 +152,7 @@ class RobotAsObstacle:
 
         The tolerance is configurable via ``self.collision_margin``.
         """
+
         def _margin(fp: Footprint) -> float:
             # Design decision: virtual walls (half_length == half_width == 0)
             # use their full `corridor` as the collision radius because they

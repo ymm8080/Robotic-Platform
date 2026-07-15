@@ -1,9 +1,11 @@
 """Tests for the Message Router."""
+
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch
 
 from gateway.app.message_router import MessageRouter
-from gateway.app.models import NotificationRequest, Priority, ActionType, Target, TargetType
+from gateway.app.models import ActionType, NotificationRequest, Priority, Target, TargetType
 
 
 @pytest.fixture
@@ -17,6 +19,7 @@ def test_resolve_channels_with_specific_request(router):
     """Specific channel requests should filter by enabled."""
     # Mock settings
     import gateway.app.config as config
+
     original = config.settings.enabled_channels
     config.settings.__class__.enabled_channels = property(lambda self: ["wechat", "feishu"])
 
@@ -30,6 +33,7 @@ def test_resolve_channels_with_specific_request(router):
 def test_resolve_channels_priority_default(router):
     """Without specific channels, use priority-based defaults."""
     import gateway.app.config as config
+
     original = config.settings.enabled_channels
     config.settings.__class__.enabled_channels = property(
         lambda self: ["wechat", "feishu", "dingtalk", "email"]

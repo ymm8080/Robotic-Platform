@@ -1,11 +1,11 @@
 """DingTalk (钉钉) platform adapter."""
+
 import base64
 import hashlib
 import hmac
 import json
 import logging
 import time
-from typing import Any, Optional
 
 import httpx
 
@@ -23,7 +23,7 @@ class DingTalkAdapter:
     MESSAGE_URL = f"{BASE_URL}/topapi/message/corpconversation/asyncsend_v2"
 
     def __init__(self):
-        self._http: Optional[httpx.AsyncClient] = None
+        self._http: httpx.AsyncClient | None = None
         self._access_token: str = ""
         self._token_expires: int = 0
 
@@ -61,9 +61,7 @@ class DingTalkAdapter:
         self._token_expires = time.time() + data.get("expires_in", 7200)
         return self._access_token
 
-    async def send_message(
-        self, card_payload: dict, recipients: list[str]
-    ) -> dict:
+    async def send_message(self, card_payload: dict, recipients: list[str]) -> dict:
         """Send an action_card message to specified users."""
         token = await self._get_access_token()
         if not token:
@@ -106,9 +104,7 @@ class DingTalkAdapter:
             logger.error("[DingTalk] Non-JSON response: %s", e)
             return {"status": "failed", "message_id": None, "error": "non_json_response"}
 
-    def verify_sign(
-        self, timestamp: str, sign: str, secret: str = ""
-    ) -> bool:
+    def verify_sign(self, timestamp: str, sign: str, secret: str = "") -> bool:
         """Verify DingTalk callback signature (HMAC-SHA256).
 
         DingTalk uses HMAC-SHA256 with the robot's signing secret.
@@ -128,13 +124,14 @@ class DingTalkAdapter:
 
         return hmac.compare_digest(computed, sign)
 
-    def parse_callback(self, body: dict) -> Optional[PlatformCallback]:
+    def parse_callback(self, body: dict) -> PlatformCallback | None:
         """Parse DingTalk callback into unified format."""
         try:
             # DingTalk action card callback
             action_url = body.get("action_url", "")
             # Parse action from URL query params
-            from urllib.parse import urlparse, parse_qs
+            from urllib.parse import parse_qs, urlparse
+
             parsed = urlparse(action_url)
             params = parse_qs(parsed.query)
 

@@ -4,6 +4,7 @@ A minimal in-memory metrics registry.  In production this is exported to
 Prometheus / OpenTelemetry by the gateway; the coordinator only updates
 counters and gauges.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -37,6 +38,7 @@ class CoreMetrics:
     def snapshot(self) -> MetricsSnapshot:
         """Return a copy of current metrics (cheap; useful for dashboards)."""
         from dataclasses import replace
+
         return replace(self._snap)
 
     def reset(self) -> None:

@@ -25,7 +25,7 @@ PASS = "\033[92mPASS\033[0m"
 
 def audit_flows(flow_path: str) -> dict:
     """Audit a Node-RED flows.json for common issues."""
-    with open(flow_path, encoding='utf-8') as f:
+    with open(flow_path, encoding="utf-8") as f:
         data = json.load(f)
 
     flows = data if isinstance(data, list) else data.get("flows", [])
@@ -84,8 +84,7 @@ def audit_flows(flow_path: str) -> dict:
         # 3. Check for missing error handlers on function/template nodes
         if ntype in ("function", "template", "exec", "http request"):
             has_catch = any(
-                n.get("type") == "catch" and nid in str(n.get("wires", []))
-                for n in flows
+                n.get("type") == "catch" and nid in str(n.get("wires", [])) for n in flows
             )
             if not has_catch:
                 issues["warnings"].append(

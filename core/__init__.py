@@ -22,6 +22,7 @@ The scheduling patterns (Task Allocator / Traffic Light Controller /
 Facility Manager) follow Open-RMF (https://github.com/open-rmf/rmf) concepts,
 adapted to the fixed-lane + signal-light "降维打击" strategy of v5.0.
 """
+
 from __future__ import annotations
 
 __version__ = "5.0.0"

@@ -8,6 +8,7 @@ but are stripped down to the v5.0 "固定车道 + 路口信号灯" strategy:
 no dynamic replanning, no trajectory extrapolation, no elastic time-window
 renegotiation (白皮书 §2.1 降维打击).
 """
+
 from __future__ import annotations
 
 from core.scheduling.facility_manager import FacilityManager, ZoneState

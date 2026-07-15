@@ -11,6 +11,7 @@ map.  The sequencer enforces:
 This gives the upper-layer WMS/ERP a single entry point while the scheduler
 still works with brand-agnostic ``Task`` objects.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -73,10 +74,7 @@ class OrderSequencer:
             move_path = self.fmap.shortest_path(start, goal)
 
         for idx, action in enumerate(order.actions):
-            if action is ActionPrimitive.MOVE and move_path:
-                path = move_path
-            else:
-                path = [start, goal]
+            path = move_path if action is ActionPrimitive.MOVE and move_path else [start, goal]
             task_id = f"{order.order_id}-{idx}"
             tasks.append(
                 Task(

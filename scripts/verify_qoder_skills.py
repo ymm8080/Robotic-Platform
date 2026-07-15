@@ -15,8 +15,8 @@ REQUIRED_SKILLS = {
             "X-CSRF-Token",
             "$filter",
             "exponential backoff",
-            "async"
-        ]
+            "async",
+        ],
     },
     "VDA5050_State_Machine.md": {
         "name": "VDA5050 State Machine",
@@ -27,8 +27,8 @@ REQUIRED_SKILLS = {
             "Fault",
             "Charging",
             "heartbeat",
-            "low-battery"
-        ]
+            "low-battery",
+        ],
     },
     "Async_Retry_Tester.md": {
         "name": "Async Retry Tester",
@@ -38,10 +38,11 @@ REQUIRED_SKILLS = {
             "mock",
             "timeout",
             "exponential backoff",
-            "retry"
-        ]
-    }
+            "retry",
+        ],
+    },
 }
+
 
 def verify_skills():
     """Verify all required skills exist and contain required content."""
@@ -69,11 +70,11 @@ def verify_skills():
         print("  ✓ File exists")
 
         # Read file content
-        content = skill_path.read_text(encoding='utf-8')
+        content = skill_path.read_text(encoding="utf-8")
 
         # Check for required keywords
         missing_keywords = []
-        for keyword in skill_info['required_keywords']:
+        for keyword in skill_info["required_keywords"]:
             if keyword.lower() not in content.lower():
                 missing_keywords.append(keyword)
 
@@ -103,6 +104,7 @@ def verify_skills():
     print("=" * 70)
 
     return all_passed
+
 
 if __name__ == "__main__":
     success = verify_skills()
