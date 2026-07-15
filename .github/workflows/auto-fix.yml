@@ -30,6 +30,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || github.token }}
+          # submodules: false — sap-ewm-mcp-servers is a broken gitlink
+          # (mode 160000, no .gitmodules entry). Checkout fails without this.
           submodules: false
 
       - name: Resolve PR info
@@ -94,13 +96,17 @@ jobs:
         if: steps.check-skip.outputs.skip != 'true'
         run: |
           echo "=== ruff format (whole repo) ==="
-          ruff format . || true
+          if ! ruff format . 2>&1; then
+            echo "::warning::ruff format encountered errors (non-zero exit). Continuing — lint failures should not block CI."
+          fi
 
       - name: Run ruff check --fix (whole repo)
         if: steps.check-skip.outputs.skip != 'true'
         run: |
           echo "=== ruff check --fix (whole repo) ==="
-          ruff check --fix --unsafe-fixes . || true
+          if ! ruff check --fix --unsafe-fixes . 2>&1; then
+            echo "::warning::ruff check encountered errors (non-zero exit). Continuing — lint failures should not block CI."
+          fi
 
       - name: Check for changes and commit
         id: check-changes
@@ -153,6 +159,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || github.token }}
+          # submodules: false — sap-ewm-mcp-servers is a broken gitlink
+          # (mode 160000, no .gitmodules entry). Checkout fails without this.
           submodules: false
 
       - name: Resolve PR number
@@ -173,11 +181,12 @@ jobs:
           git config user.name "CatPaw Auto-Fix"
           git config user.email "auto-fix@catpaw.local"
 
-      - name: Skip if last commit is an auto-fix lint commit (loop guard)
+      - name: Skip if last commit is an auto-fix commit (loop guard)
         id: check-skip
         run: |
           LAST_COMMIT=$(git log -1 --pretty=format:"%s")
-          if [[ "$LAST_COMMIT" == "fix: auto-fix lint errors"* ]]; then
+          # Match both lint auto-fix and CatPaw full auto-fix commit prefixes
+          if [[ "$LAST_COMMIT" == "fix: auto-fix lint errors"* ]] || [[ "$LAST_COMMIT" == "fix: catpaw auto-fix"* ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
