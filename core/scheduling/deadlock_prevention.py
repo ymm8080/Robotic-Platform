@@ -11,6 +11,11 @@ v7 架构说明书要求 "Petri 网状态方程显示进死锁区则拒绝". 在
 
 # ponytail: 单实例资源下 Petri 状态方程 = RAG 环检测. 升级路径: 当通道段允许多车
 # (多实例资源) 时改用 Banker 算法或显式 Petri 不变量 (T-不变量) 检测.
+#
+# ## 优先级约定
+#
+# break_deadlock 中的 priority_by_robot 约定: 数值小 = 低优先级 = 退避.
+# 与 traffic_light_controller v5.x 一致, 调用方负责把自身优先级体系映射到此.
 """
 
 from __future__ import annotations
