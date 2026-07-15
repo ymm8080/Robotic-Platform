@@ -22,6 +22,7 @@ v7 架构说明书: 冲突层空间三层次 —
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from core.platform.fixed_lane_map import FixedLaneMap, Lane
@@ -131,7 +132,7 @@ class ConflictLayerCoordinator:
         return nodes
 
     @staticmethod
-    def _model_filter(model: str):
+    def _model_filter(model: str) -> Callable[[Lane], bool] | None:
         if not model:
             return None
         return lambda lane: lane.allows_model(model)
