@@ -214,6 +214,7 @@ class DeadlockPreventer:
 
         Returns:
             应退避让点的 robot_id (环中优先级值最小的 robot).
+        多个 robot 优先级相同时, 返回环中遍历顺序靠前的 (确定性选择).
         """
         return min(ring, key=lambda r: priority_by_robot.get(r, 0))
 

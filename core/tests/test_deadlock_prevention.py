@@ -188,9 +188,15 @@ def test_break_deadlock_unknown_robot_defaults_to_retreat():
     p = DeadlockPreventer()
     p._inject_ring(3)
     ring = p.detect_deadlock_ring()
-    # only R0 mapped (priority 5); R1,R2 unmapped → default 0 → one of them retreats
+    # only R0 mapped (priority 5); R1,R2 unmapped → default 0 (lowest) → retreats
+    # ring order from _inject_ring: R0->R1->R2->R0; min() scans in ring order,
+    # so the first robot with priority 0 (i.e. R1) is deterministically selected
     yielder = p.break_deadlock(ring, {"R0": 5})
-    assert yielder in {"R1", "R2"}
+    assert yielder in {"R1", "R2"}, f"unmapped robot should retreat, got {yielder}"
+    # verify determinism: equal-priority robots → first in ring order wins
+    ring_order = ring if ring else []
+    zeros = [r for r in ring_order if r != "R0"]
+    assert yielder == zeros[0], f"expected first zero-priority robot {zeros[0]}, got {yielder}"
 
 
 def test_prevention_and_detection_are_orthogonal():
