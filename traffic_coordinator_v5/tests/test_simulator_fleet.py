@@ -33,10 +33,12 @@ class TestFleetSimulator:
         fleet.add_robot("R-001", battery=80.0)
         fleet.add_robot("R-002", battery=80.0)
         for robot in fleet._robots.values():
-            robot.assign_order({
-                "orderId": "o1",
-                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-            })
+            robot.assign_order(
+                {
+                    "orderId": "o1",
+                    "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+                }
+            )
         reached = fleet.tick_once(1.0)
         assert "R-001" in reached
         assert "R-002" in reached
@@ -45,10 +47,13 @@ class TestFleetSimulator:
 
     def test_route_order(self, fleet):
         fleet.add_robot("R-001", battery=80.0)
-        fleet._route_order("R-001", {
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
+        fleet._route_order(
+            "R-001",
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            },
+        )
         robot = fleet.get_robot("R-001")
         assert robot is not None
         assert robot.mode == SimRobotMode.TASKING
@@ -61,49 +66,69 @@ class TestFleetSimulator:
     def test_instant_action_hold_and_resume(self, fleet):
         fleet.add_robot("R-001", battery=80.0)
         robot = fleet.get_robot("R-001")
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
-        fleet._route_instant_actions("R-001", {
-            "actions": [{"actionType": "stopPause", "actionId": "h1"}],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            }
+        )
+        fleet._route_instant_actions(
+            "R-001",
+            {
+                "actions": [{"actionType": "stopPause", "actionId": "h1"}],
+            },
+        )
         fleet.tick_once(1.0)
         assert robot.velocity == 0.0
 
-        fleet._route_instant_actions("R-001", {
-            "actions": [{"actionType": "resume", "actionId": "r1"}],
-        })
+        fleet._route_instant_actions(
+            "R-001",
+            {
+                "actions": [{"actionType": "resume", "actionId": "r1"}],
+            },
+        )
         fleet.tick_once(1.0)
         assert robot.velocity == 1.0
 
     def test_instant_action_speed_cap(self, fleet):
         fleet.add_robot("R-001", battery=80.0)
         robot = fleet.get_robot("R-001")
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
-        fleet._route_instant_actions("R-001", {
-            "actions": [{
-                "actionType": "instantVelocity",
-                "actionId": "sc1",
-                "actionParameters": [{"key": "max_speed", "value": 0.3}],
-            }],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            }
+        )
+        fleet._route_instant_actions(
+            "R-001",
+            {
+                "actions": [
+                    {
+                        "actionType": "instantVelocity",
+                        "actionId": "sc1",
+                        "actionParameters": [{"key": "max_speed", "value": 0.3}],
+                    }
+                ],
+            },
+        )
         fleet.tick_once(1.0)
         assert robot.velocity == pytest.approx(0.3)
 
     def test_instant_action_cancel_order(self, fleet):
         fleet.add_robot("R-001", battery=80.0)
         robot = fleet.get_robot("R-001")
-        robot.assign_order({
-            "orderId": "o1",
-            "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
-        })
-        fleet._route_instant_actions("R-001", {
-            "actions": [{"actionType": "cancelOrder", "actionId": "c1"}],
-        })
+        robot.assign_order(
+            {
+                "orderId": "o1",
+                "nodes": [{"nodeId": "L_A_B", "sequenceId": 0, "released": True}],
+            }
+        )
+        fleet._route_instant_actions(
+            "R-001",
+            {
+                "actions": [{"actionType": "cancelOrder", "actionId": "c1"}],
+            },
+        )
         assert robot.mode == SimRobotMode.IDLE
         assert robot.path == []
 

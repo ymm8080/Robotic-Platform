@@ -1,10 +1,15 @@
 """Tests for the Card Template Engine."""
+
 import pytest
 
 from gateway.app.card_template_engine import CardTemplateEngine
 from gateway.app.models import (
-    ActionType, ConfirmType, NotificationRequest,
-    Priority, Target, TargetType,
+    ActionType,
+    ConfirmType,
+    NotificationRequest,
+    Priority,
+    Target,
+    TargetType,
 )
 
 

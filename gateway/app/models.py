@@ -1,18 +1,18 @@
 """Pydantic models for message gateway API."""
+
 from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     P0 = "P0"
     P1 = "P1"
     P2 = "P2"
 
 
-class ActionType(str, Enum):
+class ActionType(StrEnum):
     ROBOT_STOP = "robot_stop"
     ROBOT_RECALL = "robot_recall"
     ORDER_CANCEL = "order_cancel"
@@ -23,18 +23,18 @@ class ActionType(str, Enum):
     VIEW_ROBOT = "view_robot"
 
 
-class TargetType(str, Enum):
+class TargetType(StrEnum):
     ROBOT = "robot"
     ORDER = "order"
     ZONE = "zone"
 
 
-class ConfirmType(str, Enum):
+class ConfirmType(StrEnum):
     NONE = "none"
     SECONDARY = "secondary"
 
 
-class OperationStatus(str, Enum):
+class OperationStatus(StrEnum):
     INIT = "INIT"
     NOTIFIED = "NOTIFIED"
     CONFIRMING = "CONFIRMING"
@@ -53,6 +53,7 @@ class Target(BaseModel):
 
 class NotificationRequest(BaseModel):
     """Request body for POST /api/v1/notifications/send."""
+
     alert_id: str = Field(..., description="Unique alert identifier")
     priority: Priority = Field(..., description="Alert priority level")
     title: str = Field(..., description="Alert title")
@@ -64,18 +65,19 @@ class NotificationRequest(BaseModel):
     require_confirm: bool = Field(default=False, description="Whether confirmation is required")
     confirm_type: ConfirmType = Field(default=ConfirmType.NONE, description="Confirmation type")
     correlation_id: str = Field(..., description="Correlation ID for tracing")
-    expire_at: Optional[str] = Field(None, description="Expiration timestamp ISO format")
+    expire_at: str | None = Field(None, description="Expiration timestamp ISO format")
 
 
 class ChannelResult(BaseModel):
     channel: str
     status: str
-    message_id: Optional[str] = None
-    error: Optional[str] = None
+    message_id: str | None = None
+    error: str | None = None
 
 
 class NotificationResponse(BaseModel):
     """Response for POST /api/v1/notifications/send."""
+
     code: int = 0
     message: str = "发送成功"
     data: dict = Field(default_factory=dict)
@@ -84,7 +86,7 @@ class NotificationResponse(BaseModel):
 class CallbackUser(BaseModel):
     platform_user_id: str
     platform_user_name: str = ""
-    bound_user_id: Optional[str] = None
+    bound_user_id: str | None = None
 
 
 class CallbackAction(BaseModel):
@@ -101,6 +103,7 @@ class CardContext(BaseModel):
 
 class PlatformCallback(BaseModel):
     """Unified callback request from platforms."""
+
     event_id: str
     platform: str
     message_id: str
@@ -112,6 +115,7 @@ class PlatformCallback(BaseModel):
 
 class CallbackResponse(BaseModel):
     """Response to platform callback."""
+
     code: int = 0
     message: str = "操作已受理"
     data: dict = Field(default_factory=dict)
@@ -119,6 +123,7 @@ class CallbackResponse(BaseModel):
 
 class OperationResult(BaseModel):
     """Operation status query result."""
+
     execution_id: str
     status: OperationStatus
     action_type: str
@@ -127,13 +132,14 @@ class OperationResult(BaseModel):
     operator_name: str = ""
     platform: str = ""
     created_at: str
-    confirmed_at: Optional[str] = None
-    executed_at: Optional[str] = None
-    result: Optional[dict] = None
+    confirmed_at: str | None = None
+    executed_at: str | None = None
+    result: dict | None = None
 
 
 class AuditLogEntry(BaseModel):
     """Single audit log entry."""
+
     log_id: str
     timestamp: str
     operator: str

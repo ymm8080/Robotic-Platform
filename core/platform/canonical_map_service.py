@@ -238,6 +238,7 @@ class FakeCalibrationProvider(CalibrationProvider):
             return calibration
         return None
 
+
 # Global instances
 fake_calibration_provider = FakeCalibrationProvider()
 _calibration_provider: CalibrationProvider = fake_calibration_provider

@@ -5,6 +5,7 @@ Supports three platforms:
 - Feishu (飞书): interactive card messages
 - DingTalk (钉钉): action_card messages
 """
+
 import logging
 import os
 from typing import Any
@@ -58,14 +59,10 @@ class CardTemplateEngine:
     def _is_dangerous(self, action_type: ActionType) -> bool:
         return self.ACTION_DANGER.get(action_type, True)
 
-    def generate_wechat_card(
-        self, notification: NotificationRequest
-    ) -> dict[str, Any]:
+    def generate_wechat_card(self, notification: NotificationRequest) -> dict[str, Any]:
         """Generate WeChat (企业微信) template_card payload."""
         emoji = self.PRIORITY_EMOJI.get(notification.priority, "📢")
-        button_text = self._get_button_text(
-            notification.action_type, notification.target.target_id
-        )
+        button_text = self._get_button_text(notification.action_type, notification.target.target_id)
 
         card = {
             "msgtype": "template_card",
@@ -102,16 +99,14 @@ class CardTemplateEngine:
 
         return card
 
-    def generate_feishu_card(
-        self, notification: NotificationRequest
-    ) -> dict[str, Any]:
+    def generate_feishu_card(self, notification: NotificationRequest) -> dict[str, Any]:
         """Generate Feishu (飞书) interactive card payload."""
         emoji = self.PRIORITY_EMOJI.get(notification.priority, "📢")
-        button_text = self._get_button_text(
-            notification.action_type, notification.target.target_id
-        )
+        button_text = self._get_button_text(notification.action_type, notification.target.target_id)
         is_danger = self._is_dangerous(notification.action_type)
-        header_template = "red" if is_danger else ("orange" if notification.priority == Priority.P1 else "blue")
+        header_template = (
+            "red" if is_danger else ("orange" if notification.priority == Priority.P1 else "blue")
+        )
 
         # Build action buttons
         buttons = [
@@ -171,14 +166,10 @@ class CardTemplateEngine:
 
         return card
 
-    def generate_dingtalk_card(
-        self, notification: NotificationRequest
-    ) -> dict[str, Any]:
+    def generate_dingtalk_card(self, notification: NotificationRequest) -> dict[str, Any]:
         """Generate DingTalk (钉钉) action_card payload."""
         emoji = self.PRIORITY_EMOJI.get(notification.priority, "📢")
-        button_text = self._get_button_text(
-            notification.action_type, notification.target.target_id
-        )
+        button_text = self._get_button_text(notification.action_type, notification.target.target_id)
 
         markdown = (
             f"### {emoji} {notification.title}\n\n"
@@ -220,9 +211,7 @@ class CardTemplateEngine:
 
         return card
 
-    def generate_email_body(
-        self, notification: NotificationRequest
-    ) -> tuple[str, str]:
+    def generate_email_body(self, notification: NotificationRequest) -> tuple[str, str]:
         """Generate email subject and HTML body.
 
         Returns (subject, html_body).
@@ -234,7 +223,7 @@ class CardTemplateEngine:
         <html>
         <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
             <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <h2 style="color: {'#dc3545' if notification.priority == Priority.P0 else '#ffc107' if notification.priority == Priority.P1 else '#17a2b8'};">
+                <h2 style="color: {"#dc3545" if notification.priority == Priority.P0 else "#ffc107" if notification.priority == Priority.P1 else "#17a2b8"};">
                     {emoji} {notification.title}
                 </h2>
                 <table style="width: 100%; border-collapse: collapse;">
@@ -282,7 +271,7 @@ class CardTemplateEngine:
                     "card_type": "text_notice",
                     "source": {"desc": "⚠️ 二次确认", "desc_color": 1},
                     "main_title": {
-                        "title": f"⚠️ 请确认操作",
+                        "title": "⚠️ 请确认操作",
                         "desc": f"即将执行: {button_text}",
                     },
                     "sub_title_text": (
@@ -327,7 +316,10 @@ class CardTemplateEngine:
                             "actions": [
                                 {
                                     "tag": "button",
-                                    "text": {"tag": "plain_text", "content": f"确认执行: {button_text}"},
+                                    "text": {
+                                        "tag": "plain_text",
+                                        "content": f"确认执行: {button_text}",
+                                    },
                                     "type": "danger",
                                     "value": {
                                         "action_type": action_type.value,

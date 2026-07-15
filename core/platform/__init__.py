@@ -1,4 +1,5 @@
 """平台服务层 (精简 + 生存)."""
+
 from __future__ import annotations
 
 from core.platform.charger_reservation import (

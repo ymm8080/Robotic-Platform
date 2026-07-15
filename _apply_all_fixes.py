@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Apply all PR #49 AI review fixes directly."""
+
 import os
+
 os.chdir(r"d:\EWM Robot\Robotic Platform Codes")
 
 # ============ 1. Fix core/gateway.py ============
 print("Fixing core/gateway.py...")
-with open("core/gateway.py", "r", encoding="utf-8") as f:
+with open("core/gateway.py", encoding="utf-8") as f:
     content = f.read()
 
 # Add _load_mqtt_password method and improve _publish
@@ -51,7 +53,7 @@ else:
 
 # ============ 2. Fix core/coordinator.py ============
 print("Fixing core/coordinator.py...")
-with open("core/coordinator.py", "r", encoding="utf-8") as f:
+with open("core/coordinator.py", encoding="utf-8") as f:
     content = f.read()
 
 # Fix snapshot - save timestamps
@@ -98,7 +100,7 @@ with open("core/coordinator.py", "w", encoding="utf-8") as f:
 
 # ============ 3. Fix e2e/pages/command.panel.js ============
 print("Fixing e2e/pages/command.panel.js...")
-with open("e2e/pages/command.panel.js", "r", encoding="utf-8") as f:
+with open("e2e/pages/command.panel.js", encoding="utf-8") as f:
     content = f.read()
 
 old_cmd = """  commandButton(robotId, command) {
@@ -148,7 +150,7 @@ else:
 
 # ============ 4. Fix e2e/pages/dashboard.page.js ============
 print("Fixing e2e/pages/dashboard.page.js...")
-with open("e2e/pages/dashboard.page.js", "r", encoding="utf-8") as f:
+with open("e2e/pages/dashboard.page.js", encoding="utf-8") as f:
     content = f.read()
 
 content = content.replace("timeout: 5000", "timeout: 3000")

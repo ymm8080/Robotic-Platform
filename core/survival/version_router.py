@@ -7,6 +7,7 @@ This bridges the v5.0 core messages to the existing v4.1 VDA5050 fabric
 (MQTT/Node-RED/sap-bridge) so the new core can be rolled in alongside
 the old platform without a flag-day cutover.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

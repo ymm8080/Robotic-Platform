@@ -820,7 +820,9 @@ class MAPFEngine:
             logger.info(
                 "_shift_plan: all moves beyond horizon for agent %s "
                 "(now=%d, horizon=%d); creating WAIT stub",
-                plan.agent_id, now, horizon,
+                plan.agent_id,
+                now,
+                horizon,
             )
             return Plan(
                 agent_id=plan.agent_id,

@@ -3,6 +3,7 @@
 白皮书: 适配层是平台与黑盒 SCS 之间的边界. 影子状态机是底线,
 超时熔断是保险, 硬编码后退是兜底. 本地安全兜底由 SCS 负责.
 """
+
 from __future__ import annotations
 
 from core.adapter.fleet_adapter import AdapterCommand, CmdVel, FleetAdapter

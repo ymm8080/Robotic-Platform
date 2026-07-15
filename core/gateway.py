@@ -183,7 +183,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
 
     def _connect(self) -> bool:
         """Connect to MQTT broker and subscribe to VDA5050 topics.
-        
+
         Returns:
             True if connection was established or is in progress,
             False if connection failed due to missing dependencies or configuration.
@@ -261,12 +261,14 @@ class MqttGateway(InboundGateway, OutboundGateway):
                 logger.warning(
                     "MqttGateway connect to %s:%s — callback not received in 5s, "
                     "connection may still be in progress",
-                    self._broker_host, self._broker_port,
+                    self._broker_host,
+                    self._broker_port,
                 )
             else:
                 logger.info(
                     "MqttGateway connected to %s:%s",
-                    self._broker_host, self._broker_port,
+                    self._broker_host,
+                    self._broker_port,
                 )
             return True
         except Exception:
@@ -343,9 +345,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
             if online:
                 conn.boot_id = payload.get("bootId", payload.get("serialNumber", ""))
 
-    def _handle_state(
-        self, brand: str, serial_number: str, payload: dict, now: float
-    ) -> None:
+    def _handle_state(self, brand: str, serial_number: str, payload: dict, now: float) -> None:
         """Forward VDA5050 state to coordinator via callback.
 
         The coordinator's internal robot_id is the VDA5050 serialNumber,
@@ -410,9 +410,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
             ],
         }
 
-        topic = ORDER_TOPIC.format(
-            manufacturer=envelope.brand, serialNumber=envelope.robot_id
-        )
+        topic = ORDER_TOPIC.format(manufacturer=envelope.brand, serialNumber=envelope.robot_id)
         self._publish(topic, order)
 
         # Also emit traffic light state if present
@@ -497,7 +495,7 @@ class MqttGateway(InboundGateway, OutboundGateway):
         password_file = os.environ.get("MQTT_PASSWORD_FILE", "")
         if password_file:
             try:
-                with open(password_file, "r", encoding="utf-8") as f:
+                with open(password_file, encoding="utf-8") as f:
                     content = f.read().strip()
                     if not content:
                         logger.warning("MQTT password file is empty: %s", password_file)

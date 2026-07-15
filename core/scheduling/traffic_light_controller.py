@@ -16,10 +16,11 @@ fixed-cycle controller — the core "降维打击" decision of v5.0 (砍掉
 GitHub: rmf_traffic (https://github.com/open-rmf/rmf_traffic)
         rmf_demos (https://github.com/open-rmf/rmf_demos)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 from core.config import TrafficConfig
 from core.messages import SignalColor
@@ -27,7 +28,7 @@ from core.messages import SignalColor
 DEADLOCK_RETREAT_METRES = 5.0  # v4.0: 强制低优先级机器人后退 5 米
 
 
-class LightPhase(str, Enum):
+class LightPhase(StrEnum):
     GREEN = "GREEN"
     YELLOW = "YELLOW"
     RED = "RED"
@@ -160,11 +161,13 @@ class TrafficLightController:
             if all(now - r.arrived_at >= threshold for r in robots):
                 # 低优先级 (priority 数值小) 的后退; 同优先级取最晚到达 (让先到的先行)
                 loser = min(robots, key=lambda r: (r.priority, -r.arrived_at))
-                breaks.append(DeadlockBreak(
-                    intersection_id=it.intersection_id,
-                    retreat_robot_id=loser.robot_id,
-                    direction=loser.direction,
-                ))
+                breaks.append(
+                    DeadlockBreak(
+                        intersection_id=it.intersection_id,
+                        retreat_robot_id=loser.robot_id,
+                        direction=loser.direction,
+                    )
+                )
                 # 后退后清出该方向等待, 让另一方向通行
                 self.clear_waiting(it.intersection_id, loser.direction)
         return breaks

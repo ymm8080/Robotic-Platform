@@ -1,4 +1,5 @@
 """Tests for MQTT → v5 core bridge."""
+
 from __future__ import annotations
 
 import json

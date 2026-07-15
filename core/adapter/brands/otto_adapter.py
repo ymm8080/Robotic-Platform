@@ -1,4 +1,5 @@
 """OTTO brand adapter — OTTO 100/750/1500 VDA5050 v2.0 strategy."""
+
 from __future__ import annotations
 
 from core.adapter.brands._loader import load_strategy

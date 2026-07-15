@@ -1,4 +1,5 @@
 """Gateway configuration - all settings loaded from environment variables."""
+
 import os
 from pathlib import Path
 
@@ -54,7 +55,9 @@ class Settings:
     # Core Platform
     CORE_PLATFORM_URL: str = os.getenv("CORE_PLATFORM_URL", "http://nodered:1880")
     CORE_PLATFORM_API_KEY: str = os.getenv("CORE_PLATFORM_API_KEY", "")
-    CORE_PLATFORM_API_KEY_FILE: str = os.getenv("CORE_PLATFORM_API_KEY_FILE", "/run/secrets/core_platform_api_key")
+    CORE_PLATFORM_API_KEY_FILE: str = os.getenv(
+        "CORE_PLATFORM_API_KEY_FILE", "/run/secrets/core_platform_api_key"
+    )
 
     # Gateway internal API authentication
     GATEWAY_API_KEY_FILE: str = os.getenv("GATEWAY_API_KEY_FILE", "/run/secrets/gateway_api_key")

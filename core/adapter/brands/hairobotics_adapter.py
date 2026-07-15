@@ -1,4 +1,5 @@
 """Hai Robotics brand adapter — HaiPick A42 VDA5050 v2.0 strategy."""
+
 from __future__ import annotations
 
 from core.adapter.brands._loader import load_strategy

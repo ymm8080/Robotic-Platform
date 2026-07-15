@@ -4,16 +4,17 @@
 The robot is forced onto a charger bay when battery ≤ 20% and a bay is
 reserved (held) so a draining robot is never queue-blocked by an IDLE one.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from core.config import ChargerConfig
 from core.messages import FleetState, RobotMode
 
 
-class ChargerState(str, Enum):
+class ChargerState(StrEnum):
     FREE = "FREE"
     RESERVED = "RESERVED"
     OCCUPIED = "OCCUPIED"

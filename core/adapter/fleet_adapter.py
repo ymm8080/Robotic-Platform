@@ -17,6 +17,7 @@ GitHub: fleet_adapter_template (https://github.com/open-rmf/fleet_adapter_templa
         fleet_adapter_python (https://github.com/open-rmf/fleet_adapter_python)
         rmf_fleet_msgs    (https://github.com/open-rmf/rmf_fleet_msgs)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -27,9 +28,9 @@ from core.config import LivenessConfig
 from core.messages import FleetState, Pose, RobotMode, TaskAssignment
 from core.survival.version_router import VersionRouter
 
-RETREAT_METRES = 5.0            # v4.0: 后退 5 米
-RETREAT_LINEAR_VEL = -0.2       # 开环负速度 (m/s)
-RETREAT_ANGULAR_VEL = 0.0       # 0 角速度
+RETREAT_METRES = 5.0  # v4.0: 后退 5 米
+RETREAT_LINEAR_VEL = -0.2  # 开环负速度 (m/s)
+RETREAT_ANGULAR_VEL = 0.0  # 0 角速度
 
 
 @dataclass
@@ -45,7 +46,7 @@ class AdapterCommand:
     """Fallback / control command emitted by the adapter."""
 
     robot_id: str
-    action: str   # "RETREAT" | "HOLD" | "CHARGE" | "SPEED_CAP"
+    action: str  # "RETREAT" | "HOLD" | "CHARGE" | "SPEED_CAP"
     reason: str
     cmd_vel: CmdVel | None = None
     metres: float = 0.0
@@ -69,7 +70,7 @@ class AdapterRegistry:
 class FleetAdapter:
     """Per-brand adapter base. Subclass to add the vendor state machine."""
 
-    ACK_TIMEOUT = 1.0   # seconds before resending an unacked command
+    ACK_TIMEOUT = 1.0  # seconds before resending an unacked command
     CMD_MAX_RETRIES = 3
 
     def __init__(
@@ -188,7 +189,9 @@ class FleetAdapter:
         self.request_fallback(robot_id, "breaker_open", now)
 
     # ── dispatch + speed enforcement + waypoint immutability ────
-    def dispatch(self, robot_id: str, assignment: TaskAssignment, now: float) -> AdapterCommand | None:
+    def dispatch(
+        self, robot_id: str, assignment: TaskAssignment, now: float
+    ) -> AdapterCommand | None:
         """Accept a downlink TaskAssignment for ``robot_id``.
 
         v4.0 §5.4:
@@ -233,7 +236,7 @@ class FleetAdapter:
         explicit no_reverse markings (v4.0 §5.4).
         """
         marked: list[str] = []
-        for rid, reg in self._registry.items():
+        for _rid, reg in self._registry.items():
             if not reg.supports_reverse:
                 for lane in fmap.all_lanes():
                     if not lane.no_reverse:
@@ -250,20 +253,20 @@ class FleetAdapter:
 
     # ── vendor extension point ─────────────────────────────────
     def map_vendor_state(self, raw: dict) -> FleetState:
-        """ subclasses implement: 厂商私有状态机 + 坐标系转换."""
+        """subclasses implement: 厂商私有状态机 + 坐标系转换."""
         raise NotImplementedError("subclass must implement map_vendor_state")
 
     def map_vendor_errors(self, raw_errors: list) -> list[str]:
-        """ subclasses implement: 错误码映射 (VDA5050 → v5.0 ERR_*)."""
+        """subclasses implement: 错误码映射 (VDA5050 → v5.0 ERR_*)."""
         raise NotImplementedError("subclass must implement map_vendor_errors")
 
     # ── public fallback trigger (used by coordinator deadlock / safety logic) ─
-    def request_speed_cap(self, robot_id: str, max_speed: float, reason: str, now: float = 0.0) -> AdapterCommand:
+    def request_speed_cap(
+        self, robot_id: str, max_speed: float, reason: str, now: float = 0.0
+    ) -> AdapterCommand:
         """Enqueue a SPEED_CAP command for ``robot_id``."""
         return self._issue_command(
-            AdapterCommand(
-                robot_id=robot_id, action="SPEED_CAP", reason=reason, metres=max_speed
-            ),
+            AdapterCommand(robot_id=robot_id, action="SPEED_CAP", reason=reason, metres=max_speed),
             now,
         )
 
@@ -277,9 +280,7 @@ class FleetAdapter:
         """Enqueue a retreat or hold for ``robot_id`` if conditions require."""
         reg = self._registry.get(robot_id)
         if reg is not None and not reg.supports_reverse:
-            return self._issue_command(
-                AdapterCommand(robot_id, "HOLD", "no_reverse_support"), now
-            )
+            return self._issue_command(AdapterCommand(robot_id, "HOLD", "no_reverse_support"), now)
         return self._issue_command(
             AdapterCommand(
                 robot_id=robot_id,
@@ -315,6 +316,5 @@ class FleetAdapter:
             if cmd.robot_id == robot_id and cmd.action == "HOLD":
                 self._unacked.pop(seq, None)
         self.pending_commands = [
-            c for c in self.pending_commands
-            if not (c.robot_id == robot_id and c.action == "HOLD")
+            c for c in self.pending_commands if not (c.robot_id == robot_id and c.action == "HOLD")
         ]

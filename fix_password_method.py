@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Fix _load_mqtt_password method in core/gateway.py"""
 
-import os
-
 # Read the file
-with open("core/gateway.py", "r", encoding="utf-8") as f:
+with open("core/gateway.py", encoding="utf-8") as f:
     content = f.read()
 
 # Define the old and new method

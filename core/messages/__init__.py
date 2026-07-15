@@ -5,6 +5,7 @@ boundary. Kept as plain dataclasses (no protobuf dependency) so the core
 remains import-light and testable in isolation; a .proto can be generated
 from these when the DDS transport layer lands.
 """
+
 from __future__ import annotations
 
 from core.messages.types import (

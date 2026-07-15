@@ -20,6 +20,7 @@ events the WORM blackbox records.
 
 GitHub: etcd (https://github.com/etcd-io/etcd) — 主备状态共享.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,7 +38,7 @@ class RobotFleetState:
     last_seen: float = 0.0
     last_boot_id: str = ""
     # v4.0 补丁5: 降级模式语义
-    only_last_goal: bool = False   # 只执行最后一个目标点
+    only_last_goal: bool = False  # 只执行最后一个目标点
     accepts_new_tasks: bool = True  # 禁止新任务 (降级后 False, 人工恢复前不变)
     local_cache_valid: bool = False  # 本地车道图缓存有效 (断网不趴窝)
 
@@ -64,9 +65,7 @@ class FailoverDegrade:
             events.append(f"ERR_BOOT_ID_CHANGED:{state.robot_id}")
             self._boot_takeover_until[state.robot_id] = now + self.cfg.boot_takeover_timeout
 
-        rs = prev or RobotFleetState(
-            robot_id=state.robot_id, boot_id=state.boot_id, last_seen=now
-        )
+        rs = prev or RobotFleetState(robot_id=state.robot_id, boot_id=state.boot_id, last_seen=now)
         rs.last_seen = now
         rs.last_boot_id = state.boot_id
         rs.online = True
@@ -128,9 +127,7 @@ class FailoverDegrade:
         rs = self._robots.get(robot_id)
         if rs and not rs.accepts_new_tasks:
             return False
-        if self._boot_takeover_until.get(robot_id, 0.0) > now:
-            return False
-        return True
+        return not self._boot_takeover_until.get(robot_id, 0.0) > now
 
     def is_boot_takeover(self, robot_id: str, now: float) -> bool:
         return self._boot_takeover_until.get(robot_id, 0.0) > now

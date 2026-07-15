@@ -84,7 +84,7 @@ def check_fix_applied(file_path, check_strings):
 
 
 def main():
-    project_root = Path(__file__).resolve().parent
+    Path(__file__).resolve().parent
 
     print("=== Verify Auto-fix and Monitoring System ===")
     print()

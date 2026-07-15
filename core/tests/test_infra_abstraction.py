@@ -1,4 +1,5 @@
 """Tests for infrastructure abstraction layer (LockManager + StateStore)."""
+
 from __future__ import annotations
 
 import threading

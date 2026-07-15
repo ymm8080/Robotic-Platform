@@ -18,6 +18,7 @@ v4.0 补丁3 / §5.3 additions:
 GitHub: rmf_traffic_editor (https://github.com/open-rmf/rmf_traffic_editor)
         — 导航图编辑器, 改造为车道图.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -39,17 +40,17 @@ class Lane:
     lane_id: str
     from_node: str
     to_node: str
-    length: float                       # metres
-    width: float = 1.2                  # 固定宽度
+    length: float  # metres
+    width: float = 1.2  # 固定宽度
     speed_class: SpeedClass = SpeedClass.FAST
     # v4.0 补丁3: 车道通行能力 (边属性)
     allowed_models: list[str] = field(default_factory=list)  # 允许通行型号, 空=不限
-    max_speed: float = 1.5              # 车道最大速度
+    max_speed: float = 1.5  # 车道最大速度
     env: EnvConstraints = field(default_factory=EnvConstraints)
-    no_reverse: bool = False            # 不可倒车路段 (nav graph 明确标记)
+    no_reverse: bool = False  # 不可倒车路段 (nav graph 明确标记)
     charger: bool = False
     lift_id: str | None = None
-    floor: int | None = None            # 楼层, 用于电梯预约
+    floor: int | None = None  # 楼层, 用于电梯预约
     # 路口信号灯关联 (可选): 属于哪个路口的哪个方向
     intersection_id: str | None = None
     direction: int = 0
@@ -71,8 +72,8 @@ class DynamicObstacle:
     x: float
     y: float
     confidence: float = 1.0
-    observers: set[str] = field(default_factory=set)   # 观测到的 robot_id 集合
-    brands: set[str] = field(default_factory=set)       # 观测品牌 (交叉验证用)
+    observers: set[str] = field(default_factory=set)  # 观测到的 robot_id 集合
+    brands: set[str] = field(default_factory=set)  # 观测品牌 (交叉验证用)
     stable_cycles: int = 0
     last_seen: float = 0.0
 
@@ -186,9 +187,7 @@ class FixedLaneMap:
 
         # Get all nodes from both maps
         our_nodes = {
-            node
-            for lane in self._lanes.values()
-            for node in (lane.from_node, lane.to_node)
+            node for lane in self._lanes.values() for node in (lane.from_node, lane.to_node)
         }
         ref_nodes = {
             node
@@ -230,9 +229,7 @@ class FixedLaneMap:
                 # Check for significant differences in connectivity (50% threshold)
                 symmetric_diff = our_lanes.symmetric_difference(ref_lanes)
                 if len(symmetric_diff) > max(len(our_lanes), len(ref_lanes)) * 0.5:
-                    issues.append(
-                        f"Node {node} has very different connectivity"
-                    )
+                    issues.append(f"Node {node} has very different connectivity")
 
         # Check for dangling node references in our map
         for lane in self._lanes.values():
@@ -255,9 +252,7 @@ class FixedLaneMap:
                 if reference_map.lane(ref_id).from_node == lane.to_node
             )
             if has_reverse:
-                issues.append(
-                    f"Lane {lane.lane_id} has bidirectional equivalent in reference"
-                )
+                issues.append(f"Lane {lane.lane_id} has bidirectional equivalent in reference")
 
         return issues
 
@@ -298,9 +293,7 @@ class FixedLaneMap:
         return lane_id in self._lanes and lane_id not in self.overlay.blocked_lanes
 
     # ── dynamic obstacles: 置信度衰减 + 交叉验证 (v4.0 §5.3) ────
-    def report_observation(
-        self, x: float, y: float, robot_id: str, brand: str, now: float
-    ) -> bool:
+    def report_observation(self, x: float, y: float, robot_id: str, brand: str, now: float) -> bool:
         """机器人无权直接写地图, 只能上报观测证据.
 
         Returns True iff the observation survives cross-validation and is

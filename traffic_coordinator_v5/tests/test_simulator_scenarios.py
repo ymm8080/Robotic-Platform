@@ -25,7 +25,12 @@ from traffic_coordinator_v5.simulator.robot import RobotConfig, SimRobotMode, Si
 class CoordinatorHarness:
     """Offline harness that wires a FleetSimulator to a RobotPlatformCoordinator."""
 
-    def __init__(self, fmap: FixedLaneMap, brand: str = "generic", lane_positions: dict[str, tuple[float, float]] | None = None) -> None:
+    def __init__(
+        self,
+        fmap: FixedLaneMap,
+        brand: str = "generic",
+        lane_positions: dict[str, tuple[float, float]] | None = None,
+    ) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         worm_cfg = WormConfig(sink_dir=self._tmp.name)
         config = CoreConfig(worm=worm_cfg, registration_stagger_seconds=0.0)
@@ -178,9 +183,15 @@ class TestScenarios:
     def test_intersection_conflict(self):
         """3 robots converge at a single intersection; traffic light gates entry."""
         fmap = FixedLaneMap()
-        fmap.add_lane(Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0))
-        fmap.add_lane(Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0))
-        fmap.add_lane(Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1))
+        fmap.add_lane(
+            Lane("L_A_B", "A", "B", length=2.0, max_speed=1.5, intersection_id="X1", direction=0)
+        )
+        fmap.add_lane(
+            Lane("L_X_B", "X", "B", length=20.0, max_speed=1.5, intersection_id="X1", direction=0)
+        )
+        fmap.add_lane(
+            Lane("L_Y_B", "Y", "B", length=30.0, max_speed=1.5, intersection_id="X1", direction=1)
+        )
         fmap.add_lane(Lane("L_B_Z1", "B", "Z1", length=20.0, max_speed=1.5))
         fmap.add_lane(Lane("L_B_Z2", "B", "Z2", length=20.0, max_speed=1.5))
         fmap.add_lane(Lane("L_B_Z3", "B", "Z3", length=20.0, max_speed=1.5))
@@ -215,12 +226,12 @@ class TestScenarios:
             result = harness.tick(1)
             if result is not None:
                 collision_holds += sum(1 for e in result.events if e.startswith("COLLISION_HOLD"))
-                intersection_holds += sum(1 for e in result.events if e.startswith("INTERSECTION_HOLD"))
+                intersection_holds += sum(
+                    1 for e in result.events if e.startswith("INTERSECTION_HOLD")
+                )
 
         # All robots should eventually be IDLE (no active assignments left).
-        assert all(
-            r.mode == SimRobotMode.IDLE for r in harness.fleet._robots.values()
-        )
+        assert all(r.mode == SimRobotMode.IDLE for r in harness.fleet._robots.values())
         assert len(harness.coordinator._active_assignments) == 0
         assert collision_holds == 0
         # At least one robot was held at the red intersection.
@@ -293,8 +304,9 @@ class TestScenarios:
         assert state is not None
         assert not state.degraded
         assert state.mode.name != "ERROR"
-        assert any(t.task_id == "o1-0" for t in harness.coordinator._task_queue) or \
-            any(a.task_id == "o1-0" for a in harness.coordinator._active_assignments.values())
+        assert any(t.task_id == "o1-0" for t in harness.coordinator._task_queue) or any(
+            a.task_id == "o1-0" for a in harness.coordinator._active_assignments.values()
+        )
 
     def test_safe_distance(self):
         """Following robot is SPEED_CAP'd by the coordinator before colliding."""
@@ -335,8 +347,12 @@ class TestScenarios:
     def test_deadlock_break(self):
         """Two robots face each other on a corridor; deadlock breaker fires."""
         fmap = FixedLaneMap()
-        fmap.add_lane(Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0))
-        fmap.add_lane(Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1))
+        fmap.add_lane(
+            Lane("L_A_B", "A", "B", length=10.0, max_speed=1.5, intersection_id="X1", direction=0)
+        )
+        fmap.add_lane(
+            Lane("L_B_A", "B", "A", length=10.0, max_speed=1.5, intersection_id="X1", direction=1)
+        )
 
         harness = CoordinatorHarness(fmap)
         harness.coordinator.register_intersection("X1")

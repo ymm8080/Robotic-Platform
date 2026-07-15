@@ -111,7 +111,9 @@ class TestSnapshot:
     def test_snapshot_captures_active_assignment(self):
         coord = RobotPlatformCoordinator()
         coord._active_assignments["R1"] = TaskAssignment(
-            task_id="T1", path=["L_A_B", "L_B_C"], max_speed=1.2,
+            task_id="T1",
+            path=["L_A_B", "L_B_C"],
+            max_speed=1.2,
         )
         snap = coord.snapshot()
         assert snap["active_assignments"]["R1"]["task_id"] == "T1"
@@ -223,7 +225,9 @@ class TestRestore:
     def test_restore_active_assignment(self):
         coord = RobotPlatformCoordinator()
         coord._active_assignments["R1"] = TaskAssignment(
-            task_id="T1", path=["L1", "L2"], max_speed=1.0,
+            task_id="T1",
+            path=["L1", "L2"],
+            max_speed=1.0,
         )
         snap = coord.snapshot()
         coord2 = RobotPlatformCoordinator()
@@ -236,7 +240,10 @@ class TestRestore:
     def test_restore_active_assignment_preserves_custom_version(self):
         coord = RobotPlatformCoordinator()
         coord._active_assignments["R1"] = TaskAssignment(
-            task_id="T1", path=["L1"], max_speed=1.0, version="5.1",
+            task_id="T1",
+            path=["L1"],
+            max_speed=1.0,
+            version="5.1",
         )
         snap = coord.snapshot()
         coord2 = RobotPlatformCoordinator()

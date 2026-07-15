@@ -8,17 +8,17 @@ Six layers (all must pass, any failure = reject):
 5. Secondary confirmation - for dangerous operations, require explicit second click
 6. Pre-execution validation - verify the operation can be safely executed right now
 """
+
 import hashlib
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 import redis.asyncio as aioredis
 
 from .config import settings
-from .models import ActionType, CallbackAction, OperationStatus, TargetType
+from .models import ActionType, CallbackAction, TargetType
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +55,16 @@ class ActionValidator:
     """Six-layer accuracy validation for all mobile operations."""
 
     def __init__(self):
-        self._redis: Optional[aioredis.Redis] = None
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._redis: aioredis.Redis | None = None
+        self._http_client: httpx.AsyncClient | None = None
 
     async def init(self):
         """Initialize async resources."""
         redis_kwargs = {"decode_responses": True}
-        if settings.REDIS_URL.startswith("rediss://") or os.getenv("REDIS_SSL", "false").lower() == "true":
+        if (
+            settings.REDIS_URL.startswith("rediss://")
+            or os.getenv("REDIS_SSL", "false").lower() == "true"
+        ):
             redis_kwargs["ssl"] = True
             redis_kwargs["ssl_cert_reqs"] = os.getenv("REDIS_SSL_CERT_REQS", "required")
         self._redis = aioredis.from_url(settings.REDIS_URL, **redis_kwargs)
@@ -87,7 +90,7 @@ class ActionValidator:
         platform_user_id: str,
         action: CallbackAction,
         card_context: dict,
-        confirm_token: Optional[str] = None,
+        confirm_token: str | None = None,
     ) -> list[ValidationResult]:
         """Run all six validation layers. Returns list of all results.
 
@@ -116,17 +119,13 @@ class ActionValidator:
             return results
 
         # Layer 4: Anti-replay
-        r4 = await self._check_anti_replay(
-            platform_user_id, action, card_context
-        )
+        r4 = await self._check_anti_replay(platform_user_id, action, card_context)
         results.append(r4)
         if not r4.passed:
             return results
 
         # Layer 5: Secondary confirmation
-        r5 = await self._secondary_confirmation(
-            action, card_context, confirm_token
-        )
+        r5 = await self._secondary_confirmation(action, card_context, confirm_token)
         results.append(r5)
         if not r5.passed:
             return results
@@ -139,9 +138,7 @@ class ActionValidator:
 
     # -- Layer 1: Identity verification --
 
-    async def _verify_identity(
-        self, platform: str, platform_user_id: str
-    ) -> ValidationResult:
+    async def _verify_identity(self, platform: str, platform_user_id: str) -> ValidationResult:
         """Verify platform user is bound to a system user via Redis."""
         key = f"gateway:user_binding:{platform}:{platform_user_id}"
         bound_user_id = await self._redis.get(key)
@@ -149,7 +146,8 @@ class ActionValidator:
         if not bound_user_id:
             logger.warning(
                 "[Layer1:Identity] Unbound user: platform=%s, platform_user_id=%s",
-                platform, platform_user_id,
+                platform,
+                platform_user_id,
             )
             return ValidationResult(
                 passed=False,
@@ -165,9 +163,7 @@ class ActionValidator:
 
     # -- Layer 2: Permission check --
 
-    async def _check_permission(
-        self, user_id: str, action_type: ActionType
-    ) -> ValidationResult:
+    async def _check_permission(self, user_id: str, action_type: ActionType) -> ValidationResult:
         """Verify user has permission for the action type."""
         if action_type in READONLY_ACTIONS:
             return ValidationResult(passed=True, layer="permission")
@@ -177,9 +173,7 @@ class ActionValidator:
         permissions = await self._redis.smembers(key)
 
         if not permissions:
-            logger.warning(
-                "[Layer2:Permission] No permissions found for user=%s", user_id
-            )
+            logger.warning("[Layer2:Permission] No permissions found for user=%s", user_id)
             return ValidationResult(
                 passed=False,
                 layer="permission",
@@ -189,7 +183,8 @@ class ActionValidator:
         if action_type.value not in permissions and "*" not in permissions:
             logger.warning(
                 "[Layer2:Permission] User %s lacks permission for %s",
-                user_id, action_type.value,
+                user_id,
+                action_type.value,
             )
             return ValidationResult(
                 passed=False,
@@ -211,12 +206,14 @@ class ActionValidator:
                 )
                 if resp.status_code == 404:
                     return ValidationResult(
-                        passed=False, layer="object",
+                        passed=False,
+                        layer="object",
                         message=f"机器人 {action.target_id} 不存在",
                     )
                 if resp.status_code != 200:
                     return ValidationResult(
-                        passed=False, layer="object",
+                        passed=False,
+                        layer="object",
                         message=f"无法查询机器人状态: HTTP {resp.status_code}",
                     )
                 robot_status = resp.json()
@@ -225,7 +222,8 @@ class ActionValidator:
                     current_state = robot_status.get("state", "")
                     if current_state in ("IDLE", "CHARGING"):
                         return ValidationResult(
-                            passed=False, layer="object",
+                            passed=False,
+                            layer="object",
                             message=f"机器人 {action.target_id} 当前状态 {current_state} 无需急停",
                         )
 
@@ -236,12 +234,14 @@ class ActionValidator:
                 )
                 if resp.status_code == 404:
                     return ValidationResult(
-                        passed=False, layer="object",
+                        passed=False,
+                        layer="object",
                         message=f"订单 {action.target_id} 不存在",
                     )
                 if resp.status_code != 200:
                     return ValidationResult(
-                        passed=False, layer="object",
+                        passed=False,
+                        layer="object",
                         message=f"无法查询订单状态: HTTP {resp.status_code}",
                     )
                 order_data = resp.json()
@@ -249,7 +249,8 @@ class ActionValidator:
                 if action.action_type == ActionType.ORDER_CANCEL:
                     if current_state in ("COMPLETED", "CANCELLED", "SAP_CONFIRMED"):
                         return ValidationResult(
-                            passed=False, layer="object",
+                            passed=False,
+                            layer="object",
                             message=f"订单 {action.target_id} 已处于终态 {current_state}，无法取消",
                         )
 
@@ -260,14 +261,16 @@ class ActionValidator:
                 )
                 if resp.status_code == 404:
                     return ValidationResult(
-                        passed=False, layer="object",
+                        passed=False,
+                        layer="object",
                         message=f"区域 {action.target_id} 不存在",
                     )
 
         except httpx.RequestError as e:
             logger.error("[Layer3:Object] Request error: %s", e)
             return ValidationResult(
-                passed=False, layer="object",
+                passed=False,
+                layer="object",
                 message=f"对象校验请求失败: {e}",
             )
 
@@ -296,11 +299,10 @@ class ActionValidator:
         inserted = await self._redis.set(key, "1", nx=True, ex=ttl)
 
         if not inserted:
-            logger.warning(
-                "[Layer4:AntiReplay] Duplicate operation detected: %s", fingerprint
-            )
+            logger.warning("[Layer4:AntiReplay] Duplicate operation detected: %s", fingerprint)
             return ValidationResult(
-                passed=False, layer="anti_replay",
+                passed=False,
+                layer="anti_replay",
                 message="重复操作，请勿重复点击",
             )
 
@@ -312,7 +314,7 @@ class ActionValidator:
         self,
         action: CallbackAction,
         card_context: dict,
-        confirm_token: Optional[str],
+        confirm_token: str | None,
     ) -> ValidationResult:
         """For dangerous operations, require explicit secondary confirmation."""
         if action.action_type not in DANGEROUS_ACTIONS:
@@ -322,6 +324,7 @@ class ActionValidator:
         # -> Generate a confirm_token and return (caller should send second card)
         if not confirm_token:
             import secrets
+
             token = secrets.token_urlsafe(32)
             alert_id = card_context.get("original_alert_id", "")
             key = f"gateway:confirm_token:{token}"
@@ -335,7 +338,8 @@ class ActionValidator:
             await self._redis.expire(key, settings.CONFIRM_TIMEOUT_SECONDS)
 
             return ValidationResult(
-                passed=False, layer="secondary_confirm",
+                passed=False,
+                layer="secondary_confirm",
                 message="需要二次确认",
                 detail={"confirm_token": token, "need_confirm": True},
             )
@@ -347,7 +351,8 @@ class ActionValidator:
         if not token_data:
             logger.warning("[Layer5:Confirm] Invalid or expired token: %s", confirm_token)
             return ValidationResult(
-                passed=False, layer="secondary_confirm",
+                passed=False,
+                layer="secondary_confirm",
                 message="确认令牌无效或已过期，请重新操作",
             )
 
@@ -358,7 +363,8 @@ class ActionValidator:
         ):
             logger.warning("[Layer5:Confirm] Token-action mismatch")
             return ValidationResult(
-                passed=False, layer="secondary_confirm",
+                passed=False,
+                layer="secondary_confirm",
                 message="确认令牌与操作不匹配",
             )
 
@@ -369,9 +375,7 @@ class ActionValidator:
 
     # -- Layer 6: Pre-execution validation --
 
-    async def _pre_execution_validation(
-        self, action: CallbackAction
-    ) -> ValidationResult:
+    async def _pre_execution_validation(self, action: CallbackAction) -> ValidationResult:
         """Verify the operation can be safely executed right now."""
         if action.action_type in READONLY_ACTIONS:
             return ValidationResult(passed=True, layer="pre_execution")
@@ -383,7 +387,8 @@ class ActionValidator:
             ActionType.ZONE_UNLOCK,
         ):
             return ValidationResult(
-                passed=False, layer="pre_execution",
+                passed=False,
+                layer="pre_execution",
                 message="系统处于安全模式，仅允许急停和解锁操作",
             )
 
@@ -393,7 +398,8 @@ class ActionValidator:
             estop_state = await self._redis.get(estop_key)
             if estop_state == "true":
                 return ValidationResult(
-                    passed=False, layer="pre_execution",
+                    passed=False,
+                    layer="pre_execution",
                     message=f"机器人 {action.target_id} 处于急停状态，无法召回",
                 )
 

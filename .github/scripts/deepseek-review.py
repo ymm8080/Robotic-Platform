@@ -2,6 +2,7 @@
 
 Reads diff from pr_diff.txt, calls DeepSeek API, writes review_output.md.
 """
+
 import json
 import os
 import re
@@ -26,44 +27,46 @@ if not api_key:
     print("ERROR: DEEPSEEK_API_KEY not set")
     sys.exit(1)
 
-payload = json.dumps({
-    "model": "deepseek-chat",
-    "messages": [
-        {
-            "role": "system",
-            "content": (
-                "You are an expert code reviewer. Analyze the PR diff and provide "
-                "a concise, actionable review in Chinese.\n\n"
-                "CRITICAL RULES:\n"
-                "1. Read EVERY line of the diff carefully before commenting. "
-                "Only report issues that ACTUALLY exist in the code shown in the diff.\n"
-                "2. Do NOT hallucinate code that is not present. If you claim a line "
-                "has a certain pattern, verify it exists in the diff first.\n"
-                "3. If the code already contains comments explaining a design decision, "
-                "do NOT suggest changing that decision. Respect documented intent.\n"
-                "4. If a suggested fix is ALREADY implemented in the code (e.g., "
-                "try/except, input validation, timing fixes), do NOT report it as an issue.\n"
-                "5. Focus on: 1) actual bugs and logic errors 2) security issues "
-                "3) performance concerns 4) code style. Be specific - reference "
-                "actual line content. If the code looks good, say so briefly.\n"
-                "6. Distinguish between 'must fix' (bugs, security) and 'suggestion' "
-                "(style, minor perf). Only report 'must fix' issues as bugs.\n"
-                "7. If there are NO must-fix bugs, do NOT include a '必须修复' section. "
-                "Only include '必须修复的问题' section when there are REAL bugs that "
-                "would cause runtime errors, security vulnerabilities, or data loss. "
-                "Style improvements and design suggestions should go in '建议改进' only.\n"
-                "8. If the code has no must-fix issues, start the review with "
-                "'<!--AUTOFIX:CLEAN-->' marker on the first line."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Review this diff carefully. Only report issues that actually exist in the code:\n\n{diff}",
-        },
-    ],
-    "max_tokens": 8192,
-    "temperature": 0.1,
-}).encode("utf-8")
+payload = json.dumps(
+    {
+        "model": "deepseek-chat",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert code reviewer. Analyze the PR diff and provide "
+                    "a concise, actionable review in Chinese.\n\n"
+                    "CRITICAL RULES:\n"
+                    "1. Read EVERY line of the diff carefully before commenting. "
+                    "Only report issues that ACTUALLY exist in the code shown in the diff.\n"
+                    "2. Do NOT hallucinate code that is not present. If you claim a line "
+                    "has a certain pattern, verify it exists in the diff first.\n"
+                    "3. If the code already contains comments explaining a design decision, "
+                    "do NOT suggest changing that decision. Respect documented intent.\n"
+                    "4. If a suggested fix is ALREADY implemented in the code (e.g., "
+                    "try/except, input validation, timing fixes), do NOT report it as an issue.\n"
+                    "5. Focus on: 1) actual bugs and logic errors 2) security issues "
+                    "3) performance concerns 4) code style. Be specific - reference "
+                    "actual line content. If the code looks good, say so briefly.\n"
+                    "6. Distinguish between 'must fix' (bugs, security) and 'suggestion' "
+                    "(style, minor perf). Only report 'must fix' issues as bugs.\n"
+                    "7. If there are NO must-fix bugs, do NOT include a '必须修复' section. "
+                    "Only include '必须修复的问题' section when there are REAL bugs that "
+                    "would cause runtime errors, security vulnerabilities, or data loss. "
+                    "Style improvements and design suggestions should go in '建议改进' only.\n"
+                    "8. If the code has no must-fix issues, start the review with "
+                    "'<!--AUTOFIX:CLEAN-->' marker on the first line."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Review this diff carefully. Only report issues that actually exist in the code:\n\n{diff}",
+            },
+        ],
+        "max_tokens": 8192,
+        "temperature": 0.1,
+    }
+).encode("utf-8")
 
 req = urllib.request.Request(
     "https://api.deepseek.com/chat/completions",

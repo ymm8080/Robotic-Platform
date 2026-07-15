@@ -1,5 +1,4 @@
 """Gateway test configuration."""
-import pytest
 
 pytest_plugins = []
 

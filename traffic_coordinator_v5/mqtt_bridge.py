@@ -17,6 +17,7 @@ Env vars:
   TC_HTTP_URL          — traffic coordinator URL (default: http://traffic-coordinator:8000)
   BRIDGE_CLIENT_ID     — MQTT client ID (default: v5-mqtt-bridge)
 """
+
 from __future__ import annotations
 
 import json
@@ -88,18 +89,24 @@ def _on_message(
 
 def create_bridge() -> mqtt.Client:
     """Create and configure the MQTT bridge client (does not connect)."""
-    client = mqtt.Client(client_id=MQTT_CLIENT_ID, callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    client = mqtt.Client(
+        client_id=MQTT_CLIENT_ID, callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+    )
     client.on_message = _on_message
     client.reconnect_delay_set(min_delay=1, max_delay=30)
     return client
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    )
     client = create_bridge()
     client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
     client.subscribe("vda5050/+/+/state", qos=1)
-    logger.info("v5 MQTT bridge connected to %s:%d, forwarding to %s", MQTT_BROKER, MQTT_PORT, TC_HTTP_URL)
+    logger.info(
+        "v5 MQTT bridge connected to %s:%d, forwarding to %s", MQTT_BROKER, MQTT_PORT, TC_HTTP_URL
+    )
     try:
         client.loop_forever()
     except KeyboardInterrupt:

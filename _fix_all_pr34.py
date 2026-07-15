@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Fix all remaining AI code review issues for PR #34."""
+
 import sys
-sys.stdout.reconfigure(encoding='utf-8')
+
+sys.stdout.reconfigure(encoding="utf-8")
 
 # ═══════════════════════════════════════════════════════════════════
 # Fix zewm_robco_client.py (issues #2, #3, #9, #10)
 # ═══════════════════════════════════════════════════════════════════
-filepath = 'sap-bridge/clients/zewm_robco_client.py'
-with open(filepath, 'r', encoding='utf-8') as f:
+filepath = "sap-bridge/clients/zewm_robco_client.py"
+with open(filepath, encoding="utf-8") as f:
     content = f.read()
 
 # Fix #2: Change `raise` to `break` in _execute_with_retry exception handler
@@ -77,11 +79,11 @@ content = content.replace(old_finally, new_finally)
 # Fix #9: Upgrade validate_config log levels from info to warning
 content = content.replace(
     '        base_url = config.get("base_url", "")\n        if not base_url or base_url == DEFAULT_BASE_URL:\n            logger.info(',
-    '        base_url = config.get("base_url", "")\n        if not base_url or base_url == DEFAULT_BASE_URL:\n            logger.warning('
+    '        base_url = config.get("base_url", "")\n        if not base_url or base_url == DEFAULT_BASE_URL:\n            logger.warning(',
 )
 content = content.replace(
     '        client_val = config.get("client", "")\n        if not client_val or client_val == "100":\n            logger.info(',
-    '        client_val = config.get("client", "")\n        if not client_val or client_val == "100":\n            logger.warning('
+    '        client_val = config.get("client", "")\n        if not client_val or client_val == "100":\n            logger.warning(',
 )
 
 # Fix #10: Add _unwrap_collection_result helper method before get_in_process_who
@@ -163,20 +165,20 @@ new_arw = """        result = self._request("GET", url)
     # P2 Stubs"""
 content = content.replace(old_arw, new_arw)
 
-with open(filepath, 'w', encoding='utf-8') as f:
+with open(filepath, "w", encoding="utf-8") as f:
     f.write(content)
 print("✅ zewm_robco_client.py: Fixed #2 (break), #3 (with), #9 (warning), #10 (helper)")
 
 # ═══════════════════════════════════════════════════════════════════
 # Fix core/gateway.py (issue #4: MQTT async connection confirmation)
 # ═══════════════════════════════════════════════════════════════════
-filepath = 'core/gateway.py'
-with open(filepath, 'r', encoding='utf-8') as f:
+filepath = "core/gateway.py"
+with open(filepath, encoding="utf-8") as f:
     content = f.read()
 
 content = content.replace(
     "        self._lock = threading.Lock()\n        self._running = False",
-    "        self._lock = threading.Lock()\n        self._running = False\n        self._connect_event = threading.Event()"
+    "        self._lock = threading.Lock()\n        self._running = False\n        self._connect_event = threading.Event()",
 )
 
 content = content.replace(
@@ -211,7 +213,7 @@ content = content.replace(
         except Exception:
             logger.exception("MqttGateway failed to connect to MQTT broker")
             self._client = None
-            return False"""
+            return False""",
 )
 
 content = content.replace(
@@ -220,39 +222,39 @@ content = content.replace(
     """        else:
             logger.error("MqttGateway connection failed, rc=%s", reason_code)
         # Signal connection attempt completed (success or failure)
-        self._connect_event.set()"""
+        self._connect_event.set()""",
 )
 
-with open(filepath, 'w', encoding='utf-8') as f:
+with open(filepath, "w", encoding="utf-8") as f:
     f.write(content)
 print("✅ core/gateway.py: Fixed #4 (async connection confirmation)")
 
 # ═══════════════════════════════════════════════════════════════════
 # Fix traffic_coordinator_v5/simulator/robot.py (issue #5: configurable _guard)
 # ═══════════════════════════════════════════════════════════════════
-filepath = 'traffic_coordinator_v5/simulator/robot.py'
-with open(filepath, 'r', encoding='utf-8') as f:
+filepath = "traffic_coordinator_v5/simulator/robot.py"
+with open(filepath, encoding="utf-8") as f:
     content = f.read()
 
 content = content.replace(
     "    charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)",
-    "    charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)\n    tick_guard_multiplier: int = 2      # multiplier for path-length-based guard limit\n    tick_guard_floor: int = 1000        # minimum guard limit for tick loop"
+    "    charge_complete_threshold: float = 80.0  # % — exit CHARGING when reached (if not full)\n    tick_guard_multiplier: int = 2      # multiplier for path-length-based guard limit\n    tick_guard_floor: int = 1000        # minimum guard limit for tick loop",
 )
 
 content = content.replace(
     "        _guard = max(len(self._path) * 2 + 10, 1000)",
-    "        _guard = max(\n            len(self._path) * self.config.tick_guard_multiplier + 10,\n            self.config.tick_guard_floor,\n        )"
+    "        _guard = max(\n            len(self._path) * self.config.tick_guard_multiplier + 10,\n            self.config.tick_guard_floor,\n        )",
 )
 
-with open(filepath, 'w', encoding='utf-8') as f:
+with open(filepath, "w", encoding="utf-8") as f:
     f.write(content)
 print("✅ traffic_coordinator_v5/simulator/robot.py: Fixed #5 (configurable _guard)")
 
 # ═══════════════════════════════════════════════════════════════════
 # Fix e2e/pages/dashboard.page.js (issue #8: env var for timeout)
 # ═══════════════════════════════════════════════════════════════════
-filepath = 'e2e/pages/dashboard.page.js'
-with open(filepath, 'r', encoding='utf-8') as f:
+filepath = "e2e/pages/dashboard.page.js"
+with open(filepath, encoding="utf-8") as f:
     content = f.read()
 
 content = content.replace(
@@ -277,10 +279,10 @@ content = content.replace(
     } catch {
       return false;
     }
-  }"""
+  }""",
 )
 
-with open(filepath, 'w', encoding='utf-8') as f:
+with open(filepath, "w", encoding="utf-8") as f:
     f.write(content)
 print("✅ e2e/pages/dashboard.page.js: Fixed #8 (env var timeout)")
 

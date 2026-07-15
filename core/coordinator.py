@@ -17,6 +17,7 @@ The coordinator is intentionally transport-agnostic: it consumes unified
 objects.  The HTTP/MQTT/DDS gateway sits outside and calls
 ``ingest_uplink`` / ``tick``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -153,7 +154,9 @@ class RobotPlatformCoordinator:
         self.metrics.inc("uplinks")
         adapter = self._adapters.get(brand)
         if adapter is None:
-            self._worm_event(now, "ERROR", raw.get("robotId", "?"), {"reason": "unknown_brand", "brand": brand})
+            self._worm_event(
+                now, "ERROR", raw.get("robotId", "?"), {"reason": "unknown_brand", "brand": brand}
+            )
             return [f"ERR_UNKNOWN_BRAND:{brand}"]
 
         state, events = adapter.ingest_native_state(raw, now)
@@ -221,7 +224,9 @@ class RobotPlatformCoordinator:
                 if cmd:
                     result.commands.append(cmd)
             self._worm_event(
-                now, "ERROR", br.retreat_robot_id,
+                now,
+                "ERROR",
+                br.retreat_robot_id,
                 {"deadlock": br.intersection_id, "direction": br.direction},
             )
 
@@ -278,7 +283,8 @@ class RobotPlatformCoordinator:
         # ``assigned_robots`` is a dynamic set that prevents double-assignment
         # within the same tick as tasks are dispatched.
         base_candidates = [
-            r for r in self._robot_states.values()
+            r
+            for r in self._robot_states.values()
             if r.robot_id not in self._active_assignments
             and not r.degraded
             and not self.failover.is_offline(r.robot_id)
@@ -341,7 +347,9 @@ class RobotPlatformCoordinator:
                 if self._requeue_task(task, now, f"dispatch_error:{exc}"):
                     remaining.append(task)
                 self._worm_event(
-                    now, "ERROR", robot.robot_id,
+                    now,
+                    "ERROR",
+                    robot.robot_id,
                     {"task_id": task.task_id, "dispatch_error": str(exc)},
                 )
                 continue
@@ -351,7 +359,9 @@ class RobotPlatformCoordinator:
             self._mark_order_executing(task.task_id)
             self.reputation.record_good(robot.robot_id, now, reason="task_assigned")
             self._worm_event(
-                now, "EVENT", robot.robot_id,
+                now,
+                "EVENT",
+                robot.robot_id,
                 {"task_id": task.task_id, "path": assignment.path},
             )
 
@@ -377,7 +387,9 @@ class RobotPlatformCoordinator:
             self._fail_task(task, now, reason)
             return False
         self._worm_event(
-            now, "EVENT", task.task_id,
+            now,
+            "EVENT",
+            task.task_id,
             {"action": "requeue", "reason": reason, "retry": retries},
         )
         return True
@@ -391,7 +403,9 @@ class RobotPlatformCoordinator:
             if plan is not None:
                 plan.order.status = OrderStatus.FAILED
         self._worm_event(
-            now, "ERROR", task.task_id,
+            now,
+            "ERROR",
+            task.task_id,
             {"action": "task_failed", "reason": reason},
         )
 
@@ -430,9 +444,7 @@ class RobotPlatformCoordinator:
                 return False
         return True
 
-    def _release_lifts_for_assignment(
-        self, robot: FleetState, assignment: TaskAssignment
-    ) -> None:
+    def _release_lifts_for_assignment(self, robot: FleetState, assignment: TaskAssignment) -> None:
         """Release any lifts reserved for an assignment that failed to dispatch."""
         for lane_id in assignment.path:
             lane = self.fmap.lane(lane_id)
@@ -486,7 +498,12 @@ class RobotPlatformCoordinator:
                 )
 
             reachable = [
-                (self.fmap.distance_between(robot.pose.last_node_id, cl, lane_filter=_filter, cost="time"), cl)
+                (
+                    self.fmap.distance_between(
+                        robot.pose.last_node_id, cl, lane_filter=_filter, cost="time"
+                    ),
+                    cl,
+                )
                 for cl in charger_lanes
             ]
             if not reachable:
@@ -506,13 +523,15 @@ class RobotPlatformCoordinator:
             )
             self._task_queue.appendleft(task)
             self._worm_event(
-                now, "EVENT", robot.robot_id,
+                now,
+                "EVENT",
+                robot.robot_id,
                 {"action": "charger_dispatched", "bay": bay, "lane": best[1]},
             )
 
     def _gate_intersections(self, now: float, result: TickResult) -> None:
         """HOLD robots whose next expected lane is a red intersection."""
-        for robot_id, assignment in self._active_assignments.items():
+        for robot_id, _assignment in self._active_assignments.items():
             adapter = self.adapter_for(robot_id)
             if adapter is None:
                 continue
@@ -529,8 +548,14 @@ class RobotPlatformCoordinator:
             result.commands.append(cmd)
             result.events.append(f"INTERSECTION_HOLD:{robot_id}:{lane.intersection_id}")
             self._worm_event(
-                now, "EVENT", robot_id,
-                {"intersection_id": lane.intersection_id, "direction": lane.direction, "action": "hold"},
+                now,
+                "EVENT",
+                robot_id,
+                {
+                    "intersection_id": lane.intersection_id,
+                    "direction": lane.direction,
+                    "action": "hold",
+                },
             )
 
     def _compute_safe_speed_advisories(self, now: float, result: TickResult) -> None:
@@ -550,7 +575,9 @@ class RobotPlatformCoordinator:
                 heading_x, heading_y = math.cos(a.pose.theta), math.sin(a.pose.theta)
                 if heading_x * dx + heading_y * dy <= 0:
                     continue
-                required = self.safe_distance.compute(a.velocity, rtt=0.1, sensor_health=a.sensor_health).applied
+                required = self.safe_distance.compute(
+                    a.velocity, rtt=0.1, sensor_health=a.sensor_health
+                ).applied
                 if dist < required:
                     cap = self.safe_distance.speed_cap_for_gap(
                         a.velocity, rtt=0.1, available_gap=dist, sensor_health=a.sensor_health
@@ -565,13 +592,15 @@ class RobotPlatformCoordinator:
                             f"SPEED_CAP:{a.robot_id}:{cap:.2f}:gap={dist:.2f}:req={required:.2f}"
                         )
                         self._worm_event(
-                            now, "EVENT", a.robot_id,
+                            now,
+                            "EVENT",
+                            a.robot_id,
                             {"ahead_robot": b.robot_id, "gap": dist, "cap": cap},
                         )
 
     def _update_traffic_demand(self, now: float) -> None:
         """Tell traffic lights which robots are approaching which intersection."""
-        for robot_id, assignment in self._active_assignments.items():
+        for robot_id, _assignment in self._active_assignments.items():
             adapter = self.adapter_for(robot_id)
             if adapter is None:
                 continue
@@ -638,7 +667,9 @@ class RobotPlatformCoordinator:
                 return False
             return True
 
-        path = self.fmap.shortest_path(task.start_lane, task.end_lane, lane_filter=_lane_filter, cost="time")
+        path = self.fmap.shortest_path(
+            task.start_lane, task.end_lane, lane_filter=_lane_filter, cost="time"
+        )
         if not path:
             path = [task.start_lane, task.end_lane]
 
@@ -677,7 +708,10 @@ class RobotPlatformCoordinator:
                 end_lane=assignment.path[-1],
             )
             new_assignment = self._build_assignment(robot, task)
-            if lane_id in new_assignment.path or new_assignment.path == [task.start_lane, task.end_lane]:
+            if lane_id in new_assignment.path or new_assignment.path == [
+                task.start_lane,
+                task.end_lane,
+            ]:
                 # no viable alternate route → requeue
                 del self._active_assignments[robot_id]
                 if self._requeue_task(task, now, "lane_blocked"):
@@ -689,8 +723,14 @@ class RobotPlatformCoordinator:
                 if adapter is not None:
                     adapter.dispatch(robot_id, new_assignment, now)
                 self._worm_event(
-                    now, "EVENT", robot_id,
-                    {"task_id": task.task_id, "status": "rerouted", "new_path": new_assignment.path},
+                    now,
+                    "EVENT",
+                    robot_id,
+                    {
+                        "task_id": task.task_id,
+                        "status": "rerouted",
+                        "new_path": new_assignment.path,
+                    },
                 )
 
     def unblock_lane(self, lane_id: str, now: float) -> None:
@@ -704,7 +744,9 @@ class RobotPlatformCoordinator:
             return False
         plan.order.status = OrderStatus.FAILED
         # remove pending tasks for this order
-        self._task_queue = deque(t for t in self._task_queue if self._task_order.get(t.task_id) != order_id)
+        self._task_queue = deque(
+            t for t in self._task_queue if self._task_order.get(t.task_id) != order_id
+        )
         # stop active assignments belonging to this order
         task_ids = {t.task_id for t in plan.tasks}
         for robot_id in list(self._active_assignments):
@@ -713,7 +755,9 @@ class RobotPlatformCoordinator:
                 adapter = self.adapter_for(robot_id)
                 if adapter is not None:
                     adapter.request_hold(robot_id, "order_cancelled", now)
-                self._worm_event(now, "MANUAL", robot_id, {"action": "cancel_order", "order_id": order_id})
+                self._worm_event(
+                    now, "MANUAL", robot_id, {"action": "cancel_order", "order_id": order_id}
+                )
         # cleanup mapping
         for task_id in task_ids:
             self._task_order.pop(task_id, None)
@@ -784,7 +828,10 @@ class RobotPlatformCoordinator:
                 logger.debug(
                     "auto_report_progress: robot %s reached end of lane %s "
                     "(path offset %d, last_node=%s)",
-                    robot_id, lane_id, offset, last_node,
+                    robot_id,
+                    lane_id,
+                    offset,
+                    last_node,
                 )
                 if self.report_progress(robot_id, lane_id, now):
                     break
@@ -817,7 +864,9 @@ class RobotPlatformCoordinator:
             self.metrics.inc("tasks_completed")
             self._mark_order_completed(assignment.task_id)
             self.reputation.record_good(robot_id, now, reason="task_completed")
-            self._worm_event(now, "EVENT", robot_id, {"task_id": assignment.task_id, "status": "completed"})
+            self._worm_event(
+                now, "EVENT", robot_id, {"task_id": assignment.task_id, "status": "completed"}
+            )
             return True
         return False
 
@@ -840,6 +889,7 @@ class RobotPlatformCoordinator:
         task queue, and order plans. Adapters are NOT serialized (they
         are rebuilt by bootstrap on restart).
         """
+
         def _fleet_state_dict(fs: FleetState) -> dict:
             return {
                 "robot_id": fs.robot_id,
@@ -923,9 +973,7 @@ class RobotPlatformCoordinator:
             "order_completion": {oid: list(s) for oid, s in self._order_completion.items()},
             "task_retries": dict(self._task_retries),
             "robot_lane": dict(self._robot_lane),
-            "robot_brands": {
-                rid: adapter.brand for rid, adapter in self._robot_adapter.items()
-            },
+            "robot_brands": {rid: adapter.brand for rid, adapter in self._robot_adapter.items()},
             "recently_completed": [[tid, ts] for tid, ts in self._recently_completed],
             "recently_failed": [[tid, ts] for tid, ts in self._recently_failed],
         }
@@ -960,8 +1008,7 @@ class RobotPlatformCoordinator:
                 max_speed=cap_data.get("max_speed", 1.5),
                 supported_models=cap_data.get("supported_models", []),
                 action_primitives={
-                    ActionPrimitive(a)
-                    for a in cap_data.get("action_primitives", [0])
+                    ActionPrimitive(a) for a in cap_data.get("action_primitives", [0])
                 },
                 env=EnvConstraints(
                     max_grade=env_data.get("max_grade", 0.0),
@@ -1017,19 +1064,20 @@ class RobotPlatformCoordinator:
         # Restore task queue
         self._task_queue.clear()
         for t_data in data.get("task_queue", []):
-            self._task_queue.append(Task(
-                task_id=t_data["task_id"],
-                start_lane=t_data["start_lane"],
-                end_lane=t_data["end_lane"],
-                priority=t_data.get("priority", 0),
-                created_at=t_data.get("created_at", 0.0),
-                deadline=t_data.get("deadline", 0.0),
-                action_primitives={
-                    ActionPrimitive(a)
-                    for a in t_data.get("action_primitives", [0])
-                },
-                required_payload_kg=t_data.get("required_payload_kg", 0.0),
-            ))
+            self._task_queue.append(
+                Task(
+                    task_id=t_data["task_id"],
+                    start_lane=t_data["start_lane"],
+                    end_lane=t_data["end_lane"],
+                    priority=t_data.get("priority", 0),
+                    created_at=t_data.get("created_at", 0.0),
+                    deadline=t_data.get("deadline", 0.0),
+                    action_primitives={
+                        ActionPrimitive(a) for a in t_data.get("action_primitives", [0])
+                    },
+                    required_payload_kg=t_data.get("required_payload_kg", 0.0),
+                )
+            )
 
         # Restore order plans
         self._order_plans.clear()
@@ -1053,8 +1101,7 @@ class RobotPlatformCoordinator:
                     created_at=t_data.get("created_at", 0.0),
                     deadline=t_data.get("deadline", 0.0),
                     action_primitives={
-                        ActionPrimitive(a)
-                        for a in t_data.get("action_primitives", [0])
+                        ActionPrimitive(a) for a in t_data.get("action_primitives", [0])
                     },
                     required_payload_kg=t_data.get("required_payload_kg", 0.0),
                 )

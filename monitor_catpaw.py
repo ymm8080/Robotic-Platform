@@ -107,7 +107,7 @@ class CatPawMonitor:
         """Configure logging with rotation."""
         log_config = self.config["monitoring"]
         log_file = log_config["log_file"]
-        max_size = log_config["max_log_size_mb"] * 1024 * 1024
+        log_config["max_log_size_mb"] * 1024 * 1024
 
         logging.basicConfig(
             level=getattr(logging, log_config["log_level"]),
@@ -353,10 +353,7 @@ class CatPawMonitor:
             uptime = datetime.now() - proc_info["start_time"]
             uptime_str = str(uptime).split(".")[0]  # Remove microseconds
 
-            if proc.poll() is None:
-                status = "RUNNING"
-            else:
-                status = f"STOPPED (code: {proc.poll()})"
+            status = "RUNNING" if proc.poll() is None else f"STOPPED (code: {proc.poll()})"
 
             status_lines.append(
                 f"{process_name}: {status} | "

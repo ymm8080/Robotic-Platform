@@ -1,9 +1,10 @@
 """Tests for the Action Validator six-layer validation."""
-import pytest
-import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from gateway.app.action_validator import ActionValidator, ValidationResult
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from gateway.app.action_validator import ActionValidator
 from gateway.app.models import ActionType, CallbackAction, TargetType
 
 
@@ -32,6 +33,7 @@ def card_context():
 
 # -- Layer 1: Identity --
 
+
 @pytest.mark.asyncio
 async def test_identity_unbound_user_rejected(validator, action, card_context):
     """Unbound platform users must be rejected at Layer 1."""
@@ -47,10 +49,12 @@ async def test_identity_unbound_user_rejected(validator, action, card_context):
 @pytest.mark.asyncio
 async def test_identity_bound_user_passes(validator, action, card_context):
     """Bound platform users pass Layer 1."""
-    validator._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity lookup
-        None,  # permission (will fail, but we're testing identity)
-    ])
+    validator._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity lookup
+            None,  # permission (will fail, but we're testing identity)
+        ]
+    )
 
     results = await validator.validate("wechat", "bound_user", action, card_context)
 
@@ -61,12 +65,15 @@ async def test_identity_bound_user_passes(validator, action, card_context):
 
 # -- Layer 2: Permission --
 
+
 @pytest.mark.asyncio
 async def test_permission_no_permissions_rejected(validator, action, card_context):
     """User with no permissions must be rejected at Layer 2."""
-    validator._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity
-    ])
+    validator._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity
+        ]
+    )
     validator._redis.smembers = AsyncMock(return_value=set())
 
     results = await validator.validate("wechat", "user1", action, card_context)
@@ -79,9 +86,11 @@ async def test_permission_no_permissions_rejected(validator, action, card_contex
 @pytest.mark.asyncio
 async def test_permission_has_permission_passes(validator, action, card_context):
     """User with correct permission passes Layer 2."""
-    validator._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity
-    ])
+    validator._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity
+        ]
+    )
     validator._redis.smembers = AsyncMock(return_value={"robot_stop", "order_cancel"})
     validator._redis.set = AsyncMock(return_value=True)  # anti-replay
 
@@ -92,11 +101,13 @@ async def test_permission_has_permission_passes(validator, action, card_context)
     validator._http_client.get = AsyncMock(return_value=mock_resp)
 
     # Mock for pre-execution (safe mode check)
-    validator._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity
-        None,  # safe mode check (not in safe mode)
-        None,  # estop check
-    ])
+    validator._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity
+            None,  # safe mode check (not in safe mode)
+            None,  # estop check
+        ]
+    )
 
     results = await validator.validate("wechat", "user1", action, card_context)
 
@@ -110,12 +121,15 @@ async def test_permission_has_permission_passes(validator, action, card_context)
 
 # -- Layer 4: Anti-replay --
 
+
 @pytest.mark.asyncio
 async def test_anti_replay_duplicate_rejected(validator, action, card_context):
     """Duplicate operations must be rejected at Layer 4."""
-    validator._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity
-    ])
+    validator._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity
+        ]
+    )
     validator._redis.smembers = AsyncMock(return_value={"robot_stop"})
     validator._redis.set = AsyncMock(return_value=False)  # already exists = duplicate
 
@@ -134,12 +148,15 @@ async def test_anti_replay_duplicate_rejected(validator, action, card_context):
 
 # -- Layer 5: Secondary confirmation --
 
+
 @pytest.mark.asyncio
 async def test_dangerous_action_requires_confirm(validator, action, card_context):
     """Dangerous actions without confirm_token should request confirmation."""
-    validator._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity
-    ])
+    validator._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity
+        ]
+    )
     validator._redis.smembers = AsyncMock(return_value={"robot_stop"})
 
     mock_resp = MagicMock()
@@ -174,12 +191,19 @@ async def test_readonly_action_no_confirm_needed():
         params={},
     )
 
-    v._redis.get = AsyncMock(side_effect=[
-        "USER_10086",  # identity
-        None,  # safe mode (Layer 6)
-    ])
+    v._redis.get = AsyncMock(
+        side_effect=[
+            "USER_10086",  # identity
+            None,  # safe mode (Layer 6)
+        ]
+    )
 
-    results = await v.validate("wechat", "user1", readonly_action, {"original_alert_id": "ALT_001", "correlation_id": "corr_001"})
+    results = await v.validate(
+        "wechat",
+        "user1",
+        readonly_action,
+        {"original_alert_id": "ALT_001", "correlation_id": "corr_001"},
+    )
 
     # DISMISS is readonly, should skip permission check
     perm_layer = [r for r in results if r.layer == "permission"]

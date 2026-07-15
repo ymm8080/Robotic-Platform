@@ -11,6 +11,7 @@ Usage::
     adapter = VDA5050FleetAdapter(strategy=mir_strategy)
     coordinator.register_adapter(adapter)
 """
+
 from __future__ import annotations
 
 from typing import Any, Protocol
@@ -68,9 +69,7 @@ class VDA5050FleetAdapter(FleetAdapter):
 
     def map_vendor_errors(self, raw_errors: list) -> list[str]:
         """Map VDA5050 error dicts to v5.0 error strings."""
-        error_dicts = self._strategy.extract_errors(
-            {"errors": raw_errors} if raw_errors else {}
-        )
+        error_dicts = self._strategy.extract_errors({"errors": raw_errors} if raw_errors else {})
         return [
             f"{e.get('errorType', 'UNKNOWN')}:{e.get('errorLevel', 'WARN')}:"
             f"{e.get('errorDescription', '')}"

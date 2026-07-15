@@ -1,4 +1,5 @@
 """Tests for platform service layer, adapter, governance, survival."""
+
 from __future__ import annotations
 
 import tempfile
@@ -72,9 +73,13 @@ def test_failover_degrade_transitions():
 
 def test_failover_detects_boot_drift():
     fd = FailoverDegrade()
-    fd.observe(FleetState(robot_id="R1", boot_id="b1", pose=Pose(x=0.0, y=0.0), battery_percent=80.0), now=0.0)
+    fd.observe(
+        FleetState(robot_id="R1", boot_id="b1", pose=Pose(x=0.0, y=0.0), battery_percent=80.0),
+        now=0.0,
+    )
     events = fd.observe(
-        FleetState(robot_id="R1", boot_id="b2", pose=Pose(x=0.0, y=0.0), battery_percent=80.0), now=1.0
+        FleetState(robot_id="R1", boot_id="b2", pose=Pose(x=0.0, y=0.0), battery_percent=80.0),
+        now=1.0,
     )
     assert any("BOOT_ID_CHANGED" in e for e in events)
 
@@ -116,7 +121,13 @@ def test_lift_single_occupancy_and_release():
 def test_shadow_mismatch_detected():
     sm = ShadowStateMachine()
     sm.expect("R1", RobotMode.TASKING)
-    st = FleetState(robot_id="R1", boot_id="b1", pose=Pose(x=0.0, y=0.0), battery_percent=80.0, mode=RobotMode.IDLE)
+    st = FleetState(
+        robot_id="R1",
+        boot_id="b1",
+        pose=Pose(x=0.0, y=0.0),
+        battery_percent=80.0,
+        mode=RobotMode.IDLE,
+    )
     mm = sm.reconcile(st, now=0.0)
     assert mm is not None
     assert mm.expected == "TASKING"
@@ -210,7 +221,7 @@ def test_version_router_rejects_unsupported():
     vr = VersionRouter()
     try:
         vr.normalise(VersionedMessage(version="2.0", body={}))
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
 
@@ -219,9 +230,9 @@ def test_version_router_rejects_unsupported():
 @pytest.mark.skip(reason="Stagger logic not yet implemented in coordinator.py")
 def test_cold_start_stagger_registration():
     """3 robots ingested within 1s → only 1 registered immediately, 2 queued."""
+    from core.adapter.fleet_adapter import FleetAdapter
     from core.config import CoreConfig
     from core.coordinator import RobotPlatformCoordinator
-    from core.adapter.fleet_adapter import FleetAdapter
 
     cfg = CoreConfig(registration_stagger_seconds=5.0)
     tc = RobotPlatformCoordinator(config=cfg)
@@ -266,9 +277,9 @@ def test_cold_start_stagger_registration():
 @pytest.mark.skip(reason="Stagger logic not yet implemented in coordinator.py")
 def test_cold_start_stagger_disabled_when_zero():
     """When stagger is 0, all robots register immediately (backward compat)."""
+    from core.adapter.fleet_adapter import FleetAdapter
     from core.config import CoreConfig
     from core.coordinator import RobotPlatformCoordinator
-    from core.adapter.fleet_adapter import FleetAdapter
 
     cfg = CoreConfig(registration_stagger_seconds=0.0)
     tc = RobotPlatformCoordinator(config=cfg)

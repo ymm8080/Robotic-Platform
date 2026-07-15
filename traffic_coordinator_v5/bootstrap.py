@@ -127,16 +127,12 @@ def _create_generic_adapter(brand: str) -> FleetAdapter:
                 y=float(raw.get("y", 0.0)),
                 theta=float(raw.get("theta", 0.0)),
                 position_initialized=bool(
-                    raw.get("position_initialized",
-                            raw.get("positionInitialized", False))
+                    raw.get("position_initialized", raw.get("positionInitialized", False))
                 ),
-                last_node_id=raw.get("last_node_id",
-                                    raw.get("lastNodeId",
-                                            raw.get("lane_id", ""))),
+                last_node_id=raw.get("last_node_id", raw.get("lastNodeId", raw.get("lane_id", ""))),
             ),
             velocity=float(raw.get("velocity", 0.0)),
-            battery_percent=float(raw.get("battery_percent",
-                                          raw.get("batteryPercent", 100.0))),
+            battery_percent=float(raw.get("battery_percent", raw.get("batteryPercent", 100.0))),
             mode=(
                 RobotMode[raw["mode"]]
                 if raw.get("mode") in RobotMode.__members__

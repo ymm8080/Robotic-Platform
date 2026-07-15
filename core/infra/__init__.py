@@ -7,9 +7,10 @@ without code changes when migrating to K8s multi-replica.
 Current: LocalLockManager + LocalStateStore (single-process)
 Future:  EtcdLockManager + RedisStateStore (K8s dual-replica)
 """
+
 from __future__ import annotations
 
-from core.infra.lock_manager import LockManager, LocalLockManager
+from core.infra.lock_manager import LocalLockManager, LockManager
 from core.infra.state_store import LocalStateStore, StateStore
 
 __all__ = [
