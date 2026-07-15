@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Fix _load_mqtt_password method in core/gateway.py"""
 
-
 # Read the file
 with open("core/gateway.py", encoding="utf-8") as f:
     content = f.read()

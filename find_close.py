@@ -1,4 +1,3 @@
-
 with open(
     r"d:\EWM Robot\Robotic Platform Codes\sap-bridge\clients\zewm_robco_client.py",
     encoding="utf-8",

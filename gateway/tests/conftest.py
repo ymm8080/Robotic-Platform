@@ -1,6 +1,5 @@
 """Gateway test configuration."""
 
-
 pytest_plugins = []
 
 
